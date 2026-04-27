@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew assembleDebug *)",
+      "Bash(java -version)",
+      "Bash(where java *)",
+      "Bash(dir \"C:\\\\Program Files\\\\Java\")",
+      "Bash(dir \"C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr\")",
+      "Bash(dir \"C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jre\")",
+      "Bash(dir \"C:\\\\Program Files\\\\Android\")",
+      "Bash(dir \"C:\\\\Users\\\\xumin\\\\AppData\\\\Local\\\\Programs\")",
+      "Bash(dir \"C:\\\\Users\\\\xumin\\\\AppData\\\\Local\\\\Programs\\\\jdk\")",
+      "Bash(\"C:\\\\Users\\\\xumin\\\\AppData\\\\Local\\\\Programs\\\\jdk\\\\bin\\\\java.exe\" -version)",
+      "Read(//c/Users/xumin/AppData/Local/Programs//**)",
+      "Read(//c/Program Files/Java//**)",
+      "Bash(/c/Users/xumin/AppData/Local/Android/jdk/bin/java.exe *)",
+      "PowerShell(& \"C:\\\\Program Files\\\\Android\\\\jdk\\\\bin\\\\java.exe\" -version)",
+      "Bash(curl -s http://localhost:8000/api/v1/health)",
+      "Bash(curl -s http://127.0.0.1:8000/api/v1/health)",
+      "Bash(curl *)",
+      "Bash(export JAVA_HOME=\"\")",
+      "Read(//f/jbr/bin/**)",
+      "Read(//f/Software/Android Studio/jbr/bin/**)",
+      "Read(//f/Software/**)",
+      "Bash(\"F:/Software/AndroidStudio/jbr/bin/java.exe\" -version)",
+      "WebFetch(domain:github.com)",
+      "WebSearch",
+      "PowerShell([Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri \"https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip\" -OutFile \"E:\\\\scenic_avatar_guide_app\\\\app\\\\src\\\\main\\\\assets\\\\model.zip\" -TimeoutSec 120)",
+      "Bash(./gradlew.bat assembleDebug)",
+      "Bash(adb install *)",
+      "Bash(adb devices *)",
+      "Bash(adb *)",
+      "PowerShell(adb *)",
+      "Bash(unzip -l \"E:/scenic_avatar_guide_app/app/libs/SparkChain.aar\")",
+      "Bash(unzip -p SparkChain.aar classes.jar)",
+      "Bash(unzip -l classes.jar)",
+      "Bash(unzip -p classes.jar com/iflytek/sparkchain/core/SparkChainConfig.class)",
+      "Bash(xxd)",
+      "Bash(unzip -p classes.jar com/iflytek/sparkchain/core/asr/AsrCallbacks.class)"
+    ]
+  }
+}
