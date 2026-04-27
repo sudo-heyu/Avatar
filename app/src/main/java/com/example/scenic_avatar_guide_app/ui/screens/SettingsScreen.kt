@@ -1,5 +1,6 @@
 package com.example.scenic_avatar_guide_app.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -17,7 +18,42 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.example.scenic_avatar_guide_app.core.network.NetworkModule
 import com.example.scenic_avatar_guide_app.ui.theme.*
+
+data class ServerEnvironment(
+    val name: String,
+    val url: String,
+    val description: String
+)
+
+val ENVIRONMENTS = listOf(
+    ServerEnvironment(
+        "模拟器本地",
+        NetworkModule.EMULATOR_LOCAL,
+        "Android模拟器访问本机开发环境"
+    ),
+    ServerEnvironment(
+        "真机本地",
+        NetworkModule.DEVICE_LOCAL,
+        "真机调试（需修改为本机IP）"
+    ),
+    ServerEnvironment(
+        "Cloudflare Tunnel",
+        NetworkModule.CLOUDFLARE_TUNNEL,
+        "内网穿透临时公网访问"
+    ),
+    ServerEnvironment(
+        "ngrok",
+        NetworkModule.NGROK,
+        "ngrok内网穿透"
+    ),
+    ServerEnvironment(
+        "阿里云FC",
+        NetworkModule.ALIYUN_FC,
+        "阿里云函数计算正式环境"
+    )
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,7 +66,8 @@ fun SettingsScreen(
     val userId by viewModel.userId.collectAsState()
     val sessionId by viewModel.sessionId.collectAsState()
 
-    var showEditUrlDialog by remember { mutableStateOf(false) }
+    var showEnvironmentDialog by remember { mutableStateOf(false) }
+    var showCustomUrlDialog by remember { mutableStateOf(false) }
     var tempUrl by remember { mutableStateOf("") }
 
     LaunchedEffect(baseUrl) {
@@ -78,12 +115,36 @@ fun SettingsScreen(
                     .padding(horizontal = 16.dp),
                 colors = CardDefaults.cardColors(containerColor = Color.White)
             ) {
-                SettingItem(
-                    icon = Icons.Default.Dns,
-                    title = "后端地址",
-                    subtitle = baseUrl,
-                    onClick = { showEditUrlDialog = true }
-                )
+                Column {
+                    // 当前环境显示
+                    SettingItem(
+                        icon = Icons.Default.Dns,
+                        title = "后端地址",
+                        subtitle = baseUrl,
+                        onClick = { showEnvironmentDialog = true }
+                    )
+                    HorizontalDivider(color = SurfaceVariant)
+                    // 快速切换按钮
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        ENVIRONMENTS.take(3).forEach { env ->
+                            val isSelected = baseUrl == env.url
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { viewModel.updateBaseUrl(env.url) },
+                                label = { Text(env.name, fontSize = 12.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Primary.copy(alpha = 0.2f),
+                                    selectedLabelColor = Primary
+                                )
+                            )
+                        }
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -178,17 +239,67 @@ fun SettingsScreen(
         }
     }
 
-    // 编辑 URL 对话框
-    if (showEditUrlDialog) {
+    // 环境选择对话框
+    if (showEnvironmentDialog) {
         AlertDialog(
-            onDismissRequest = { showEditUrlDialog = false },
-            title = { Text("修改后端地址") },
+            onDismissRequest = { showEnvironmentDialog = false },
+            title = { Text("选择服务器环境") },
+            text = {
+                Column {
+                    ENVIRONMENTS.forEach { env ->
+                        val isSelected = baseUrl == env.url
+                        ListItem(
+                            headlineContent = { Text(env.name) },
+                            supportingContent = { Text(env.description, fontSize = 12.sp) },
+                            trailingContent = {
+                                if (isSelected) {
+                                    Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = "已选择",
+                                        tint = Primary
+                                    )
+                                }
+                            },
+                            modifier = Modifier.clickable {
+                                viewModel.updateBaseUrl(env.url)
+                                showEnvironmentDialog = false
+                            }
+                        )
+                    }
+                    HorizontalDivider()
+                    ListItem(
+                        headlineContent = { Text("自定义地址") },
+                        supportingContent = { Text("手动输入后端URL") },
+                        leadingContent = {
+                            Icon(Icons.Default.Edit, contentDescription = null)
+                        },
+                        modifier = Modifier.clickable {
+                            showEnvironmentDialog = false
+                            showCustomUrlDialog = true
+                        }
+                    )
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showEnvironmentDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    // 自定义 URL 对话框
+    if (showCustomUrlDialog) {
+        AlertDialog(
+            onDismissRequest = { showCustomUrlDialog = false },
+            title = { Text("自定义后端地址") },
             text = {
                 OutlinedTextField(
                     value = tempUrl,
                     onValueChange = { tempUrl = it },
                     label = { Text("URL") },
-                    placeholder = { Text("http://10.0.2.2:8000/") },
+                    placeholder = { Text("https://api.example.com/") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                     modifier = Modifier.fillMaxWidth()
@@ -198,14 +309,14 @@ fun SettingsScreen(
                 TextButton(
                     onClick = {
                         viewModel.updateBaseUrl(tempUrl)
-                        showEditUrlDialog = false
+                        showCustomUrlDialog = false
                     }
                 ) {
                     Text("确定")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showEditUrlDialog = false }) {
+                TextButton(onClick = { showCustomUrlDialog = false }) {
                     Text("取消")
                 }
             }

@@ -10,10 +10,13 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -40,9 +43,11 @@ import androidx.core.content.getSystemService
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.scenic_avatar_guide_app.ui.theme.*
+import com.example.scenic_avatar_guide_app.ui.components.ArcWaveform
 import com.example.scenic_avatar_guide_app.domain.model.ChatMessage
 import com.example.scenic_avatar_guide_app.core.speech.SpeechRecognizerHelper
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,6 +64,9 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    // 取消区域状态
+    var isCancelZone by remember { mutableStateOf(false) }
 
     var hasAudioPermission by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
@@ -87,40 +95,59 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     }
 
     Scaffold(containerColor = Surface, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { paddingValues ->
-        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-            TopBar(onSettingsClick = {})
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+                TopBar(onSettingsClick = {})
 
-            AvatarSection(avatarState, Modifier.fillMaxWidth().height(130.dp))
+                AvatarSection(avatarState, Modifier.fillMaxWidth().height(130.dp))
 
-            MessageList(messages, isLoading, listState, Modifier.weight(1f).fillMaxWidth())
-
-            Column(
-                modifier = Modifier.fillMaxWidth().background(Surface).imePadding().navigationBarsPadding()
-            ) {
-                ModeSelector(currentMode, { viewModel.switchMode(it) }, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp))
-
-                if (voiceInputMode) {
-                    VoiceInputSection(
-                        isRecording = isRecording,
-                        volumeLevel = volumeLevel,
-                        onVoiceStart = { speechHelper.startListening() },
-                        onVoiceStop = { speechHelper.stopListening() },
-                        onCancel = { speechHelper.cancel(); viewModel.exitVoiceInputMode() },
-                        onClose = { speechHelper.cancel(); viewModel.exitVoiceInputMode() },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
+                // 取消区域 - 录音时显示
+                if (voiceInputMode && isRecording) {
+                    CancelZone(
+                        isCancelZone = isCancelZone,
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
                     )
-                } else {
-                    InputSection(
-                        mode = currentMode, inputText = inputText, isLoading = isLoading,
-                        onInputChange = { viewModel.updateInputText(it) },
-                        onSend = { viewModel.sendMessage() },
-                        onVoiceClick = {
-                            if (hasAudioPermission) viewModel.enterVoiceInputMode()
-                            else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        },
-                        onCameraInput = { viewModel.startCameraInput() },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
-                    )
+                }
+
+                MessageList(messages, isLoading, listState, Modifier.weight(1f).fillMaxWidth())
+
+                Column(
+                    modifier = Modifier.fillMaxWidth().background(Surface).imePadding().navigationBarsPadding()
+                ) {
+                    // 语音模式下显示波形
+                    if (voiceInputMode && isRecording) {
+                        VoiceWaveformSection(
+                            volumeLevel = volumeLevel,
+                            isCancelZone = isCancelZone,
+                            modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp)
+                        )
+                    }
+
+                    ModeSelector(currentMode, { viewModel.switchMode(it) }, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp))
+
+                    if (voiceInputMode) {
+                        VoiceInputButton(
+                            isRecording = isRecording,
+                            isCancelZone = isCancelZone,
+                            onCancelZoneChange = { isCancelZone = it },
+                            onVoiceStart = { speechHelper.startListening() },
+                            onVoiceStop = { speechHelper.stopListening() },
+                            onCancel = { speechHelper.cancel(); viewModel.exitVoiceInputMode() },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
+                    } else {
+                        InputSection(
+                            mode = currentMode, inputText = inputText, isLoading = isLoading,
+                            onInputChange = { viewModel.updateInputText(it) },
+                            onSend = { viewModel.sendMessage() },
+                            onVoiceClick = {
+                                if (hasAudioPermission) viewModel.enterVoiceInputMode()
+                                else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            },
+                            onCameraInput = { viewModel.startCameraInput() },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+                        )
+                    }
                 }
             }
         }
@@ -153,6 +180,43 @@ private fun AvatarSection(avatarState: AvatarState, modifier: Modifier = Modifie
             Text(
                 text = when (avatarState) { AvatarState.Idle -> "您好，请问有什么可以帮助您？"; AvatarState.Speaking -> "正在为您讲解..."; AvatarState.Thinking -> "正在思考..." },
                 fontSize = 14.sp, color = Color.White.copy(0.95f), maxLines = 2
+            )
+        }
+    }
+}
+
+/**
+ * 取消区域 - 顶部显示
+ */
+@Composable
+private fun CancelZone(
+    isCancelZone: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .padding(horizontal = 12.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(if (isCancelZone) Error.copy(0.15f) else SurfaceVariant)
+            .border(
+                width = 1.dp,
+                color = if (isCancelZone) Error else Color.Transparent,
+                shape = RoundedCornerShape(24.dp)
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.Cancel,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = if (isCancelZone) Error else TextHint
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = if (isCancelZone) "松开取消" else "上滑取消",
+                fontSize = 14.sp,
+                color = if (isCancelZone) Error else TextHint
             )
         }
     }
@@ -197,6 +261,7 @@ private fun MessageBubble(message: ChatMessage) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun InputSection(
     mode: InteractionMode, inputText: String, isLoading: Boolean,
@@ -206,127 +271,159 @@ private fun InputSection(
     Box(modifier.clip(RoundedCornerShape(24.dp)).background(InputBarBg)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             if (mode == InteractionMode.QA) IconButton(onClick = onCameraInput, modifier = Modifier.size(40.dp)) { Icon(Icons.Default.CameraAlt, "拍照识景", Modifier.size(22.dp), Primary) }
-            OutlinedTextField(inputText, onInputChange, Modifier.weight(1f), placeholder = { Text(when (mode) { InteractionMode.Chat -> "输入消息..."; InteractionMode.QA -> "输入问题或拍照..."; InteractionMode.Route -> "输入偏好..." }, fontSize = 14.sp, color = TextHint) }, maxLines = 3, colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent))
+            BasicTextField(
+                value = inputText,
+                onValueChange = onInputChange,
+                modifier = Modifier.weight(1f),
+                maxLines = 3,
+                keyboardOptions = KeyboardOptions.Default,
+                keyboardActions = KeyboardActions.Default,
+                decorationBox = { innerTextField ->
+                    OutlinedTextFieldDefaults.DecorationBox(
+                        value = inputText,
+                        innerTextField = innerTextField,
+                        enabled = true,
+                        singleLine = false,
+                        visualTransformation = androidx.compose.ui.text.input.VisualTransformation.None,
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        placeholder = { Text(when (mode) { InteractionMode.Chat -> "输入消息..."; InteractionMode.QA -> "输入问题或拍照..."; InteractionMode.Route -> "输入偏好..." }, fontSize = 14.sp, color = TextHint) },
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
+                        contentPadding = PaddingValues(start = 12.dp, end = 4.dp, top = 0.dp, bottom = 0.dp)
+                    )
+                }
+            )
             if (inputText.isNotBlank()) FilledIconButton(onClick = onSend, enabled = !isLoading, modifier = Modifier.size(40.dp), shape = CircleShape) { Icon(Icons.AutoMirrored.Filled.Send, "发送", Modifier.size(20.dp), Color.White) }
             else IconButton(onClick = onVoiceClick, modifier = Modifier.size(40.dp)) { Icon(Icons.Default.Mic, "语音输入", Modifier.size(22.dp), TextSecondary) }
         }
     }
 }
 
+/**
+ * 语音波形区域 - 显示在模式卡片上方
+ */
 @Composable
-private fun VoiceInputSection(
-    isRecording: Boolean, volumeLevel: Float,
-    onVoiceStart: () -> Unit, onVoiceStop: () -> Unit, onCancel: () -> Unit, onClose: () -> Unit,
+private fun VoiceWaveformSection(
+    volumeLevel: Float,
+    isCancelZone: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (isCancelZone) Error.copy(0.15f) else Primary.copy(0.1f)),
+        contentAlignment = Alignment.Center
+    ) {
+        ArcWaveform(
+            volumeLevel = volumeLevel,
+            isRecording = true,
+            modifier = Modifier.fillMaxSize(),
+            color = if (isCancelZone) Error else Primary
+        )
+    }
+}
+
+/**
+ * 语音输入按钮 - 简化版微信风格
+ */
+@Composable
+private fun VoiceInputButton(
+    isRecording: Boolean,
+    isCancelZone: Boolean,
+    onCancelZoneChange: (Boolean) -> Unit,
+    onVoiceStart: () -> Unit,
+    onVoiceStop: () -> Unit,
+    onCancel: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val vibrator = remember { context.getSystemService<Vibrator>() }
-    var isCancelZone by remember { mutableStateOf(false) }
 
-    val infiniteTransition = rememberInfiniteTransition()
+    // 录音按钮 - 检测上滑到取消区域
+    // 取消区域在消息列表上方，大约需要上滑 200dp
+    val cancelThreshold = -200.dp
 
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        // 取消区域
-        if (isRecording) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(60.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(if (isCancelZone) Error.copy(0.2f) else Color.Transparent)
-                    .border(1.dp, if (isCancelZone) Error else Color.Transparent, RoundedCornerShape(16.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Cancel, null, Modifier.size(20.dp), if (isCancelZone) Error else TextHint)
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        if (isCancelZone) "松开取消" else "上滑取消",
-                        fontSize = 14.sp,
-                        color = if (isCancelZone) Error else TextHint
-                    )
-                }
-            }
-            Spacer(Modifier.height(12.dp))
-        }
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .clip(RoundedCornerShape(26.dp))
+            .background(if (isRecording) {
+                if (isCancelZone) Error else Primary
+            } else InputBarBg)
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    // 等待按下
+                    val down = awaitFirstDown(requireUnconsumed = false)
 
-        // 波纹动画
-        if (isRecording) {
-            Box(Modifier.size(160.dp).padding(bottom = 8.dp), contentAlignment = Alignment.Center) {
-                repeat(3) { index ->
-                    val delay = index * 200
-                    val waveScale by infiniteTransition.animateFloat(0.6f, 1.4f, infiniteRepeatable(tween(1200, delayMillis = delay, easing = LinearEasing), RepeatMode.Restart))
-                    val waveAlpha by infiniteTransition.animateFloat(0.5f, 0f, infiniteRepeatable(tween(1200, delayMillis = delay, easing = LinearEasing), RepeatMode.Restart))
-                    Box(Modifier.matchParentSize().scale(waveScale * (1f + volumeLevel * 0.5f)).clip(CircleShape).background(Primary.copy(waveAlpha * volumeLevel)))
-                }
-                Box(Modifier.size(70.dp).scale(1f + volumeLevel * 0.3f).clip(CircleShape).background(Primary)) {
-                    Icon(Icons.Default.Mic, null, Modifier.size(32.dp).align(Alignment.Center), Color.White)
-                }
-            }
-        }
+                    // 立即震动并开始录音
+                    vibrator?.vibrate(VibrationEffect.createOneShot(30, VibrationEffect.DEFAULT_AMPLITUDE))
+                    onVoiceStart()
+                    onCancelZoneChange(false)
 
-        // 长按按钮
-        val cancelThreshold = -100.dp
+                    val startTime = System.currentTimeMillis()
+                    var currentCancelZone = false
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp)
-                .clip(RoundedCornerShape(26.dp))
-                .background(if (isRecording) Primary else InputBarBg)
-                .pointerInput(Unit) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown()
-
-                        // 按下时震动并开始录音
-                        vibrator?.vibrate(VibrationEffect.createOneShot(30, VibrationEffect.DEFAULT_AMPLITUDE))
-                        onVoiceStart()
-                        isCancelZone = false
-
-                        // 持续追踪手指位置
-                        var currentPosition = down.position
+                    // 持续跟踪手指移动
+                    try {
                         while (true) {
                             val event = awaitPointerEvent()
-                            val dragEvent = event.changes.find { it.id == down.id }
-                            if (dragEvent != null) {
-                                if (dragEvent.pressed) {
-                                    currentPosition = dragEvent.position
-                                    // 检测是否在取消区域
-                                    isCancelZone = currentPosition.y < cancelThreshold.toPx()
-                                    dragEvent.consume()
-                                } else {
-                                    // 松开了
-                                    break
+                            val pointer = event.changes.find { it.id == down.id }
+
+                            if (pointer == null) {
+                                // 手指离开
+                                break
+                            }
+
+                            if (pointer.pressed) {
+                                // 检查是否在取消区域
+                                val inCancelZone = pointer.position.y < cancelThreshold.toPx()
+                                if (inCancelZone != currentCancelZone) {
+                                    currentCancelZone = inCancelZone
+                                    onCancelZoneChange(inCancelZone)
                                 }
+                                pointer.consume()
                             } else {
+                                // 手指抬起
                                 break
                             }
                         }
-
-                        // 松开时根据位置决定操作
-                        if (isCancelZone) {
-                            onCancel()
-                        } else {
-                            onVoiceStop()
-                        }
-                        isCancelZone = false
+                    } catch (e: Exception) {
+                        // 忽略异常
                     }
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(if (isRecording) Icons.Default.Mic else Icons.Default.MicNone, null, Modifier.size(22.dp), if (isRecording) Color.White else TextSecondary)
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    if (isRecording) if (isCancelZone) "松开取消" else "松开发送" else "长按输入语音",
-                    fontSize = 15.sp, color = if (isRecording) Color.White else TextSecondary, fontWeight = if (isRecording) FontWeight.Medium else FontWeight.Normal
-                )
-            }
-        }
 
-        // 点击关闭
-        if (!isRecording) {
-            TextButton(onClose, Modifier.padding(top = 4.dp)) { Text("关闭语音", fontSize = 13.sp, color = TextHint) }
+                    // 处理结果
+                    val duration = System.currentTimeMillis() - startTime
+
+                    if (currentCancelZone) {
+                        onCancel()
+                    } else if (duration < 500) {
+                        onCancel()
+                    } else {
+                        onVoiceStop()
+                    }
+                    onCancelZoneChange(false)
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                if (isRecording) Icons.Default.Mic else Icons.Default.MicNone,
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+                tint = if (isRecording) Color.White else TextSecondary
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = when {
+                    isCancelZone -> "松开取消"
+                    isRecording -> "松开发送"
+                    else -> "按住说话"
+                },
+                fontSize = 15.sp,
+                color = if (isRecording) Color.White else TextSecondary,
+                fontWeight = if (isRecording) FontWeight.Medium else FontWeight.Normal
+            )
         }
     }
 }

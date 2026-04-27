@@ -13,6 +13,7 @@
 | 统一请求/响应结构 | 已完成 | 已补 `schemas/` 与统一 JSON 返回格式，便于 Android 和后续 Web 统一对接。 | 当前 schema 仍是最小字段集，未覆盖管理侧和语音链路全部字段。 | 保持最小字段集稳定，后续按接口扩展。 |
 | PPIO 大模型适配层 | 已完成（基础版） | 已封装 `backend/app/integrations/ppio/llm_client.py`，支持无 Key 时 mock 返回，有 Key 时按 OpenAI 兼容方式调用。 | 暂未与 RAG 聚合逻辑深度绑定，也未加入完整超时/重试策略。 | 在联调时先验证 mock，再逐步切换真实 API。 |
 | OpenAvatarChat / LiteAvatar / ASR / TTS 适配层 | 已完成（空壳） | 已预留 `OpenAvatarChatClient`、`LiteAvatarAdapter`、`SenseVoiceAdapter`、`CosyVoiceAdapter`。 | 这些能力还未真正接通，语音/数字人链路尚未闭环。 | 先保持空壳稳定，后续按 TTS → ASR → 数字人 的顺序接入。 |
+| Android 客户端语音识别（讯飞 ASR） | 已完成 | 已实现 `SpeechRecognizerHelper.kt` 和 `XunfeiAsrCallback.java`，集成讯飞 SparkChain SDK；UI 支持长按录音、上滑取消、音量可视化；权限处理完整。 | 尚未与后端 `chat/voice` 接口联调；服务端 ASR 尚未实现。 | 后端实现 `POST /api/v1/chat/voice` 接口后进行联调。 |
 | 项目环境与依赖约定 | 已完成 | 已统一项目路径为 `~/scenic-avatar-guide`，环境名为 `guide`，并写入 `README.md` 与任务文档。 | `requirements.txt` 目前仍是基础依赖清单，后续要扩展。 | 保持当前约定不变，后续补充运行/开发/测试依赖拆分。 |
 | 问题清单与修正建议文档 | 已完成 | 已生成并整理 `docs/architecture/backend-issues-and-fixes.md`，并保留后续待关注问题。 | 仍需要随着实现进展持续更新。 | 每完成一个阶段，就回写一次问题清单状态。 |
 | 启动验证 | 待完成 | 已具备启动所需文件与目录。 | 还未完成真实环境下的启动确认。 | 使用 `uvicorn backend.app.main:app --reload` 启动后，确认 `/docs`、`/api/v1/health` 可访问。 |
@@ -224,6 +225,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/chat/text \
 - **返回字段**：
   - `reply_text`、`audio_url`、`avatar_action`、`sources`
 - **约定说明**：第一阶段先不实现，仅保留接口契约
+- **客户端实现状态**：Android 端已实现本地语音识别（讯飞 SparkChain SDK），可将识别文本通过 `chat/text` 发送；后续可扩展为上传音频文件由服务端处理
 
 #### 4.5 `POST /api/v1/chat/interrupt`
 - **用途**：处理游客打断数字人播报或中断当前回答

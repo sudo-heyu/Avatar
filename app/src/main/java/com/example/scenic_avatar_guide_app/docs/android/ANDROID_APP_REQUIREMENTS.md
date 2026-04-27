@@ -547,7 +547,154 @@ UI 视觉要求：
 
 ---
 
-## 18. 最终结论
+## 19. 语音识别（ASR）实现说明
+
+### 19.1 技术选型
+
+项目使用 **讯飞 SparkChain SDK** 作为语音识别引擎：
+
+| 项目 | 说明 |
+|------|------|
+| SDK 名称 | SparkChain ASR |
+| 依赖文件 | `libs/SparkChain.aar`、`libs/Codec.aar` |
+| 采样率 | 16kHz |
+| 语言 | 中文（zh_cn） |
+| 领域 | iat（通用听写） |
+| 方言 | 普通话（mandarin） |
+
+### 19.2 核心实现文件
+
+```
+core/speech/
+├── SpeechRecognizerHelper.kt   # 语音识别辅助类（Kotlin）
+└── XunfeiAsrCallback.java      # 讯飞 ASR 回调适配器（Java）
+```
+
+### 19.3 SpeechRecognizerHelper 核心功能
+
+```kotlin
+class SpeechRecognizerHelper(
+    private val context: Context,
+    private val onResult: (String) -> Unit,           // 识别成功回调
+    private val onError: (String) -> Unit,            // 错误回调
+    private val onReadyForSpeech: () -> Unit,         // 准备就绪回调
+    private val onEndOfSpeech: () -> Unit,            // 说话结束回调
+    private val onVolumeChanged: ((Float) -> Unit)?   // 音量变化回调（可选）
+)
+```
+
+**主要方法：**
+
+| 方法 | 说明 |
+|------|------|
+| `hasPermission()` | 检查录音权限 |
+| `startListening()` | 开始录音和识别 |
+| `stopListening()` | 停止录音并发送识别 |
+| `cancel()` | 取消录音和识别 |
+| `destroy()` | 销毁资源 |
+
+### 19.4 UI 集成（MainScreen）
+
+语音输入 UI 位于 `MainScreen.kt`，主要特性：
+
+1. **VoiceInputSection 组件**
+   - 长按录音，松开发送
+   - 上滑取消录音
+   - 波纹动画效果（音量可视化）
+   - 震动反馈
+
+2. **交互流程**
+   ```
+   点击麦克风按钮 → 请求权限 → 进入语音模式
+   长按录音按钮 → 开始录音 → 显示波纹动画
+   松开 → 停止录音 → 发送识别 → 显示结果
+   上滑 → 取消录音
+   ```
+
+3. **状态管理（MainViewModel）**
+   - `voiceInputMode: Boolean` - 语音输入模式状态
+   - `isRecording: Boolean` - 录音状态
+   - `volumeLevel: Float` - 音量级别（0-1）
+
+### 19.5 权限配置
+
+**AndroidManifest.xml：**
+```xml
+<!-- 语音识别权限 -->
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+<!-- 震动权限 -->
+<uses-permission android:name="android.permission.VIBRATE" />
+```
+
+**build.gradle.kts 依赖：**
+```kotlin
+// 讯飞语音识别 SDK
+implementation(files("libs/SparkChain.aar"))
+implementation(files("libs/Codec.aar"))
+```
+
+### 19.6 识别状态码
+
+| status | 说明 |
+|--------|------|
+| 0 | 首帧/中间结果 |
+| 1 | 中间结果 |
+| 2 | 最终结果（仅此状态触发 onResult 回调） |
+
+### 19.7 ASR 配置参数
+
+```kotlin
+asr?.language("zh_cn")      // 语言：中文
+asr?.domain("iat")          // 领域：通用听写
+asr?.accent("mandarin")     // 方言：普通话
+asr?.vinfo(true)            // 启用语音信息
+asr?.dwa("wpgs")            // 动态修正
+```
+
+### 19.8 音量计算
+
+实时音量通过 RMS（均方根）计算：
+
+```kotlin
+// 计算 RMS
+var sumSquares = 0.0
+val sampleCount = read / 2
+for (i in 0 until read step 2) {
+    val sample = ((buffer[i].toInt() and 0xFF) or (buffer[i + 1].toInt() shl 8)).toShort()
+    sumSquares += sample.toDouble() * sample.toDouble()
+}
+val rms = sqrt(sumSquares / sampleCount)
+val normalizedVolume = (rms / 32767.0).coerceIn(0.0, 1.0).toFloat()
+```
+
+### 19.9 错误处理
+
+| 错误类型 | 处理方式 |
+|----------|----------|
+| 权限缺失 | 提示用户授权 |
+| 启动失败 | 显示错误信息 |
+| 识别错误 | 回调 onError |
+| 无识别结果 | 不显示消息，静默退出 |
+
+### 19.10 资源释放
+
+```kotlin
+// 在 Composable 中自动释放
+DisposableEffect(Unit) {
+    onDispose { speechHelper.destroy() }
+}
+```
+
+### 19.11 后续扩展计划
+
+1. **语音上传**：将音频上传到后端进行服务端识别
+2. **语音问答**：集成后端 `/api/v1/chat/voice` 接口
+3. **打断功能**：支持用户打断数字人播报
+4. **双工交互**：全双工语音交互模式
+
+---
+
+## 20. 最终结论
 
 本需求文档可以直接驱动 Android 第一阶段开工，并与现有后端最小联调链路完全对齐。  
 后续仅需按里程碑逐步接入语音、数字人、RAG 与路线推荐，即可平滑演进到完整比赛版产品。

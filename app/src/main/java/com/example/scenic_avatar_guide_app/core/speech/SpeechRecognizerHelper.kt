@@ -133,7 +133,8 @@ class SpeechRecognizerHelper(
                         sumSquares += sample.toDouble() * sample.toDouble()
                     }
                     val rms = kotlin.math.sqrt(sumSquares / sampleCount)
-                    val normalizedVolume = (rms / 32767.0).coerceIn(0.0, 1.0).toFloat()
+                    // 增强音量灵敏度：放大 3 倍
+                    val normalizedVolume = ((rms / 32767.0) * 3.0).coerceIn(0.0, 1.0).toFloat()
 
                     android.os.Handler(android.os.Looper.getMainLooper()).post {
                         onVolumeChanged?.invoke(normalizedVolume)

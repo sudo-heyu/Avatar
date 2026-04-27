@@ -1,10 +1,13 @@
 package com.example.scenic_avatar_guide_app.core.network
 
+import com.example.scenic_avatar_guide_app.data.local.SettingsDataStore
 import com.example.scenic_avatar_guide_app.data.remote.ApiService
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -18,8 +21,12 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
-    // 默认地址（Android 模拟器访问本地主机）
-    const val DEFAULT_BASE_URL = "http://10.0.2.2:8000/"
+    // 预设环境地址
+    const val EMULATOR_LOCAL = "http://10.0.2.2:8000/"           // 模拟器访问本机
+    const val DEVICE_LOCAL = "http://192.168.1.100:8000/"         // 真机调试（需改成本机IP）
+    const val CLOUDFLARE_TUNNEL = "https://your-tunnel.trycloudflare.com/"  // Cloudflare Tunnel
+    const val NGROK = "https://your-ngrok.ngrok-free.app/"        // ngrok
+    const val ALIYUN_FC = "https://your-fc-app.cn-hangzhou.fcapp.run/"  // 阿里云FC
 
     @Provides
     @Singleton
@@ -50,10 +57,16 @@ object NetworkModule {
     @Singleton
     fun provideRetrofit(
         json: Json,
-        okHttpClient: OkHttpClient
+        okHttpClient: OkHttpClient,
+        settingsDataStore: SettingsDataStore
     ): Retrofit {
+        // 从DataStore读取配置的Base URL
+        val baseUrl = runBlocking {
+            settingsDataStore.baseUrl.first()
+        }
+
         return Retrofit.Builder()
-            .baseUrl(DEFAULT_BASE_URL)
+            .baseUrl(baseUrl)
             .client(okHttpClient)
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
