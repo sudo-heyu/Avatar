@@ -1,8 +1,8 @@
 # 移动端 API 接口契约
 
-版本：v5.1  
+版本：v6.0  
 日期：2026-04-29  
-状态：**Edge-TTS 接口已联调通过，Android 端已接入**
+状态：**交互模式重构为两模式：聊天问答 + 路线规划，统一接口**
 
 ---
 
@@ -107,9 +107,11 @@
 
 ---
 
-### 3.3 文本问答（核心）
+### 3.3 统一交互接口（核心）
 
 **接口**：`POST /api/v1/chat/text`
+
+> 自 v6.0 起，聊天问答与路线规划统一为同一个接口，通过 `mode` 字段区分交互模式。
 
 **请求**：
 ```json
@@ -117,8 +119,10 @@
   "session_id": "s_xxx",
   "user_id": "u_001",
   "scenic_id": "scenic_001",
-  "question": "迎客松有什么历史？",
-  "spot_id": "spot_001"
+  "question": "半天时间怎么游览？",
+  "spot_id": null,
+  "mode": "route",
+  "image_url": null
 }
 ```
 
@@ -128,14 +132,17 @@
 |------|------|------|------|
 | session_id | String | 是 | 会话 ID |
 | user_id | String | 是 | 用户 ID |
-| scenic_id | String | 是 | 景区 ID，已与后端 `RagService.ask(...)` 源接口对齐 |
+| scenic_id | String | 是 | 景区 ID |
 | question | String | 是 | 用户问题（最长 500 字） |
 | spot_id | String | 否 | 当前景点 ID |
+| mode | String | 否 | 交互模式：`chat`（聊天问答，默认）或 `route`（路线规划） |
+| image_url | String | 否 | 用户上传图片的 URL，聊天模式下支持图文问答 |
 
-说明：
+**模式说明**：
 
-1. 当前阶段以同事新增的 `stage1-api.md` 为准，后端问答主链路最小必需字段就是 `session_id / question / scenic_id / spot_id / user_id`。
-2. `options` 不再作为当前正式联调前提；即使后续恢复，也应视为可选扩展字段。
+1. `mode=chat`：后端走 RAG 知识库问答，返回 `reply_text` 与 `sources`。
+2. `mode=route`：后端切换为路线规划 Prompt，返回 `reply_text` 与结构化的 `route_data`。
+3. 图片问答：先调用 `POST /api/v1/upload/image` 上传图片获取 `image_url`，再带 `image_url` 调用本接口。
 
 ---
 
@@ -273,7 +280,30 @@
 
 ## 五、聊天响应结构
 
-### 4.1 完整响应示例
+### 3.4 图片上传接口（前置）
+
+**接口**：`POST /api/v1/upload/image`
+
+**请求**：multipart/form-data
+- `image`：图片文件（JPEG/PNG，最大 5MB）
+
+**响应**：
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "image_url": "/uploads/img_abc123.jpg"
+  }
+}
+```
+
+**说明**：
+- 用户上传图片后，将返回的 `image_url` 填入 `chat/text` 请求的 `image_url` 字段，实现图文问答。
+
+---
+
+### 4.1 完整响应示例（聊天问答模式）
 
 ```json
 {
@@ -340,11 +370,92 @@
 | metadata | Object | 否 | 增强版元数据；若存在则优先于同名顶层字段 |
 | created_at | String | 否 | 创建时间 |
 
+| route_data | Object | 否 | 路线规划数据，仅在 `mode=route` 时返回 |
+
 兼容说明：
 
 1. **阶段一最小可用返回**：`reply_text + sources + latency_ms + confidence + is_fallback`
-2. **增强版返回**：在最小字段基础上，增加 `avatar_action`、`metadata`、`message_id`、`created_at`
+2. **增强版返回**：在最小字段基础上，增加 `avatar_action`、`metadata`、`message_id`、`created_at`、`route_data`
 3. Android 客户端应兼容上述两种返回形态
+
+---
+
+### 4.3 路线规划模式响应示例
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "message_id": "m_003",
+    "session_id": "s_001",
+    "reply_text": "建议您从九龙灌浴开始，游览约1小时后前往灵山大佛，最后到梵宫结束行程。全程约4小时。",
+    "route_data": {
+      "title": "灵山胜境半日精华游",
+      "total_duration_min": 240,
+      "total_distance_m": 3200,
+      "spots": [
+        {
+          "name": "九龙灌浴",
+          "lat": 31.4875,
+          "lng": 120.1234,
+          "order": 1,
+          "stay_min": 60,
+          "description": "整点有水景表演，非常震撼"
+        },
+        {
+          "name": "灵山大佛",
+          "lat": 31.4880,
+          "lng": 120.1240,
+          "order": 2,
+          "stay_min": 90,
+          "description": "核心地标，高88米"
+        },
+        {
+          "name": "梵宫",
+          "lat": 31.4885,
+          "lng": 120.1245,
+          "order": 3,
+          "stay_min": 60,
+          "description": "金碧辉煌的建筑艺术殿堂"
+        }
+      ],
+      "polyline": [
+        {"lat": 31.4875, "lng": 120.1234},
+        {"lat": 31.4880, "lng": 120.1240},
+        {"lat": 31.4885, "lng": 120.1245}
+      ]
+    },
+    "avatar_action": {
+      "expression": {"type": "happy"},
+      "gesture": {"type": "guide"}
+    },
+    "metadata": {"intent": "route_recommendation", "latency_ms": 1500}
+  }
+}
+```
+
+**route_data 字段说明**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| title | String | 路线名称 |
+| total_duration_min | Int | 预计总时长（分钟） |
+| total_distance_m | Int | 预计总距离（米），可选 |
+| spots | Array | 景点节点列表 |
+| polyline | Array | 地图路径坐标数组，用于绘制路线 |
+
+**spots 节点结构**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| name | String | 景点名称 |
+| lat | Double | 纬度 |
+| lng | Double | 经度 |
+| order | Int | 游览顺序 |
+| stay_min | Int | 建议停留时长（分钟） |
+| description | String | 景点简介 |
+| image_url | String | 景点图片，可选 |
 
 ---
 
@@ -888,3 +999,4 @@ enum class VisemeType(val mouthOpen: Float, val mouthForm: Float = 0f) {
 | v4.0 | 2026-04-28 | **同步 `stage1-api.md`：补充 `scenic_id`、`sources` 新结构、`latency_ms/confidence/is_fallback` 兼容说明** |
 | v5.0 | 2026-04-28 | **TTS 方案切换为后端 Edge-TTS：新增 `/api/v1/tts/*` 接口，更新职责划分与播放流程，marks 驱动口型同步** |
 | v5.1 | 2026-04-29 | **Edge-TTS 接口已完成 Android 端联调；修正 `duration_ms` 可空类型；确认系统 TTS 降级兜底正常** |
+| v6.0 | 2026-04-29 | **交互模式重构：三种模式缩减为两种（聊天问答 + 路线规划），统一 `POST /api/v1/chat/text` 接口，通过 `mode` 字段区分；新增 `route_data` 响应结构；新增图片上传接口** |

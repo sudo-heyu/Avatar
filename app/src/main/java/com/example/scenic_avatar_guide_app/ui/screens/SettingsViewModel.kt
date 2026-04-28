@@ -2,6 +2,9 @@ package com.example.scenic_avatar_guide_app.ui.screens
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.scenic_avatar_guide_app.core.tts.RemoteTTSController
+import com.example.scenic_avatar_guide_app.core.tts.VoiceInfo
+import com.example.scenic_avatar_guide_app.core.tts.VoiceStyle
 import com.example.scenic_avatar_guide_app.data.local.SettingsDataStore
 import com.example.scenic_avatar_guide_app.data.repository.GuideRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -52,6 +55,11 @@ class SettingsViewModel @Inject constructor(
     private val _isCheckingConnection = MutableStateFlow(false)
     val isCheckingConnection: StateFlow<Boolean> = _isCheckingConnection.asStateFlow()
 
+    private val _currentVoiceId = MutableStateFlow(SettingsDataStore.DEFAULT_VOICE_ID)
+    val currentVoiceId: StateFlow<String> = _currentVoiceId.asStateFlow()
+
+    val availableVoices: List<VoiceInfo> = RemoteTTSController.AVAILABLE_VOICES
+
     init {
         viewModelScope.launch {
             settingsDataStore.baseUrl.collect {
@@ -67,6 +75,9 @@ class SettingsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             settingsDataStore.sessionId.collect { _sessionId.value = it }
+        }
+        viewModelScope.launch {
+            settingsDataStore.voiceId.collect { _currentVoiceId.value = it }
         }
     }
 
@@ -105,6 +116,13 @@ class SettingsViewModel @Inject constructor(
     fun clearSession() {
         viewModelScope.launch {
             settingsDataStore.clearSession()
+        }
+    }
+
+    fun setVoiceId(voiceId: String) {
+        viewModelScope.launch {
+            settingsDataStore.setVoiceId(voiceId)
+            _statusMessage.value = "发音人已切换"
         }
     }
 

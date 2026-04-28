@@ -76,6 +76,18 @@ data class ChatTextRequest(
     val question: String,
     @SerialName("spot_id")
     val spotId: String? = null,
+    /**
+     * 交互模式
+     * "chat" = 聊天问答（纯文本或图文）
+     * "route" = 路线规划（返回结构化路线数据）
+     */
+    val mode: String = "chat",
+    /**
+     * 用户上传图片的 URL
+     * 聊天模式下，若用户上传了图片，先调用 /api/v1/upload/image 获取 url 后填入
+     */
+    @SerialName("image_url")
+    val imageUrl: String? = null,
     val options: ChatOptions? = null
 )
 
@@ -150,6 +162,13 @@ data class ChatResponseData(
      */
     @SerialName("metadata")
     val metadata: ResponseMetadata? = null,
+
+    /**
+     * 路线规划数据
+     * 仅在 mode=route 时返回，mode=chat 时为 null
+     */
+    @SerialName("route_data")
+    val routeData: RouteData? = null,
 
     @SerialName("created_at")
     val createdAt: String? = null
@@ -305,6 +324,51 @@ data class ResponseMetadata(
     val latencyMs: Long? = null
 )
 
+// ==================== 路线规划 ====================
+
+/**
+ * 路线规划响应数据
+ */
+@Serializable
+data class RouteData(
+    val title: String,
+    @SerialName("total_duration_min")
+    val totalDurationMin: Int,
+    @SerialName("total_distance_m")
+    val totalDistanceM: Int? = null,
+    val spots: List<RouteSpot>,
+    /**
+     * 地图路径坐标数组（可选）
+     * 用于在地图上绘制路线 polyline
+     */
+    val polyline: List<LatLngPoint>? = null
+)
+
+/**
+ * 路线景点节点
+ */
+@Serializable
+data class RouteSpot(
+    val name: String,
+    val lat: Double,
+    val lng: Double,
+    val order: Int,
+    @SerialName("stay_min")
+    val stayMin: Int,
+    val description: String? = null,
+    @SerialName("image_url")
+    val imageUrl: String? = null
+)
+
+/**
+ * 经纬度坐标点
+ */
+@Serializable
+data class LatLngPoint(
+    val lat: Double,
+    val lng: Double
+)
+
 // ==================== UI 模型 ====================
 
 /**
@@ -318,5 +382,9 @@ data class ChatMessage(
     val isLoading: Boolean = false,
     val isError: Boolean = false,
     val sources: List<SourceInfo> = emptyList(),
-    val avatarAction: AvatarAction? = null
+    val avatarAction: AvatarAction? = null,
+    /**
+     * 路线规划数据（仅在路线模式下非空）
+     */
+    val routeData: RouteData? = null
 )

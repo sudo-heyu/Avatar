@@ -23,8 +23,10 @@ class SettingsDataStore @Inject constructor(
         private val DEVICE_ID_KEY = stringPreferencesKey("device_id")
         private val SESSION_ID_KEY = stringPreferencesKey("session_id")
         private val USER_ID_KEY = stringPreferencesKey("user_id")
+        private val VOICE_ID_KEY = stringPreferencesKey("voice_id")
 
         const val DEFAULT_BASE_URL = "http://10.0.2.2:8000/"
+        const val DEFAULT_VOICE_ID = "zh-CN-XiaoxiaoNeural"
     }
 
     val baseUrl: Flow<String> = context.dataStore.data.map { preferences ->
@@ -41,6 +43,10 @@ class SettingsDataStore @Inject constructor(
 
     val userId: Flow<String?> = context.dataStore.data.map { preferences ->
         preferences[USER_ID_KEY]
+    }
+
+    val voiceId: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[VOICE_ID_KEY] ?: DEFAULT_VOICE_ID
     }
 
     suspend fun setBaseUrl(url: String) {
@@ -70,6 +76,12 @@ class SettingsDataStore @Inject constructor(
     suspend fun clearSession() {
         context.dataStore.edit { preferences ->
             preferences.remove(SESSION_ID_KEY)
+        }
+    }
+
+    suspend fun setVoiceId(id: String) {
+        context.dataStore.edit { preferences ->
+            preferences[VOICE_ID_KEY] = id
         }
     }
 

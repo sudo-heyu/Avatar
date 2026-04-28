@@ -52,8 +52,6 @@ import com.example.scenic_avatar_guide_app.domain.model.AvatarState
 import com.example.scenic_avatar_guide_app.core.speech.SpeechRecognizerHelper
 import com.example.scenic_avatar_guide_app.core.avatar.TestAvatarActions
 import com.example.scenic_avatar_guide_app.core.avatar.AvatarPlayAction
-import com.example.scenic_avatar_guide_app.core.tts.VoiceInfo
-import com.example.scenic_avatar_guide_app.core.tts.VoiceStyle
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 
@@ -73,7 +71,6 @@ fun MainScreen(
     val isRecording by viewModel.isRecording.collectAsStateWithLifecycle()
     val volumeLevel by viewModel.volumeLevel.collectAsStateWithLifecycle()
     val showTestPanel by viewModel.showTestPanel.collectAsStateWithLifecycle()
-    val currentVoice by viewModel.currentVoice.collectAsStateWithLifecycle()
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -109,9 +106,10 @@ fun MainScreen(
 
     Scaffold(
         containerColor = Surface,
-        contentWindowInsets = WindowInsets.ime
+        contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp)
     ) { paddingValues ->
         Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+            // 主内容区：不响应输入法，保持固定
             Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
                 TopBar(
                     onSettingsClick = onSettingsClick,
@@ -119,19 +117,37 @@ fun MainScreen(
                     showTestPanel = showTestPanel
                 )
 
+                // 数字人区域：占据上半部分（至少一半），只展示上半身
                 AvatarSection(
                     avatarState = avatarState,
                     fullState = avatarFullState,
-                    modifier = Modifier.fillMaxWidth().height(130.dp)
+                    showUpperBodyOnly = true,
+                    modifier = Modifier.fillMaxWidth().weight(3f)
                 )
 
-                // 测试面板
+                // 消息列表：在数字人正下方，底部留出让位给底栏的空间
+                MessageList(
+                    messages = messages,
+                    isLoading = isLoading,
+                    listState = listState,
+                    modifier = Modifier.fillMaxWidth().weight(2f),
+                    bottomPaddingDp = 140.dp
+                )
+            }
+
+            // 底栏：测试卡片 + 功能卡片，同步响应输入法上推
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .imePadding()
+                    .navigationBarsPadding()
+                    .background(Surface)
+            ) {
+                // 测试面板：功能卡片正上方，单行左右滑动
                 if (showTestPanel) {
-                    TestActionPanel(
+                    CompactTestPanel(
                         onActionClick = { action -> viewModel.playTestAction(action) },
-                        currentVoice = currentVoice,
-                        onVoiceChange = { voiceId -> viewModel.setVoice(voiceId) },
-                        getAvailableVoices = { viewModel.getAvailableVoices() },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -143,44 +159,38 @@ fun MainScreen(
                     )
                 }
 
-                MessageList(messages, isLoading, listState, Modifier.weight(1f).fillMaxWidth())
+                if (voiceInputMode && isRecording) {
+                    VoiceWaveformSection(
+                        volumeLevel = volumeLevel,
+                        isCancelZone = isCancelZone,
+                        modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp)
+                    )
+                }
 
-                Column(
-                    modifier = Modifier.fillMaxWidth().background(Surface).imePadding().navigationBarsPadding()
-                ) {
-                    if (voiceInputMode && isRecording) {
-                        VoiceWaveformSection(
-                            volumeLevel = volumeLevel,
-                            isCancelZone = isCancelZone,
-                            modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp)
-                        )
-                    }
+                ModeSelector(currentMode, { viewModel.switchMode(it) }, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp))
 
-                    ModeSelector(currentMode, { viewModel.switchMode(it) }, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp))
-
-                    if (voiceInputMode) {
-                        VoiceInputButton(
-                            isRecording = isRecording,
-                            isCancelZone = isCancelZone,
-                            onCancelZoneChange = { isCancelZone = it },
-                            onVoiceStart = { speechHelper.startListening() },
-                            onVoiceStop = { speechHelper.stopListening() },
-                            onCancel = { speechHelper.cancel(); viewModel.exitVoiceInputMode() },
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
-                        )
-                    } else {
-                        InputSection(
-                            mode = currentMode, inputText = inputText, isLoading = isLoading,
-                            onInputChange = { viewModel.updateInputText(it) },
-                            onSend = { viewModel.sendMessage() },
-                            onVoiceClick = {
-                                if (hasAudioPermission) viewModel.enterVoiceInputMode()
-                                else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                            },
-                            onCameraInput = { viewModel.startCameraInput() },
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
-                        )
-                    }
+                if (voiceInputMode) {
+                    VoiceInputButton(
+                        isRecording = isRecording,
+                        isCancelZone = isCancelZone,
+                        onCancelZoneChange = { isCancelZone = it },
+                        onVoiceStart = { speechHelper.startListening() },
+                        onVoiceStop = { speechHelper.stopListening() },
+                        onCancel = { speechHelper.cancel(); viewModel.exitVoiceInputMode() },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                } else {
+                    InputSection(
+                        mode = currentMode, inputText = inputText, isLoading = isLoading,
+                        onInputChange = { viewModel.updateInputText(it) },
+                        onSend = { viewModel.sendMessage() },
+                        onVoiceClick = {
+                            if (hasAudioPermission) viewModel.enterVoiceInputMode()
+                            else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        },
+                        onCameraInput = { viewModel.startCameraInput() },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+                    )
                 }
             }
         }
@@ -215,213 +225,43 @@ private fun TopBar(
 private fun AvatarSection(
     avatarState: AvatarState,
     fullState: com.example.scenic_avatar_guide_app.domain.model.AvatarFullState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showUpperBodyOnly: Boolean = false
 ) {
     AvatarView(
         avatarState = avatarState,
         fullState = fullState,
+        showUpperBodyOnly = showUpperBodyOnly,
         modifier = modifier
     )
 }
 
 /**
- * 测试动作面板
+ * 紧凑测试动作面板：单行左右滑动
  */
 @Composable
-private fun TestActionPanel(
+private fun CompactTestPanel(
     onActionClick: (AvatarPlayAction) -> Unit,
-    currentVoice: VoiceInfo,
-    onVoiceChange: (String) -> Unit,
-    getAvailableVoices: () -> List<VoiceInfo>,
     modifier: Modifier = Modifier
 ) {
     val testButtons = remember { TestAvatarActions.getButtons() }
-    var showVoiceSelector by remember { mutableStateOf(false) }
-    val voices = remember { getAvailableVoices() }
 
     Card(
         modifier = modifier.padding(horizontal = 12.dp, vertical = 4.dp),
         colors = CardDefaults.cardColors(containerColor = SurfaceVariant),
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(12.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(12.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "🎭 测试场景",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = TextPrimary
-                )
-
-                // 发音人选择按钮
-                OutlinedButton(
-                    onClick = { showVoiceSelector = !showVoiceSelector },
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = Primary
-                    ),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
-                ) {
-                    Icon(
-                        Icons.Default.RecordVoiceOver,
-                        contentDescription = "发音人",
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = currentVoice.displayName,
-                        fontSize = 12.sp,
-                        maxLines = 1
-                    )
-                }
-            }
-
-            // 发音人选择面板
-            if (showVoiceSelector) {
-                Spacer(Modifier.height(8.dp))
-                VoiceSelector(
-                    voices = voices,
-                    currentVoice = currentVoice,
-                    onVoiceSelected = { voice ->
-                        onVoiceChange(voice.id)
-                        showVoiceSelector = false
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            // 动作按钮网格 - 4列
-            Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                testButtons.chunked(4).forEach { rowButtons ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        rowButtons.forEach { button ->
-                            ActionChip(
-                                label = button.label,
-                                icon = button.icon,
-                                description = button.description,
-                                onClick = { onActionClick(button.action) },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * 发音人选择器
- */
-@Composable
-private fun VoiceSelector(
-    voices: List<VoiceInfo>,
-    currentVoice: VoiceInfo,
-    onVoiceSelected: (VoiceInfo) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val listState = rememberLazyListState()
-
-    Surface(
-        modifier = modifier.heightIn(max = 200.dp),
-        shape = RoundedCornerShape(12.dp),
-        color = Surface
-    ) {
-        LazyColumn(
-            state = listState,
-            contentPadding = PaddingValues(vertical = 4.dp)
-        ) {
-            // 按风格分组
-            val groupedVoices = voices.groupBy { it.style }
-
-            groupedVoices.forEach { (style, styleVoices) ->
-                // 风格标题
-                item {
-                    Text(
-                        text = styleToLabel(style),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextHint,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                    )
-                }
-
-                // 该风格下的发音人
-                items(styleVoices.take(4)) { voice ->
-                    VoiceItem(
-                        voice = voice,
-                        isSelected = voice.id == currentVoice.id,
-                        onClick = { onVoiceSelected(voice) }
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * 发音人条目
- */
-@Composable
-private fun VoiceItem(
-    voice: VoiceInfo,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = if (isSelected) Primary.copy(0.1f) else Color.Transparent,
-        onClick = onClick
-    ) {
-        Row(
+        LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            // 性别图标
-            Icon(
-                if (voice.gender == com.example.scenic_avatar_guide_app.core.tts.Gender.FEMALE)
-                    Icons.Default.Face else Icons.Default.Face,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = if (isSelected) Primary else TextSecondary
-            )
-
-            Spacer(Modifier.width(8.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = voice.displayName,
-                    fontSize = 14.sp,
-                    fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
-                    color = if (isSelected) Primary else TextPrimary
-                )
-                Text(
-                    text = voice.description,
-                    fontSize = 11.sp,
-                    color = TextHint
-                )
-            }
-
-            if (isSelected) {
-                Icon(
-                    Icons.Default.Check,
-                    contentDescription = "已选择",
-                    modifier = Modifier.size(18.dp),
-                    tint = Primary
+            items(testButtons) { button ->
+                CompactActionChip(
+                    label = button.label,
+                    icon = button.icon,
+                    onClick = { onActionClick(button.action) }
                 )
             }
         }
@@ -429,51 +269,32 @@ private fun VoiceItem(
 }
 
 /**
- * 风格转标签
- */
-private fun styleToLabel(style: VoiceStyle): String = when (style) {
-    VoiceStyle.FRIENDLY -> "亲和系"
-    VoiceStyle.GENTLE -> "温柔系"
-    VoiceStyle.INTELLECTUAL -> "知性系"
-    VoiceStyle.PROFESSIONAL -> "专业系"
-    VoiceStyle.CHILD -> "童声系"
-    VoiceStyle.LITERARY -> "文艺系"
-    VoiceStyle.NEWS -> "新闻系"
-}
-
-/**
- * 动作按钮
+ * 紧凑动作按钮
  */
 @Composable
-private fun ActionChip(
+private fun CompactActionChip(
     label: String,
     icon: String,
-    description: String = "",
     onClick: () -> Unit,
-    enabled: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(12.dp),
-        color = if (enabled) Primary.copy(0.1f) else SurfaceVariant,
-        enabled = enabled,
+        shape = RoundedCornerShape(10.dp),
+        color = Primary.copy(0.1f),
         onClick = onClick
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(
-                text = icon,
-                fontSize = 18.sp
-            )
-            Spacer(Modifier.height(2.dp))
+            Text(text = icon, fontSize = 14.sp)
             Text(
                 text = label,
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.Medium,
-                color = if (enabled) Primary else TextHint
+                color = Primary
             )
         }
     }
@@ -515,7 +336,7 @@ private fun CancelZone(
 
 @Composable
 private fun ModeSelector(currentMode: InteractionMode, onModeChange: (InteractionMode) -> Unit, modifier: Modifier = Modifier) {
-    val modes = listOf(InteractionMode.Chat to "聊天", InteractionMode.QA to "问答", InteractionMode.Route to "路线")
+    val modes = listOf(InteractionMode.Chat to "聊天问答", InteractionMode.Route to "路线规划")
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         modes.forEach { (mode, label) ->
             val isSelected = currentMode == mode
@@ -527,8 +348,19 @@ private fun ModeSelector(currentMode: InteractionMode, onModeChange: (Interactio
 }
 
 @Composable
-private fun MessageList(messages: List<ChatMessage>, isLoading: Boolean, listState: androidx.compose.foundation.lazy.LazyListState, modifier: Modifier = Modifier) {
-    LazyColumn(modifier.padding(horizontal = 12.dp), state = listState, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun MessageList(
+    messages: List<ChatMessage>,
+    isLoading: Boolean,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    modifier: Modifier = Modifier,
+    bottomPaddingDp: androidx.compose.ui.unit.Dp = 8.dp
+) {
+    LazyColumn(
+        modifier = modifier.padding(horizontal = 12.dp),
+        state = listState,
+        contentPadding = PaddingValues(top = 8.dp, bottom = bottomPaddingDp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         items(messages, key = { it.id }) { MessageBubble(it) }
         if (isLoading) item {
             Row(Modifier.fillMaxWidth(), Arrangement.Start) {
@@ -561,7 +393,7 @@ private fun InputSection(
 ) {
     Box(modifier.clip(RoundedCornerShape(24.dp)).background(InputBarBg)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (mode == InteractionMode.QA) IconButton(onClick = onCameraInput, modifier = Modifier.size(40.dp)) { Icon(Icons.Default.CameraAlt, "拍照识景", Modifier.size(22.dp), Primary) }
+            if (mode == InteractionMode.Chat) IconButton(onClick = onCameraInput, modifier = Modifier.size(40.dp)) { Icon(Icons.Default.CameraAlt, "拍照识景", Modifier.size(22.dp), Primary) }
             BasicTextField(
                 value = inputText,
                 onValueChange = onInputChange,
@@ -577,7 +409,7 @@ private fun InputSection(
                         singleLine = false,
                         visualTransformation = androidx.compose.ui.text.input.VisualTransformation.None,
                         interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                        placeholder = { Text(when (mode) { InteractionMode.Chat -> "输入消息..."; InteractionMode.QA -> "输入问题或拍照..."; InteractionMode.Route -> "输入偏好..." }, fontSize = 14.sp, color = TextHint) },
+                        placeholder = { Text(when (mode) { InteractionMode.Chat -> "输入消息或拍照..."; InteractionMode.Route -> "输入路线偏好..." }, fontSize = 14.sp, color = TextHint) },
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
                         contentPadding = PaddingValues(start = 12.dp, end = 4.dp, top = 0.dp, bottom = 0.dp)
                     )
@@ -689,4 +521,4 @@ private fun VoiceInputButton(
     }
 }
 
-enum class InteractionMode { Chat, QA, Route }
+enum class InteractionMode { Chat, Route }

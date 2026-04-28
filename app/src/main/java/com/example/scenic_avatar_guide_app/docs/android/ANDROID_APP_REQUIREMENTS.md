@@ -1,9 +1,11 @@
 # 景灵智导 Android 端需求基线
 
-版本：v2.2  
+版本：v2.3  
 日期：2026-04-29  
 适用仓库：`scenic_avatar_guide_app`  
-变更：TTS 方案由端侧讯飞切换为后端 Edge-TTS
+变更：
+1. TTS 方案由端侧讯飞切换为后端 Edge-TTS
+2. 交互模式由三种缩减为两种：聊天问答 + 路线规划
 
 ---
 
@@ -66,8 +68,8 @@
 1. 顶部栏
 2. 数字人区域
 3. 消息流
-4. 模式切换
-5. 文本输入 / 长按语音输入
+4. 模式切换（聊天问答 / 路线规划）
+5. 文本输入 / 拍照上传 / 长按语音输入
 6. 动作测试面板
 
 代码中提供了 `SettingsScreen.kt` 和 `SettingsViewModel.kt`，并已接入主页面顶部“设置”按钮，用于配置后端地址和查看会话信息。
@@ -101,13 +103,25 @@ App 启动
 | SettingsScreen | 已接入 | 后端地址、IP/端口配置与会话信息 |
 | Route/Profile 等独立页面 | 未纳入正式联调 | 不应假定已有独立接口 |
 
-### 4.2 当前问答流程
+### 4.2 当前交互流程
 
+**聊天问答模式**：
 ```text
-输入文本或本地 ASR 识别成功
+输入文本、拍照或本地 ASR 识别成功
 → 插入用户消息
-→ 调用 /api/v1/chat/text
-→ 展示 reply_text
+→ 调用 /api/v1/chat/text (mode=chat)
+→ 展示 reply_text + sources
+→ 调用 /api/v1/tts/synthesize 请求音频
+→ ExoPlayer 播放 audio_url
+→ 数字人进入 SPEAKING / 恢复 IDLE
+```
+
+**路线规划模式**：
+```text
+输入路线偏好或本地 ASR 识别成功
+→ 插入用户消息
+→ 调用 /api/v1/chat/text (mode=route)
+→ 展示 reply_text + route_data（地图 + 景点卡片）
 → 调用 /api/v1/tts/synthesize 请求音频
 → ExoPlayer 播放 audio_url
 → 数字人进入 SPEAKING / 恢复 IDLE
@@ -156,14 +170,14 @@ app/src/main/java/com/example/scenic_avatar_guide_app/
 ├── core/network/        # Retrofit / OkHttp / Base URL 配置
 ├── core/speech/         # 讯飞 ASR 封装
 ├── core/tts/            # TTS 抽象与实现
-│   ├── TTSController.kt           # TTS 抽象接口（统一播放、口型回调）
-│   ├── RemoteTTSController.kt     # 后端 Edge-TTS 调用（主链路）
-│   └── SystemTTSController.kt     # Android 系统 TTS（降级兜底）
+│   ├── TTSProvider.kt              # TTS 统一接口
+│   ├── RemoteTTSController.kt      # 后端 Edge-TTS 调用（主链路）
+│   └── SystemTTSController.kt      # Android 系统 TTS（降级兜底）
 ├── core/audio/          # ExoPlayer 音频播放封装
 ├── data/local/          # DataStore
-├── data/remote/         # ApiService（新增 TTS 接口）
+├── data/remote/         # ApiService（聊天、TTS、图片上传接口）
 ├── data/repository/     # GuideRepository
-├── domain/model/        # API 数据模型与 Avatar 状态模型
+├── domain/model/        # API 数据模型、Avatar 状态模型、路线规划模型
 ├── ui/components/       # AvatarView、波形组件
 └── ui/screens/          # MainScreen / MainViewModel / SettingsScreen
 ```

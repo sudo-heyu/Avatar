@@ -74,7 +74,8 @@ class GuideRepository @Inject constructor(
     suspend fun sendTextMessage(
         sessionId: String,
         message: String,
-        mode: String = "chat"
+        mode: String = "chat",
+        imageUrl: String? = null
     ): Result<ChatResponseData> {
         return try {
             val userId = settingsDataStore.userId.first()
@@ -86,6 +87,8 @@ class GuideRepository @Inject constructor(
                 scenicId = DEFAULT_SCENIC_ID,
                 question = message,
                 spotId = null,
+                mode = mode,
+                imageUrl = imageUrl,
                 options = null
             )
 
@@ -114,7 +117,7 @@ class GuideRepository @Inject constructor(
         text: String,
         voice: String = "zh-CN-XiaoxiaoNeural",
         rate: String = "+0%",
-        volume: String = "+0%",
+        volume: String = "+0dB",
         pitch: String = "+0Hz",
         format: String = "audio"
     ): Result<TtsSynthesizeData> {

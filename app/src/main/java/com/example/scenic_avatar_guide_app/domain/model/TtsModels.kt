@@ -10,7 +10,7 @@ data class TtsSynthesizeRequest(
     val text: String,
     val voice: String = "zh-CN-XiaoxiaoNeural",
     val rate: String = "+0%",
-    val volume: String = "+0%",
+    val volume: String = "+0dB",
     val pitch: String = "+0Hz",
     val format: String = "audio"
 )

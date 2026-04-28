@@ -46,6 +46,8 @@ fun SettingsScreen(
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
     val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
     val isChecking by viewModel.isCheckingConnection.collectAsStateWithLifecycle()
+    val currentVoiceId by viewModel.currentVoiceId.collectAsStateWithLifecycle()
+    val availableVoices = viewModel.availableVoices
 
     var showServerDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -161,6 +163,42 @@ fun SettingsScreen(
                     title = "会话 ID",
                     subtitle = sessionId ?: "未创建"
                 )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 语音设置
+            SettingsGroup(title = "语音设置") {
+                val currentVoice = availableVoices.find { it.id == currentVoiceId } ?: availableVoices.first()
+                var showVoiceDialog by remember { mutableStateOf(false) }
+
+                SettingsListItem(
+                    icon = Icons.Default.RecordVoiceOver,
+                    iconBg = Primary.copy(alpha = 0.1f),
+                    title = "发音人",
+                    subtitle = "${currentVoice.displayName} · ${currentVoice.description}",
+                    onClick = { showVoiceDialog = true },
+                    trailing = {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = null,
+                            tint = Primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                )
+
+                if (showVoiceDialog) {
+                    VoiceSelectionDialog(
+                        voices = availableVoices,
+                        currentVoiceId = currentVoiceId,
+                        onVoiceSelected = { voiceId ->
+                            viewModel.setVoiceId(voiceId)
+                            showVoiceDialog = false
+                        },
+                        onDismiss = { showVoiceDialog = false }
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -393,6 +431,89 @@ private fun SettingsListItem(
 
         trailing?.invoke()
     }
+}
+
+// ==================== 发音人选择对话框 ====================
+
+@Composable
+private fun VoiceSelectionDialog(
+    voices: List<com.example.scenic_avatar_guide_app.core.tts.VoiceInfo>,
+    currentVoiceId: String,
+    onVoiceSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = Primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("选择发音人")
+            }
+        },
+        text = {
+            Column {
+                voices.forEach { voice ->
+                    val isSelected = voice.id == currentVoiceId
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onVoiceSelected(voice.id) },
+                        color = if (isSelected) Primary.copy(alpha = 0.1f) else Color.Transparent
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (voice.gender == com.example.scenic_avatar_guide_app.core.tts.Gender.FEMALE)
+                                    Icons.Default.Face else Icons.Default.Face,
+                                contentDescription = null,
+                                modifier = Modifier.size(22.dp),
+                                tint = if (isSelected) Primary else TextSecondary
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = voice.displayName,
+                                    fontSize = 15.sp,
+                                    fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+                                    color = if (isSelected) Primary else TextPrimary
+                                )
+                                Text(
+                                    text = voice.description,
+                                    fontSize = 12.sp,
+                                    color = TextHint
+                                )
+                            }
+                            if (isSelected) {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = "已选择",
+                                    tint = Primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                    if (voice != voices.last()) {
+                        HorizontalDivider(
+                            color = SurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+        shape = RoundedCornerShape(20.dp)
+    )
 }
 
 // ==================== 服务器配置对话框 ====================

@@ -12,6 +12,7 @@ import com.example.scenic_avatar_guide_app.domain.model.ChatResponseData
 import com.example.scenic_avatar_guide_app.domain.model.ChatMessage
 import com.example.scenic_avatar_guide_app.domain.model.EmotionToExpression
 import com.example.scenic_avatar_guide_app.domain.model.IntentToGesture
+import com.example.scenic_avatar_guide_app.domain.model.RouteData
 import com.example.scenic_avatar_guide_app.domain.model.AvatarState
 import com.example.scenic_avatar_guide_app.domain.model.AvatarFullState
 import com.example.scenic_avatar_guide_app.domain.model.SourceInfo
@@ -96,6 +97,7 @@ class MainViewModel @Inject constructor(
         observeAvatarState()
         observeVoiceChanges()
         observeSessionChanges()
+        initVoiceFromSettings()
     }
 
     /**
@@ -186,7 +188,6 @@ class MainViewModel @Inject constructor(
                 message = text,
                 mode = when (_currentMode.value) {
                     InteractionMode.Chat -> "chat"
-                    InteractionMode.QA -> "qa"
                     InteractionMode.Route -> "route"
                 }
             ).fold(
@@ -196,7 +197,8 @@ class MainViewModel @Inject constructor(
                         content = response.replyText,
                         isUser = false,
                         sources = response.sources,
-                        avatarAction = response.avatarAction
+                        avatarAction = response.avatarAction,
+                        routeData = response.routeData
                     )
 
                     playbackManager.play(buildAvatarPlayAction(response))
@@ -214,7 +216,8 @@ class MainViewModel @Inject constructor(
         content: String,
         isUser: Boolean,
         sources: List<SourceInfo> = emptyList(),
-        avatarAction: AvatarAction? = null
+        avatarAction: AvatarAction? = null,
+        routeData: RouteData? = null
     ) {
         val currentList = _messages.value.toMutableList()
         currentList.add(ChatMessage(
@@ -223,7 +226,8 @@ class MainViewModel @Inject constructor(
             isUser = isUser,
             timestamp = System.currentTimeMillis(),
             sources = sources,
-            avatarAction = avatarAction
+            avatarAction = avatarAction,
+            routeData = routeData
         ))
         _messages.value = currentList
     }
@@ -292,10 +296,23 @@ class MainViewModel @Inject constructor(
     fun getVoicesByStyle(): Map<VoiceStyle, List<VoiceInfo>> = playbackManager.getVoicesByStyle()
 
     /**
+     * 从设置初始化发音人
+     */
+    private fun initVoiceFromSettings() {
+        viewModelScope.launch {
+            val savedVoiceId = settingsDataStore.voiceId.first()
+            playbackManager.setVoice(savedVoiceId)
+        }
+    }
+
+    /**
      * 设置发音人
      */
     fun setVoice(voiceId: String) {
         playbackManager.setVoice(voiceId)
+        viewModelScope.launch {
+            settingsDataStore.setVoiceId(voiceId)
+        }
     }
 
     /**

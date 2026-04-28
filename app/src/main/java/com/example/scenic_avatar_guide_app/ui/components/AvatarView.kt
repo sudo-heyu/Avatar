@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -39,7 +40,8 @@ fun AvatarView(
     avatarState: AvatarState,
     modifier: Modifier = Modifier,
     fullState: AvatarFullState? = null,
-    enableLive2D: Boolean = true  // 启用 Live2D 渲染
+    enableLive2D: Boolean = true,  // 启用 Live2D 渲染
+    showUpperBodyOnly: Boolean = false  // 只显示上半身（裁剪下半身）
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -110,8 +112,19 @@ fun AvatarView(
         }
     }
 
+    val upperBodyModifier = if (showUpperBodyOnly) {
+        Modifier.graphicsLayer {
+            clip = true
+            // 只保留上半部分（约 65%），下半身被裁掉
+            // 通过 scaleY 放大后再向上偏移，使画面中心落在胸部以上
+            scaleY = 1.5f
+            translationY = -size.height * 0.15f
+        }
+    } else Modifier
+
     Box(
         modifier = modifier
+            .then(upperBodyModifier)
             .background(Brush.verticalGradient(colors = listOf(Primary, PrimaryLight))),
         contentAlignment = Alignment.Center
     ) {

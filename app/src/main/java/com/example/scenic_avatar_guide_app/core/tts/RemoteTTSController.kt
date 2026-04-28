@@ -153,6 +153,29 @@ class RemoteTTSController(
     }
 
     /**
+     * 清洗 TTS 文本：去除 Markdown/HTML 标签、控制字符，保留纯文本
+     * Edge TTS 会把 '<' 当成 SSML 标签入口，含 HTML/Markdown 的文本会导致合成失败
+     */
+    private fun sanitizeTtsText(text: String): String {
+        return text
+            // 去除 HTML/XML 标签 <...>
+            .replace(Regex("<[^>]+>"), "")
+            // 去除 Markdown 链接 [text](url)
+            .replace(Regex("\\[(.*?)\\]\\(.*?\\)"), "$1")
+            // 去除 Markdown 图片 ![alt](url)
+            .replace(Regex("!\\[(.*?)\\]\\(.*?\\)"), "")
+            // 去除 Markdown 表格/粗体/斜体等符号 * _ | ` > #
+            .replace(Regex("[*_|`>#~-]"), "")
+            // 去除 URL
+            .replace(Regex("https?://\\S+"), "")
+            // 去除控制字符（零宽空格、零宽连接符等）
+            .replace(Regex("[\\u200B-\\u200F\\uFEFF\\u2060]"), "")
+            // 合并多余空白
+            .trim()
+            .replace(Regex("\\s+"), " ")
+    }
+
+    /**
      * 格式化语速为 edge-tts 参数，如 +10%、-20%
      */
     private fun formatRate(speed: Float): String {
