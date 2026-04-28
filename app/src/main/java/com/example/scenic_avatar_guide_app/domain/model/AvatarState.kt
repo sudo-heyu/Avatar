@@ -84,13 +84,31 @@ enum class VisemeType(
     val mouthOpen: Float,      // 嘴巴开合度 0-1
     val mouthForm: Float = 0f  // 嘴型：负值=扁，正值=圆，0=中性
 ) {
+    // ==================== 原有口型（向后兼容）====================
     CLOSED(0.0f, 0f),      // b, p, m (闭唇)
     SLIGHT(0.25f, 0f),     // d, t, n, l
     HALF(0.5f, 0f),        // e, g, k, h
     OPEN(0.9f, 0f),        // a (大开口)
     WIDE(0.6f, -0.3f),     // i, ü (扁嘴)
     ROUND(0.5f, 0.6f),     // o, u (圆唇)
-    NEUTRAL(0.1f, 0f);     // 默认/静音
+    NEUTRAL(0.1f, 0f),     // 默认/静音
+
+    // ==================== 新增高精度口型 ====================
+    SIL(0.0f, 0.0f),       // 静音/停顿
+    BP(0.0f, 0.0f),        // 双唇音 b,p,m
+    F(0.1f, -0.2f),        // 唇齿音 f
+    DT(0.15f, 0.0f),       // 舌尖中音 d,t,n,l
+    GK(0.35f, 0.0f),       // 舌根音 g,k,h
+    JQ(0.25f, -0.4f),      // 舌面音 j,q,x
+    ZC(0.2f, 0.0f),        // 舌尖前音 z,c,s
+    ZH(0.25f, 0.0f),       // 舌尖后音 zh,ch,sh,r
+    A(0.9f, 0.0f),         // 开口呼 a,ai,an,ang,ao
+    O(0.6f, 0.6f),         // 合口呼圆唇 o,ou,ong
+    E(0.5f, 0.0f),         // 半开口 e,ei,en,eng,er
+    I(0.3f, -0.5f),        // 齐齿呼扁嘴 i,ie,iu,in,ing
+    U(0.4f, 0.4f),         // 合口呼收圆 u,ui,un
+    V(0.35f, -0.3f),       // 撮口呼 ü,üe,ün
+    UA(0.7f, 0.2f);        // 复合元音过渡 ua,uai,uan,uang,iao,ian
 
     companion object {
         /**

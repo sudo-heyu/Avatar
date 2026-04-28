@@ -49,7 +49,12 @@ data class TtsMarkItem(
     val startMs: Int,
 
     @SerialName("end_ms")
-    val endMs: Int
+    val endMs: Int,
+
+    /**
+     * 该字的音素序列（可选，后端未提供时由 Android 端本地生成）
+     */
+    val phonemes: List<String>? = null
 )
 
 // ==================== TTS 发音人列表 ====================

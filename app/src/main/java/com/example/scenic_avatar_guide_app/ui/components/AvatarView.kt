@@ -16,10 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.unit.Density
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -63,6 +60,8 @@ fun AvatarView(
                 val result = newRenderer.loadModel("live2d/hiyori/Hiyori.model3.json")
                 isLive2DReady = result.isSuccess
                 renderer = newRenderer
+                // 初始化完成后立即同步上半身模式（解决时序问题）
+                newRenderer.setUpperBodyMode(showUpperBodyOnly)
             } catch (e: Exception) {
                 isLive2DReady = false
                 live2dError = e.message
@@ -115,10 +114,6 @@ fun AvatarView(
         }
     }
 
-    val upperBodyModifier = if (showUpperBodyOnly) {
-        Modifier.clip(UpperBodyShape)
-    } else Modifier
-
     // 同步上半身模式到 Live2D 渲染器
     LaunchedEffect(showUpperBodyOnly) {
         renderer?.setUpperBodyMode(showUpperBodyOnly)
@@ -126,7 +121,6 @@ fun AvatarView(
 
     Box(
         modifier = modifier
-            .then(upperBodyModifier)
             .background(Brush.verticalGradient(colors = listOf(Primary, PrimaryLight))),
         contentAlignment = Alignment.Center
     ) {
@@ -193,10 +187,17 @@ private fun PlaceholderAvatar(
                 else -> Color.White.copy(0.3f)
             }
 
-            // 动态口型圆
+            // 动态口型圆（根据 mouthForm 变形：圆唇拉宽，扁嘴压扁）
+            val mouthScaleX = 1f + (mouthForm * 0.6f)
+            val mouthScaleY = 1f - (mouthForm * 0.3f)
+
             Box(
                 modifier = Modifier
                     .size(animatedSize)
+                    .graphicsLayer {
+                        scaleX = mouthScaleX.coerceIn(0.5f, 1.5f)
+                        scaleY = mouthScaleY.coerceIn(0.5f, 1.5f)
+                    }
                     .clip(CircleShape)
                     .background(animatedColor),
                 contentAlignment = Alignment.Center
@@ -402,14 +403,3 @@ private fun gestureToText(gesture: AvatarGesture): String {
     }
 }
 
-private val UpperBodyShape = object : Shape {
-    override fun createOutline(
-        size: androidx.compose.ui.geometry.Size,
-        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
-        density: Density
-    ): Outline {
-        return Outline.Rectangle(
-            Rect(0f, 0f, size.width, size.height * 0.65f)
-        )
-    }
-}

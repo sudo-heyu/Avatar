@@ -33,6 +33,9 @@ class AvatarPlaybackManager(
     // TTS 控制器（远程 Edge-TTS）
     private val ttsController = RemoteTTSController(context, repository)
 
+    // 口型动画驱动器
+    private val lipSyncAnimator = LipSyncAnimator()
+
     // 作用域
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
@@ -45,6 +48,13 @@ class AvatarPlaybackManager(
     init {
         // 设置 TTS 回调
         setupTTSCallbacks()
+
+        // 设置口型动画回调
+        lipSyncAnimator.setOnUpdateListener { open, form ->
+            _avatarState.update {
+                it.copy(mouthOpen = open, mouthForm = form)
+            }
+        }
     }
 
     /**
@@ -91,6 +101,7 @@ class AvatarPlaybackManager(
         }
 
         ttsController.onSpeakComplete = {
+            lipSyncAnimator.stop()
             _avatarState.update {
                 it.copy(
                     state = AvatarState.IDLE,
@@ -101,7 +112,12 @@ class AvatarPlaybackManager(
             isPlaying = false
         }
 
-        // 音素回调 - 驱动口型
+        // 音素事件列表回调 - 驱动高精度口型动画
+        ttsController.onPhonemeEvents = { events ->
+            lipSyncAnimator.start(events, scope)
+        }
+
+        // 向后兼容：单个音素回调（仍更新状态，但 LipSyncAnimator 已接管平滑）
         ttsController.onPhonemeCallback = { event ->
             updateMouthFromViseme(event.viseme)
         }

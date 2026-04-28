@@ -3,6 +3,7 @@ package com.example.scenic_avatar_guide_app.core.tts
 import android.content.Context
 import android.util.Log
 import com.example.scenic_avatar_guide_app.core.audio.AudioPlayer
+import com.example.scenic_avatar_guide_app.core.avatar.ChinesePhonemeEngine
 import com.example.scenic_avatar_guide_app.data.repository.GuideRepository
 import com.example.scenic_avatar_guide_app.domain.model.VisemeType
 import kotlinx.coroutines.*
@@ -46,6 +47,16 @@ class RemoteTTSController(
     override var onSpeakStart: (() -> Unit)? = null
     override var onSpeakComplete: (() -> Unit)? = null
 
+    /**
+     * 新增：完整音素事件列表回调（高精度口型驱动）
+     */
+    var onPhonemeEvents: ((List<PhonemeEvent>) -> Unit)? = null
+
+    /**
+     * 预计算的音素事件（等待音频播放开始时触发）
+     */
+    private var pendingPhonemeEvents: List<PhonemeEvent>? = null
+
     init {
         setupAudioPlayerCallbacks()
         syncFallbackCallbacks()
@@ -56,17 +67,37 @@ class RemoteTTSController(
             Log.d(TAG, "音频播放开始")
             isSpeaking = true
             onSpeakStart?.invoke()
+
+            // 音频开始时，启动预计算好的口型动画
+            pendingPhonemeEvents?.let { events ->
+                onPhonemeEvents?.invoke(events)
+
+                // 向后兼容：逐个回调旧接口
+                lipSyncJob?.cancel()
+                lipSyncJob = CoroutineScope(Dispatchers.Main).launch {
+                    val playStartTime = System.currentTimeMillis()
+                    events.forEach { event ->
+                        if (!isActive) return@launch
+                        val elapsed = System.currentTimeMillis() - playStartTime
+                        val waitTime = event.startMs - elapsed
+                        if (waitTime > 0) delay(waitTime)
+                        onPhonemeCallback?.invoke(event)
+                    }
+                }
+            }
         }
         audioPlayer.onPlayComplete = {
             Log.d(TAG, "音频播放完成")
             isSpeaking = false
             lipSyncJob?.cancel()
+            pendingPhonemeEvents = null
             onSpeakComplete?.invoke()
         }
         audioPlayer.onPlayError = { error ->
             Log.e(TAG, "音频播放错误: $error")
             isSpeaking = false
             lipSyncJob?.cancel()
+            pendingPhonemeEvents = null
             // 播放失败时降级到系统 TTS
             fallbackSpeak()
         }
@@ -85,8 +116,8 @@ class RemoteTTSController(
         val cleanText = sanitizeTtsText(text)
         currentText = cleanText
 
-        // 启动口型同步（字符估算，与音频并行）
-        startLipSyncSimulation(cleanText)
+        // 预计算音素事件（字符估算兜底），等音频播放开始时触发
+        precomputePhonemeEvents(cleanText)
 
         // 异步请求后端合成
         CoroutineScope(Dispatchers.Main).launch {
@@ -100,12 +131,15 @@ class RemoteTTSController(
                 )
                 result.fold(
                     onSuccess = { data ->
+                        // 若后端返回 marks，用 marks 替换预计算的估算事件
+                        data.marks?.let { marks ->
+                            Log.d(TAG, "后端返回 ${marks.size} 个 marks，使用高精度口型")
+                            pendingPhonemeEvents = ChinesePhonemeEngine.marksToPhonemeEvents(marks)
+                        }
+
                         val fullUrl = repository.buildAudioUrl(data.audioUrl)
                         Log.d(TAG, "TTS 合成成功，播放: $fullUrl")
                         audioPlayer.play(fullUrl)
-
-                        // TODO: 若后端返回 marks，可替换字符估算为 marks 驱动
-                        // data.marks?.let { startMarksDrivenLipSync(it) }
                     },
                     onFailure = { e ->
                         Log.e(TAG, "后端 TTS 请求失败，降级到系统 TTS", e)
@@ -130,6 +164,7 @@ class RemoteTTSController(
     override fun stop() {
         isSpeaking = false
         lipSyncJob?.cancel()
+        pendingPhonemeEvents = null
         audioPlayer.stop()
         fallbackTts.stop()
     }
@@ -192,41 +227,18 @@ class RemoteTTSController(
     }
 
     /**
-     * 字符估算口型同步（第一阶段兜底）
+     * 预计算音素事件（字符估算，等音频播放开始时触发）
      */
-    private fun startLipSyncSimulation(text: String) {
-        lipSyncJob?.cancel()
-        val charDuration = estimateCharDurations(text)
-        lipSyncJob = CoroutineScope(Dispatchers.Main).launch {
-            var elapsed = 0L
-            text.forEachIndexed { index, char ->
-                if (!isActive) return@launch
-                val viseme = VisemeType.fromChar(char)
-                val duration = charDuration.getOrElse(index) { 180L }
-                onPhonemeCallback?.invoke(
-                    PhonemeEvent(
-                        phoneme = char.toString(),
-                        startMs = elapsed,
-                        endMs = elapsed + duration,
-                        viseme = viseme,
-                        charIndex = index
-                    )
-                )
-                delay(duration)
-                elapsed += duration
-            }
-        }
-    }
-
-    private fun estimateCharDurations(text: String): List<Long> {
-        return text.map { char ->
+    private fun precomputePhonemeEvents(text: String) {
+        val cleanChars = text.filter { it.isLetterOrDigit() || it in '一'..'鿿' }
+        val totalDuration = cleanChars.sumOf { char ->
             when {
-                char.isLetterOrDigit() -> 180L
                 char in setOf('，', '。', '！', '？', '、', '；', '：', '"', '"') -> 300L
                 char in setOf(',', '.', '!', '?', ';', ':', '"', '\'') -> 200L
                 char.isWhitespace() -> 100L
-                else -> 100L
+                else -> 180L
             }
         }
+        pendingPhonemeEvents = ChinesePhonemeEngine.textToPhonemeEvents(cleanChars, totalDuration)
     }
 }

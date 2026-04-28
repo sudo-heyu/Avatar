@@ -116,6 +116,9 @@ dependencies {
     // Image loading
     implementation("io.coil-kt:coil-compose:2.6.0")
 
+    // Pinyin conversion for Chinese lip sync
+    implementation("com.belerweb:pinyin4j:2.5.1")
+
     // Testing
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
