@@ -401,5 +401,13 @@ data class ChatMessage(
     /**
      * 路线规划数据（仅在路线模式下非空）
      */
-    val routeData: RouteData? = null
+    val routeData: RouteData? = null,
+    /**
+     * 待发送的本地图片 URI（发送前预览用）
+     */
+    val pendingImageUri: String? = null,
+    /**
+     * 服务器返回的图片 URL
+     */
+    val imageUrl: String? = null
 )

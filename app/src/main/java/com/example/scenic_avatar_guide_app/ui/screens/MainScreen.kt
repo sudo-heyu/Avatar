@@ -2,6 +2,8 @@ package com.example.scenic_avatar_guide_app.ui.screens
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Environment
 import android.os.VibrationEffect
 import android.os.Vibrator
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -41,9 +43,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.content.getSystemService
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.example.scenic_avatar_guide_app.ui.theme.*
 import com.example.scenic_avatar_guide_app.ui.components.ArcWaveform
 import com.example.scenic_avatar_guide_app.ui.components.AvatarView
@@ -54,6 +58,10 @@ import com.example.scenic_avatar_guide_app.core.avatar.TestAvatarActions
 import com.example.scenic_avatar_guide_app.core.avatar.AvatarPlayAction
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,20 +79,48 @@ fun MainScreen(
     val isRecording by viewModel.isRecording.collectAsStateWithLifecycle()
     val volumeLevel by viewModel.volumeLevel.collectAsStateWithLifecycle()
     val showTestPanel by viewModel.showTestPanel.collectAsStateWithLifecycle()
+    val pendingImageUri by viewModel.pendingImageUri.collectAsStateWithLifecycle()
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
 
     var isCancelZone by remember { mutableStateOf(false) }
+    var showImagePickerDialog by remember { mutableStateOf(false) }
+    var cameraImageUri by remember { mutableStateOf<Uri?>(null) }
 
     var hasAudioPermission by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+    }
+    var hasCameraPermission by remember {
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
         hasAudioPermission = isGranted
         if (isGranted) viewModel.enterVoiceInputMode()
+    }
+
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let { viewModel.setPendingImage(it.toString()) }
+    }
+
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        if (success) {
+            cameraImageUri?.let { viewModel.setPendingImage(it.toString()) }
+        }
+        cameraImageUri = null
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+        hasCameraPermission = isGranted
+        if (isGranted) {
+            val uri = createImageUri(context)
+            if (uri != null) {
+                cameraImageUri = uri
+                cameraLauncher.launch(uri)
+            }
+        }
     }
 
     val speechHelper = remember {
@@ -117,20 +153,20 @@ fun MainScreen(
                     showTestPanel = showTestPanel
                 )
 
-                // 数字人区域：占据上半部分（至少一半），只展示上半身
+                // 数字人区域：高度自适应，只展示上半身
                 AvatarSection(
                     avatarState = avatarState,
                     fullState = avatarFullState,
                     showUpperBodyOnly = true,
-                    modifier = Modifier.fillMaxWidth().weight(3f)
+                    modifier = Modifier.fillMaxWidth()
                 )
 
-                // 消息列表：在数字人正下方，底部留出让位给底栏的空间
+                // 消息列表：占据剩余所有空间
                 MessageList(
                     messages = messages,
                     isLoading = isLoading,
                     listState = listState,
-                    modifier = Modifier.fillMaxWidth().weight(2f),
+                    modifier = Modifier.fillMaxWidth().weight(1f),
                     bottomPaddingDp = 140.dp
                 )
             }
@@ -182,18 +218,42 @@ fun MainScreen(
                 } else {
                     InputSection(
                         mode = currentMode, inputText = inputText, isLoading = isLoading,
+                        pendingImageUri = pendingImageUri,
                         onInputChange = { viewModel.updateInputText(it) },
                         onSend = { viewModel.sendMessage() },
                         onVoiceClick = {
                             if (hasAudioPermission) viewModel.enterVoiceInputMode()
                             else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         },
-                        onCameraInput = { viewModel.startCameraInput() },
+                        onCameraInput = { showImagePickerDialog = true },
+                        onClearImage = { viewModel.clearPendingImage() },
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
                     )
                 }
             }
         }
+    }
+
+    if (showImagePickerDialog) {
+        ImageSourceDialog(
+            onDismiss = { showImagePickerDialog = false },
+            onCameraClick = {
+                showImagePickerDialog = false
+                if (hasCameraPermission) {
+                    val uri = createImageUri(context)
+                    if (uri != null) {
+                        cameraImageUri = uri
+                        cameraLauncher.launch(uri)
+                    }
+                } else {
+                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                }
+            },
+            onGalleryClick = {
+                showImagePickerDialog = false
+                galleryLauncher.launch("image/*")
+            }
+        )
     }
 }
 
@@ -373,13 +433,35 @@ private fun MessageList(
 @Composable
 private fun MessageBubble(message: ChatMessage) {
     val isUser = message.isUser
+    val imageUri = message.pendingImageUri ?: message.imageUrl
     Row(Modifier.fillMaxWidth(), if (isUser) Arrangement.End else Arrangement.Start) {
         Surface(
             modifier = Modifier.widthIn(max = 260.dp),
             shape = RoundedCornerShape(16.dp, 16.dp, if (isUser) 16.dp else 4.dp, if (isUser) 4.dp else 16.dp),
             color = if (isUser) UserBubbleBg else AssistantBubbleBg
         ) {
-            Text(message.content, Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 14.sp, lineHeight = 20.sp, color = if (isUser) UserBubbleText else AssistantBubbleText)
+            Column {
+                if (imageUri != null) {
+                    AsyncImage(
+                        model = imageUri,
+                        contentDescription = "图片",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 200.dp)
+                            .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = if (isUser) 16.dp else 0.dp, bottomEnd = if (isUser) 0.dp else 16.dp)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
+                }
+                if (message.content.isNotBlank()) {
+                    Text(
+                        message.content,
+                        Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
+                        color = if (isUser) UserBubbleText else AssistantBubbleText
+                    )
+                }
+            }
         }
     }
 }
@@ -388,35 +470,70 @@ private fun MessageBubble(message: ChatMessage) {
 @Composable
 private fun InputSection(
     mode: InteractionMode, inputText: String, isLoading: Boolean,
+    pendingImageUri: String?,
     onInputChange: (String) -> Unit, onSend: () -> Unit, onVoiceClick: () -> Unit, onCameraInput: () -> Unit,
+    onClearImage: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Box(modifier.clip(RoundedCornerShape(24.dp)).background(InputBarBg)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (mode == InteractionMode.Chat) IconButton(onClick = onCameraInput, modifier = Modifier.size(40.dp)) { Icon(Icons.Default.CameraAlt, "拍照识景", Modifier.size(22.dp), Primary) }
-            BasicTextField(
-                value = inputText,
-                onValueChange = onInputChange,
-                modifier = Modifier.weight(1f),
-                maxLines = 3,
-                keyboardOptions = KeyboardOptions.Default,
-                keyboardActions = KeyboardActions.Default,
-                decorationBox = { innerTextField ->
-                    OutlinedTextFieldDefaults.DecorationBox(
-                        value = inputText,
-                        innerTextField = innerTextField,
-                        enabled = true,
-                        singleLine = false,
-                        visualTransformation = androidx.compose.ui.text.input.VisualTransformation.None,
-                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                        placeholder = { Text(when (mode) { InteractionMode.Chat -> "输入消息或拍照..."; InteractionMode.Route -> "输入路线偏好..." }, fontSize = 14.sp, color = TextHint) },
-                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
-                        contentPadding = PaddingValues(start = 12.dp, end = 4.dp, top = 0.dp, bottom = 0.dp)
+    Column(modifier) {
+        if (pendingImageUri != null) {
+            Box(
+                modifier = Modifier
+                    .padding(bottom = 6.dp)
+                    .height(80.dp)
+                    .widthIn(max = 120.dp)
+                    .clip(RoundedCornerShape(12.dp))
+            ) {
+                AsyncImage(
+                    model = pendingImageUri,
+                    contentDescription = "待发送图片",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+                IconButton(
+                    onClick = onClearImage,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(24.dp)
+                        .padding(2.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "删除图片",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
-            )
-            if (inputText.isNotBlank()) FilledIconButton(onClick = onSend, enabled = !isLoading, modifier = Modifier.size(40.dp), shape = CircleShape) { Icon(Icons.AutoMirrored.Filled.Send, "发送", Modifier.size(20.dp), Color.White) }
-            else IconButton(onClick = onVoiceClick, modifier = Modifier.size(40.dp)) { Icon(Icons.Default.Mic, "语音输入", Modifier.size(22.dp), TextSecondary) }
+            }
+        }
+        Box(Modifier.clip(RoundedCornerShape(24.dp)).background(InputBarBg)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (mode == InteractionMode.Chat) IconButton(onClick = onCameraInput, modifier = Modifier.size(40.dp)) { Icon(Icons.Default.CameraAlt, "拍照识景", Modifier.size(22.dp), Primary) }
+                BasicTextField(
+                    value = inputText,
+                    onValueChange = onInputChange,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 3,
+                    keyboardOptions = KeyboardOptions.Default,
+                    keyboardActions = KeyboardActions.Default,
+                    decorationBox = { innerTextField ->
+                        OutlinedTextFieldDefaults.DecorationBox(
+                            value = inputText,
+                            innerTextField = innerTextField,
+                            enabled = true,
+                            singleLine = false,
+                            visualTransformation = androidx.compose.ui.text.input.VisualTransformation.None,
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            placeholder = { Text(when (mode) { InteractionMode.Chat -> "输入消息或拍照..."; InteractionMode.Route -> "输入路线偏好..." }, fontSize = 14.sp, color = TextHint) },
+                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
+                            contentPadding = PaddingValues(start = 12.dp, end = 4.dp, top = 0.dp, bottom = 0.dp)
+                        )
+                    }
+                )
+                val canSend = inputText.isNotBlank() || pendingImageUri != null
+                if (canSend) FilledIconButton(onClick = onSend, enabled = !isLoading, modifier = Modifier.size(40.dp), shape = CircleShape) { Icon(Icons.AutoMirrored.Filled.Send, "发送", Modifier.size(20.dp), Color.White) }
+                else IconButton(onClick = onVoiceClick, modifier = Modifier.size(40.dp)) { Icon(Icons.Default.Mic, "语音输入", Modifier.size(22.dp), TextSecondary) }
+            }
         }
     }
 }
@@ -522,3 +639,64 @@ private fun VoiceInputButton(
 }
 
 enum class InteractionMode { Chat, Route }
+
+@Composable
+private fun ImageSourceDialog(
+    onDismiss: () -> Unit,
+    onCameraClick: () -> Unit,
+    onGalleryClick: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("选择图片来源", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(
+                    onClick = onCameraClick,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = SurfaceVariant
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(Icons.Default.CameraAlt, null, tint = Primary, modifier = Modifier.size(28.dp))
+                        Text("拍照上传", fontSize = 15.sp, color = TextPrimary)
+                    }
+                }
+                Surface(
+                    onClick = onGalleryClick,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = SurfaceVariant
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(Icons.Default.PhotoLibrary, null, tint = Primary, modifier = Modifier.size(28.dp))
+                        Text("从相册选择", fontSize = 15.sp, color = TextPrimary)
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+        shape = RoundedCornerShape(20.dp)
+    )
+}
+
+private fun createImageUri(context: android.content.Context): Uri? {
+    return try {
+        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val imageFile = File.createTempFile("JPEG_${timeStamp}_", ".jpg", context.getExternalFilesDir(Environment.DIRECTORY_PICTURES))
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", imageFile)
+    } catch (e: Exception) {
+        null
+    }
+}

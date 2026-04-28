@@ -1,10 +1,15 @@
 package com.example.scenic_avatar_guide_app.data.repository
 
+import android.content.Context
+import android.net.Uri
 import com.example.scenic_avatar_guide_app.core.common.NetworkResult
 import com.example.scenic_avatar_guide_app.data.local.SettingsDataStore
 import com.example.scenic_avatar_guide_app.data.remote.ApiService
 import com.example.scenic_avatar_guide_app.domain.model.*
 import kotlinx.coroutines.flow.first
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -95,6 +100,29 @@ class GuideRepository @Inject constructor(
             val response = apiService.chatText(request)
             if (response.code == 0) {
                 Result.success(response.data)
+            } else {
+                Result.failure(Exception(response.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 上传图片
+     */
+    suspend fun uploadImage(imageUri: Uri, context: Context): Result<String> {
+        return try {
+            val inputStream = context.contentResolver.openInputStream(imageUri)
+                ?: return Result.failure(Exception("无法打开图片"))
+            val bytes = inputStream.use { it.readBytes() }
+
+            val requestBody = bytes.toRequestBody("image/*".toMediaTypeOrNull())
+            val multipartBody = MultipartBody.Part.createFormData("image", "upload.jpg", requestBody)
+
+            val response = apiService.uploadImage(multipartBody)
+            if (response.code == 0) {
+                Result.success(response.data.imageUrl)
             } else {
                 Result.failure(Exception(response.message))
             }

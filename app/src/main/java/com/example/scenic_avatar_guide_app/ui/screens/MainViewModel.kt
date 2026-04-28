@@ -76,6 +76,10 @@ class MainViewModel @Inject constructor(
     private val _showTestPanel = MutableStateFlow(true)
     val showTestPanel: StateFlow<Boolean> = _showTestPanel.asStateFlow()
 
+    // 待发送图片 URI
+    private val _pendingImageUri = MutableStateFlow<String?>(null)
+    val pendingImageUri: StateFlow<String?> = _pendingImageUri.asStateFlow()
+
     // 当前发音人（默认 Edge-TTS 晓晓）
     private val _currentVoice = MutableStateFlow(VoiceInfo(
         id = "zh-CN-XiaoxiaoNeural",
@@ -168,13 +172,20 @@ class MainViewModel @Inject constructor(
 
     fun sendMessage() {
         val text = _inputText.value.trim()
-        if (text.isBlank() || _isLoading.value) return
-        addMessage(text, isUser = true)
+        val pendingImage = _pendingImageUri.value
+        if ((text.isBlank() && pendingImage == null) || _isLoading.value) return
+
+        addMessage(
+            content = text,
+            isUser = true,
+            pendingImageUri = pendingImage
+        )
         _inputText.value = ""
-        sendMessageToBackend(text)
+        _pendingImageUri.value = null
+        sendMessageToBackend(text, pendingImage)
     }
 
-    private fun sendMessageToBackend(text: String) {
+    private fun sendMessageToBackend(text: String, pendingImageUri: String? = null) {
         viewModelScope.launch {
             _isLoading.value = true
             _avatarState.value = AvatarState.THINKING
@@ -183,13 +194,28 @@ class MainViewModel @Inject constructor(
                 createNewSession()
             }
 
+            var imageUrl: String? = null
+            if (pendingImageUri != null) {
+                val uri = android.net.Uri.parse(pendingImageUri)
+                repository.uploadImage(uri, application).fold(
+                    onSuccess = { imageUrl = it },
+                    onFailure = {
+                        _isLoading.value = false
+                        _avatarState.value = AvatarState.IDLE
+                        addMessage("图片上传失败，请重试", isUser = false)
+                        return@launch
+                    }
+                )
+            }
+
             repository.sendTextMessage(
                 sessionId = sessionId ?: "",
                 message = text,
                 mode = when (_currentMode.value) {
                     InteractionMode.Chat -> "chat"
                     InteractionMode.Route -> "route"
-                }
+                },
+                imageUrl = imageUrl
             ).fold(
                 onSuccess = { response ->
                     _avatarState.value = AvatarState.SPEAKING
@@ -217,7 +243,9 @@ class MainViewModel @Inject constructor(
         isUser: Boolean,
         sources: List<SourceInfo> = emptyList(),
         avatarAction: AvatarAction? = null,
-        routeData: RouteData? = null
+        routeData: RouteData? = null,
+        pendingImageUri: String? = null,
+        imageUrl: String? = null
     ) {
         val currentList = _messages.value.toMutableList()
         currentList.add(ChatMessage(
@@ -227,9 +255,19 @@ class MainViewModel @Inject constructor(
             timestamp = System.currentTimeMillis(),
             sources = sources,
             avatarAction = avatarAction,
-            routeData = routeData
+            routeData = routeData,
+            pendingImageUri = pendingImageUri,
+            imageUrl = imageUrl
         ))
         _messages.value = currentList
+    }
+
+    fun setPendingImage(uri: String) {
+        _pendingImageUri.value = uri
+    }
+
+    fun clearPendingImage() {
+        _pendingImageUri.value = null
     }
 
     private fun buildAvatarPlayAction(response: ChatResponseData): AvatarPlayAction {
@@ -371,10 +409,6 @@ class MainViewModel @Inject constructor(
             kotlinx.coroutines.delay(500)
             _voiceInputMode.value = false
         }
-    }
-
-    fun startCameraInput() {
-        addMessage("拍照识景功能开发中，敬请期待。", isUser = false)
     }
 
     override fun onCleared() {
