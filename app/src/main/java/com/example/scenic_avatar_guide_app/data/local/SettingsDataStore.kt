@@ -45,7 +45,7 @@ class SettingsDataStore @Inject constructor(
 
     suspend fun setBaseUrl(url: String) {
         context.dataStore.edit { preferences ->
-            preferences[BASE_URL_KEY] = url
+            preferences[BASE_URL_KEY] = normalizeBaseUrl(url)
         }
     }
 
@@ -71,5 +71,10 @@ class SettingsDataStore @Inject constructor(
         context.dataStore.edit { preferences ->
             preferences.remove(SESSION_ID_KEY)
         }
+    }
+
+    private fun normalizeBaseUrl(url: String): String {
+        val trimmed = url.trim()
+        return if (trimmed.endsWith("/")) trimmed else "$trimmed/"
     }
 }

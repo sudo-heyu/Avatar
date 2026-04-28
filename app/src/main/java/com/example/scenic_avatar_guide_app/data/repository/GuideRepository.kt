@@ -14,6 +14,10 @@ class GuideRepository @Inject constructor(
     private val apiService: ApiService,
     private val settingsDataStore: SettingsDataStore
 ) {
+    private companion object {
+        const val DEFAULT_SCENIC_ID = "scenic_001"
+    }
+
     /**
      * 健康检查
      */
@@ -46,7 +50,7 @@ class GuideRepository @Inject constructor(
 
             val request = SessionCreateRequest(
                 userId = userId,
-                scenicId = "scenic_001",
+                scenicId = DEFAULT_SCENIC_ID,
                 spotId = null,
                 deviceId = deviceId
             )
@@ -79,10 +83,10 @@ class GuideRepository @Inject constructor(
             val request = ChatTextRequest(
                 sessionId = sessionId,
                 userId = userId,
+                scenicId = DEFAULT_SCENIC_ID,
                 question = message,
                 spotId = null,
-                needAudio = false,
-                needAvatar = false
+                options = null
             )
 
             val response = apiService.chatText(request)

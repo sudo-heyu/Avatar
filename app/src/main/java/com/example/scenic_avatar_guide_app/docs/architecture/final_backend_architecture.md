@@ -1,3 +1,34 @@
+# 后端对接基线说明
+
+> 2026-04-28 更新：本文件下方的大型“完整版后端目录设计”属于历史规划稿，**不再作为当前 Android 联调依据**。
+>
+> 当前正式基线以 [API_CONTRACT.md](./API_CONTRACT.md) 为准，Android 客户端只依赖以下接口：
+>
+> 1. `GET /api/v1/health`
+> 2. `POST /api/v1/session/create`
+> 3. `POST /api/v1/chat/text`
+>
+> 当前职责划分：
+>
+> 1. 后端返回 `reply_text`、可选 `avatar_action`、可选 `sources`、`metadata`
+> 2. Android 端负责 ASR、TTS、音频播放、口型与数字人联动
+>
+> 当前测试阶段补充约定：
+>
+> 1. 若接入 `edge-tts`，推荐**直接并入现有后端**，新增 `/api/v1/tts/*`，不要让 Android 端直连独立 Python TTS 服务；
+> 2. Android 端通过设置页配置同网段电脑的 `IP + 端口` 访问当前测试后端；
+> 3. `edge-tts` 现阶段属于后端演进方案，不代表 Android 已切换到服务端 TTS 主链路。
+>
+> 以下能力都只能视为后续扩展，不能当作当前联调事实：
+>
+> 1. `chat/voice`
+> 2. `audio_url`
+> 3. 服务端 ASR / 服务端 TTS 主链路
+> 4. 独立路线推荐、游客偏好、会话历史接口
+> 5. OpenAvatarChat / LiteAvatar / 管理后台的完整落地结构
+>
+> 阅读下方历史规划时，若与本更新说明冲突，以本更新说明和 `API_CONTRACT.md` 为准。
+
 # 《景灵智导 / scenic-avatar-guide》完整版后端文件框架设计
 
 > 适用范围：本文件用于本项目**最终完整版本**的后端目录设计，不仅覆盖第一阶段的 Android 游客端与统一接口层，也覆盖后续管理侧 Web、知识库管理、游客反馈分析、数据大屏、OpenAvatarChat / LiteAvatar 部署、第三方模型接入、统计分析与运维部署。

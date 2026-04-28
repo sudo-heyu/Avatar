@@ -19,7 +19,18 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // NDK 配置
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86", "x86_64")
+        }
+
+        // 指定 NDK 版本（Gradle 会自动下载）
+        ndkVersion = "27.0.12077973"
     }
+
+    // 指定 NDK 版本（需要在 Android Studio 中安装）
+    // ndkVersion = "27.0.12077973"
 
     buildTypes {
         release {
@@ -39,6 +50,14 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+
+    // NDK CMake 配置
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 }
 
@@ -79,6 +98,10 @@ dependencies {
     // 讯飞语音识别 SDK
     implementation(files("libs/SparkChain.aar"))
     implementation(files("libs/Codec.aar"))
+
+    // ExoPlayer 音频播放
+    implementation("androidx.media3:media3-exoplayer:1.2.1")
+    implementation("androidx.media3:media3-ui:1.2.1")
 
     // Compose
     implementation(platform(libs.androidx.compose.bom))

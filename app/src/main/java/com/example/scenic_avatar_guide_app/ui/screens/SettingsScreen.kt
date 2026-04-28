@@ -29,29 +29,9 @@ data class ServerEnvironment(
 
 val ENVIRONMENTS = listOf(
     ServerEnvironment(
-        "模拟器本地",
-        NetworkModule.EMULATOR_LOCAL,
-        "Android模拟器访问本机开发环境"
-    ),
-    ServerEnvironment(
         "真机本地",
         NetworkModule.DEVICE_LOCAL,
         "真机调试（需修改为本机IP）"
-    ),
-    ServerEnvironment(
-        "Cloudflare Tunnel",
-        NetworkModule.CLOUDFLARE_TUNNEL,
-        "内网穿透临时公网访问"
-    ),
-    ServerEnvironment(
-        "ngrok",
-        NetworkModule.NGROK,
-        "ngrok内网穿透"
-    ),
-    ServerEnvironment(
-        "阿里云FC",
-        NetworkModule.ALIYUN_FC,
-        "阿里云函数计算正式环境"
     )
 )
 
@@ -62,19 +42,35 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val baseUrl by viewModel.baseUrl.collectAsState()
+    val serverEndpoint by viewModel.serverEndpoint.collectAsState()
     val deviceId by viewModel.deviceId.collectAsState()
     val userId by viewModel.userId.collectAsState()
     val sessionId by viewModel.sessionId.collectAsState()
+    val statusMessage by viewModel.statusMessage.collectAsState()
 
-    var showEnvironmentDialog by remember { mutableStateOf(false) }
-    var showCustomUrlDialog by remember { mutableStateOf(false) }
-    var tempUrl by remember { mutableStateOf("") }
+    var showServerConfigDialog by remember { mutableStateOf(false) }
+    var tempScheme by remember { mutableStateOf("http") }
+    var tempHost by remember { mutableStateOf("") }
+    var tempPort by remember { mutableStateOf("") }
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(baseUrl) {
-        tempUrl = baseUrl
+    LaunchedEffect(serverEndpoint, showServerConfigDialog) {
+        if (showServerConfigDialog) {
+            tempScheme = serverEndpoint.scheme.ifBlank { "http" }
+            tempHost = serverEndpoint.host
+            tempPort = serverEndpoint.port
+        }
+    }
+
+    LaunchedEffect(statusMessage) {
+        statusMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearStatusMessage()
+        }
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("设置") },
@@ -121,7 +117,25 @@ fun SettingsScreen(
                         icon = Icons.Default.Dns,
                         title = "后端地址",
                         subtitle = baseUrl,
-                        onClick = { showEnvironmentDialog = true }
+                        onClick = { showServerConfigDialog = true }
+                    )
+                    HorizontalDivider(color = SurfaceVariant)
+                    SettingInfoItem(
+                        icon = Icons.Default.Lan,
+                        title = "服务器主机",
+                        subtitle = serverEndpoint.host.ifBlank { "未配置" }
+                    )
+                    HorizontalDivider(color = SurfaceVariant)
+                    SettingInfoItem(
+                        icon = Icons.Default.SettingsEthernet,
+                        title = "服务器端口",
+                        subtitle = buildString {
+                            append(serverEndpoint.port.ifBlank { "未配置" })
+                            if (serverEndpoint.scheme.isNotBlank()) {
+                                append(" · ")
+                                append(serverEndpoint.scheme.uppercase())
+                            }
+                        }
                     )
                     HorizontalDivider(color = SurfaceVariant)
                     // 快速切换按钮
@@ -131,7 +145,7 @@ fun SettingsScreen(
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        ENVIRONMENTS.take(3).forEach { env ->
+                        ENVIRONMENTS.forEach { env ->
                             val isSelected = baseUrl == env.url
                             FilterChip(
                                 selected = isSelected,
@@ -143,6 +157,16 @@ fun SettingsScreen(
                                 )
                             )
                         }
+                    }
+                    TextButton(
+                        onClick = { showServerConfigDialog = true },
+                        modifier = Modifier
+                            .align(Alignment.End)
+                            .padding(end = 12.dp, bottom = 8.dp)
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("手动配置 IP 和端口")
                     }
                 }
             }
@@ -239,84 +263,67 @@ fun SettingsScreen(
         }
     }
 
-    // 环境选择对话框
-    if (showEnvironmentDialog) {
+    if (showServerConfigDialog) {
         AlertDialog(
-            onDismissRequest = { showEnvironmentDialog = false },
-            title = { Text("选择服务器环境") },
+            onDismissRequest = { showServerConfigDialog = false },
+            title = { Text("配置服务器地址") },
             text = {
                 Column {
-                    ENVIRONMENTS.forEach { env ->
-                        val isSelected = baseUrl == env.url
-                        ListItem(
-                            headlineContent = { Text(env.name) },
-                            supportingContent = { Text(env.description, fontSize = 12.sp) },
-                            trailingContent = {
-                                if (isSelected) {
-                                    Icon(
-                                        Icons.Default.Check,
-                                        contentDescription = "已选择",
-                                        tint = Primary
-                                    )
-                                }
-                            },
-                            modifier = Modifier.clickable {
-                                viewModel.updateBaseUrl(env.url)
-                                showEnvironmentDialog = false
-                            }
-                        )
-                    }
-                    HorizontalDivider()
-                    ListItem(
-                        headlineContent = { Text("自定义地址") },
-                        supportingContent = { Text("手动输入后端URL") },
-                        leadingContent = {
-                            Icon(Icons.Default.Edit, contentDescription = null)
-                        },
-                        modifier = Modifier.clickable {
-                            showEnvironmentDialog = false
-                            showCustomUrlDialog = true
+                    Text(
+                        text = "用于真机与电脑同网段联调。保存后将清除旧会话，后续请求直接走新地址。",
+                        fontSize = 13.sp,
+                        color = TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf("http", "https").forEach { scheme ->
+                            FilterChip(
+                                selected = tempScheme == scheme,
+                                onClick = { tempScheme = scheme },
+                                label = { Text(scheme.uppercase()) }
+                            )
                         }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = tempHost,
+                        onValueChange = { tempHost = it },
+                        label = { Text("IP 或域名") },
+                        placeholder = { Text("例如 192.168.1.23") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = tempPort,
+                        onValueChange = { tempPort = it.filter(Char::isDigit) },
+                        label = { Text("端口") },
+                        placeholder = { Text("例如 8000") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { showEnvironmentDialog = false }) {
-                    Text("取消")
-                }
-            }
-        )
-    }
-
-    // 自定义 URL 对话框
-    if (showCustomUrlDialog) {
-        AlertDialog(
-            onDismissRequest = { showCustomUrlDialog = false },
-            title = { Text("自定义后端地址") },
-            text = {
-                OutlinedTextField(
-                    value = tempUrl,
-                    onValueChange = { tempUrl = it },
-                    label = { Text("URL") },
-                    placeholder = { Text("https://api.example.com/") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                    modifier = Modifier.fillMaxWidth()
-                )
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.updateBaseUrl(tempUrl)
-                        showCustomUrlDialog = false
+                        viewModel.saveServerEndpoint(
+                            scheme = tempScheme,
+                            host = tempHost,
+                            port = tempPort
+                        )
+                        showServerConfigDialog = false
                     }
                 ) {
-                    Text("确定")
+                    Text("保存")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showCustomUrlDialog = false }) {
+                TextButton(onClick = { showServerConfigDialog = false }) {
                     Text("取消")
                 }
             }

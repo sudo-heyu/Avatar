@@ -18,6 +18,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -36,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -44,28 +46,39 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.scenic_avatar_guide_app.ui.theme.*
 import com.example.scenic_avatar_guide_app.ui.components.ArcWaveform
+import com.example.scenic_avatar_guide_app.ui.components.AvatarView
 import com.example.scenic_avatar_guide_app.domain.model.ChatMessage
+import com.example.scenic_avatar_guide_app.domain.model.AvatarState
 import com.example.scenic_avatar_guide_app.core.speech.SpeechRecognizerHelper
+import com.example.scenic_avatar_guide_app.core.avatar.TestAvatarActions
+import com.example.scenic_avatar_guide_app.core.avatar.AvatarPlayAction
+import com.example.scenic_avatar_guide_app.core.tts.VoiceInfo
+import com.example.scenic_avatar_guide_app.core.tts.VoiceStyle
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
+fun MainScreen(
+    onSettingsClick: () -> Unit = {},
+    viewModel: MainViewModel = hiltViewModel()
+) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val inputText by viewModel.inputText.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val currentMode by viewModel.currentMode.collectAsStateWithLifecycle()
     val avatarState by viewModel.avatarState.collectAsStateWithLifecycle()
+    val avatarFullState by viewModel.avatarFullState.collectAsStateWithLifecycle()
     val voiceInputMode by viewModel.voiceInputMode.collectAsStateWithLifecycle()
     val isRecording by viewModel.isRecording.collectAsStateWithLifecycle()
     val volumeLevel by viewModel.volumeLevel.collectAsStateWithLifecycle()
+    val showTestPanel by viewModel.showTestPanel.collectAsStateWithLifecycle()
+    val currentVoice by viewModel.currentVoice.collectAsStateWithLifecycle()
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    // 取消区域状态
     var isCancelZone by remember { mutableStateOf(false) }
 
     var hasAudioPermission by remember {
@@ -94,14 +107,35 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
         if (messages.isNotEmpty()) coroutineScope.launch { listState.animateScrollToItem(messages.size - 1) }
     }
 
-    Scaffold(containerColor = Surface, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize()) {
+    Scaffold(
+        containerColor = Surface,
+        contentWindowInsets = WindowInsets.ime
+    ) { paddingValues ->
+        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
             Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-                TopBar(onSettingsClick = {})
+                TopBar(
+                    onSettingsClick = onSettingsClick,
+                    onTestToggle = { viewModel.toggleTestPanel() },
+                    showTestPanel = showTestPanel
+                )
 
-                AvatarSection(avatarState, Modifier.fillMaxWidth().height(130.dp))
+                AvatarSection(
+                    avatarState = avatarState,
+                    fullState = avatarFullState,
+                    modifier = Modifier.fillMaxWidth().height(130.dp)
+                )
 
-                // 取消区域 - 录音时显示
+                // 测试面板
+                if (showTestPanel) {
+                    TestActionPanel(
+                        onActionClick = { action -> viewModel.playTestAction(action) },
+                        currentVoice = currentVoice,
+                        onVoiceChange = { voiceId -> viewModel.setVoice(voiceId) },
+                        getAvailableVoices = { viewModel.getAvailableVoices() },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
                 if (voiceInputMode && isRecording) {
                     CancelZone(
                         isCancelZone = isCancelZone,
@@ -114,7 +148,6 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                 Column(
                     modifier = Modifier.fillMaxWidth().background(Surface).imePadding().navigationBarsPadding()
                 ) {
-                    // 语音模式下显示波形
                     if (voiceInputMode && isRecording) {
                         VoiceWaveformSection(
                             volumeLevel = volumeLevel,
@@ -156,38 +189,296 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TopBar(onSettingsClick: () -> Unit) {
+private fun TopBar(
+    onSettingsClick: () -> Unit,
+    onTestToggle: () -> Unit,
+    showTestPanel: Boolean
+) {
     TopAppBar(
         title = { Text("景灵智导", fontWeight = FontWeight.Bold) },
         colors = TopAppBarDefaults.topAppBarColors(containerColor = Primary, titleContentColor = Color.White),
         actions = {
+            // 测试面板切换按钮
+            IconButton(onTestToggle) {
+                Icon(
+                    if (showTestPanel) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = "测试面板",
+                    tint = Color.White
+                )
+            }
             IconButton(onSettingsClick) { Icon(Icons.Default.Settings, "设置", tint = Color.White) }
         }
     )
 }
 
 @Composable
-private fun AvatarSection(avatarState: AvatarState, modifier: Modifier = Modifier) {
-    Box(modifier.background(Brush.verticalGradient(colors = listOf(Primary, PrimaryLight))), contentAlignment = Alignment.Center) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Box(Modifier.size(72.dp).clip(CircleShape).background(Color.White.copy(0.2f)).border(2.dp, Color.White.copy(0.5f), CircleShape), contentAlignment = Alignment.Center) {
-                when (avatarState) {
-                    AvatarState.Idle -> Icon(Icons.Default.Face, "数字人", Modifier.size(36.dp), Color.White)
-                    AvatarState.Speaking -> Icon(Icons.Default.RecordVoiceOver, "说话中", Modifier.size(36.dp), Color.White)
-                    AvatarState.Thinking -> CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(28.dp))
+private fun AvatarSection(
+    avatarState: AvatarState,
+    fullState: com.example.scenic_avatar_guide_app.domain.model.AvatarFullState,
+    modifier: Modifier = Modifier
+) {
+    AvatarView(
+        avatarState = avatarState,
+        fullState = fullState,
+        modifier = modifier
+    )
+}
+
+/**
+ * 测试动作面板
+ */
+@Composable
+private fun TestActionPanel(
+    onActionClick: (AvatarPlayAction) -> Unit,
+    currentVoice: VoiceInfo,
+    onVoiceChange: (String) -> Unit,
+    getAvailableVoices: () -> List<VoiceInfo>,
+    modifier: Modifier = Modifier
+) {
+    val testButtons = remember { TestAvatarActions.getButtons() }
+    var showVoiceSelector by remember { mutableStateOf(false) }
+    val voices = remember { getAvailableVoices() }
+
+    Card(
+        modifier = modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceVariant),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "🎭 测试场景",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = TextPrimary
+                )
+
+                // 发音人选择按钮
+                OutlinedButton(
+                    onClick = { showVoiceSelector = !showVoiceSelector },
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = Primary
+                    ),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                ) {
+                    Icon(
+                        Icons.Default.RecordVoiceOver,
+                        contentDescription = "发音人",
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = currentVoice.displayName,
+                        fontSize = 12.sp,
+                        maxLines = 1
+                    )
                 }
             }
-            Text(
-                text = when (avatarState) { AvatarState.Idle -> "您好，请问有什么可以帮助您？"; AvatarState.Speaking -> "正在为您讲解..."; AvatarState.Thinking -> "正在思考..." },
-                fontSize = 14.sp, color = Color.White.copy(0.95f), maxLines = 2
-            )
+
+            // 发音人选择面板
+            if (showVoiceSelector) {
+                Spacer(Modifier.height(8.dp))
+                VoiceSelector(
+                    voices = voices,
+                    currentVoice = currentVoice,
+                    onVoiceSelected = { voice ->
+                        onVoiceChange(voice.id)
+                        showVoiceSelector = false
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // 动作按钮网格 - 4列
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                testButtons.chunked(4).forEach { rowButtons ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        rowButtons.forEach { button ->
+                            ActionChip(
+                                label = button.label,
+                                icon = button.icon,
+                                description = button.description,
+                                onClick = { onActionClick(button.action) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 /**
- * 取消区域 - 顶部显示
+ * 发音人选择器
  */
+@Composable
+private fun VoiceSelector(
+    voices: List<VoiceInfo>,
+    currentVoice: VoiceInfo,
+    onVoiceSelected: (VoiceInfo) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val listState = rememberLazyListState()
+
+    Surface(
+        modifier = modifier.heightIn(max = 200.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = Surface
+    ) {
+        LazyColumn(
+            state = listState,
+            contentPadding = PaddingValues(vertical = 4.dp)
+        ) {
+            // 按风格分组
+            val groupedVoices = voices.groupBy { it.style }
+
+            groupedVoices.forEach { (style, styleVoices) ->
+                // 风格标题
+                item {
+                    Text(
+                        text = styleToLabel(style),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextHint,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                    )
+                }
+
+                // 该风格下的发音人
+                items(styleVoices.take(4)) { voice ->
+                    VoiceItem(
+                        voice = voice,
+                        isSelected = voice.id == currentVoice.id,
+                        onClick = { onVoiceSelected(voice) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 发音人条目
+ */
+@Composable
+private fun VoiceItem(
+    voice: VoiceInfo,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = if (isSelected) Primary.copy(0.1f) else Color.Transparent,
+        onClick = onClick
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 性别图标
+            Icon(
+                if (voice.gender == com.example.scenic_avatar_guide_app.core.tts.Gender.FEMALE)
+                    Icons.Default.Face else Icons.Default.Face,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = if (isSelected) Primary else TextSecondary
+            )
+
+            Spacer(Modifier.width(8.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = voice.displayName,
+                    fontSize = 14.sp,
+                    fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+                    color = if (isSelected) Primary else TextPrimary
+                )
+                Text(
+                    text = voice.description,
+                    fontSize = 11.sp,
+                    color = TextHint
+                )
+            }
+
+            if (isSelected) {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = "已选择",
+                    modifier = Modifier.size(18.dp),
+                    tint = Primary
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 风格转标签
+ */
+private fun styleToLabel(style: VoiceStyle): String = when (style) {
+    VoiceStyle.FRIENDLY -> "亲和系"
+    VoiceStyle.GENTLE -> "温柔系"
+    VoiceStyle.INTELLECTUAL -> "知性系"
+    VoiceStyle.PROFESSIONAL -> "专业系"
+    VoiceStyle.CHILD -> "童声系"
+    VoiceStyle.LITERARY -> "文艺系"
+    VoiceStyle.NEWS -> "新闻系"
+}
+
+/**
+ * 动作按钮
+ */
+@Composable
+private fun ActionChip(
+    label: String,
+    icon: String,
+    description: String = "",
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = if (enabled) Primary.copy(0.1f) else SurfaceVariant,
+        enabled = enabled,
+        onClick = onClick
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = icon,
+                fontSize = 18.sp
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = label,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = if (enabled) Primary else TextHint
+            )
+        }
+    }
+}
+
 @Composable
 private fun CancelZone(
     isCancelZone: Boolean,
@@ -298,9 +589,6 @@ private fun InputSection(
     }
 }
 
-/**
- * 语音波形区域 - 显示在模式卡片上方
- */
 @Composable
 private fun VoiceWaveformSection(
     volumeLevel: Float,
@@ -322,9 +610,6 @@ private fun VoiceWaveformSection(
     }
 }
 
-/**
- * 语音输入按钮 - 简化版微信风格
- */
 @Composable
 private fun VoiceInputButton(
     isRecording: Boolean,
@@ -337,9 +622,6 @@ private fun VoiceInputButton(
 ) {
     val context = LocalContext.current
     val vibrator = remember { context.getSystemService<Vibrator>() }
-
-    // 录音按钮 - 检测上滑到取消区域
-    // 取消区域在消息列表上方，大约需要上滑 200dp
     val cancelThreshold = -200.dp
 
     Box(
@@ -352,10 +634,7 @@ private fun VoiceInputButton(
             } else InputBarBg)
             .pointerInput(Unit) {
                 awaitEachGesture {
-                    // 等待按下
                     val down = awaitFirstDown(requireUnconsumed = false)
-
-                    // 立即震动并开始录音
                     vibrator?.vibrate(VibrationEffect.createOneShot(30, VibrationEffect.DEFAULT_AMPLITUDE))
                     onVoiceStart()
                     onCancelZoneChange(false)
@@ -363,44 +642,26 @@ private fun VoiceInputButton(
                     val startTime = System.currentTimeMillis()
                     var currentCancelZone = false
 
-                    // 持续跟踪手指移动
                     try {
                         while (true) {
                             val event = awaitPointerEvent()
                             val pointer = event.changes.find { it.id == down.id }
-
-                            if (pointer == null) {
-                                // 手指离开
-                                break
-                            }
-
+                            if (pointer == null) break
                             if (pointer.pressed) {
-                                // 检查是否在取消区域
                                 val inCancelZone = pointer.position.y < cancelThreshold.toPx()
                                 if (inCancelZone != currentCancelZone) {
                                     currentCancelZone = inCancelZone
                                     onCancelZoneChange(inCancelZone)
                                 }
                                 pointer.consume()
-                            } else {
-                                // 手指抬起
-                                break
-                            }
+                            } else break
                         }
-                    } catch (e: Exception) {
-                        // 忽略异常
-                    }
+                    } catch (e: Exception) {}
 
-                    // 处理结果
                     val duration = System.currentTimeMillis() - startTime
-
-                    if (currentCancelZone) {
-                        onCancel()
-                    } else if (duration < 500) {
-                        onCancel()
-                    } else {
-                        onVoiceStop()
-                    }
+                    if (currentCancelZone) onCancel()
+                    else if (duration < 500) onCancel()
+                    else onVoiceStop()
                     onCancelZoneChange(false)
                 }
             },
@@ -429,4 +690,3 @@ private fun VoiceInputButton(
 }
 
 enum class InteractionMode { Chat, QA, Route }
-enum class AvatarState { Idle, Speaking, Thinking }

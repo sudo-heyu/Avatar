@@ -36,7 +36,29 @@
       "Bash(unzip -l classes.jar)",
       "Bash(unzip -p classes.jar com/iflytek/sparkchain/core/SparkChainConfig.class)",
       "Bash(xxd)",
-      "Bash(unzip -p classes.jar com/iflytek/sparkchain/core/asr/AsrCallbacks.class)"
+      "Bash(unzip -p classes.jar com/iflytek/sparkchain/core/asr/AsrCallbacks.class)",
+      "Bash(./gradlew.bat clean *)",
+      "WebFetch(domain:www.live2d.com)",
+      "WebFetch(domain:www.xfyun.cn)",
+      "WebFetch(domain:rive.app)",
+      "Bash(ipconfig)",
+      "Bash(findstr /i \"IPv4\")",
+      "Bash(xargs grep *)",
+      "Bash(rm -rf \"F:/Software/AndroidStudioSDK/ndk/27.0.12077973\")",
+      "Bash(rm -rf \"F:/Software/AndroidStudioSDK/ndk/27.2.12479018\")",
+      "Bash(unzip -l SparkChain.aar)",
+      "Bash(unzip -o classes.jar -d classes_extracted)",
+      "Bash(xargs -I{} basename {} .class)",
+      "Bash(./gradlew :app:dependencies --configuration debugRuntimeClasspath)",
+      "Bash(unzip -l app/libs/SparkChain.aar)",
+      "Bash(mkdir -p /tmp/sparkchain)",
+      "Bash(unzip -o app/libs/SparkChain.aar -d /tmp/sparkchain)",
+      "Bash(unzip -l /tmp/sparkchain/classes.jar)",
+      "Read(//tmp/**)",
+      "Bash(unzip -o classes.jar -d classes)",
+      "Bash(javap -p com/iflytek/sparkchain/core/tts/TTS.class)",
+      "Bash(grep -E \"^[a-zA-Z]+$\")",
+      "Read(//e/scenic_avatar_guide_app/com/iflytek/sparkchain/core/tts/**)"
     ]
   }
 }

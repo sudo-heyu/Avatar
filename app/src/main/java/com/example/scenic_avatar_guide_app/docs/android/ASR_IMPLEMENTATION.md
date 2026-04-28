@@ -1,14 +1,24 @@
-# Android 端语音识别（ASR）技术文档
+# Android 端 ASR 实现说明
 
-> 版本：v1.0
+> 版本：v2.0
 > 日期：2026-04-28
-> 状态：已完成客户端实现
+> 状态：按当前 API 契约整理
 
 ---
 
 ## 1. 概述
 
-本项目采用**讯飞 SparkChain SDK** 实现语音识别功能，支持游客通过语音与数字导游交互。
+本项目采用**讯飞 SparkChain SDK** 实现 Android 端本地语音识别。  
+当前正式链路是：
+
+```text
+长按录音
+→ 讯飞 SparkChain ASR 本地识别
+→ 产出文本
+→ 调用 POST /api/v1/chat/text
+```
+
+因此，ASR 是 Android 端本地输入能力，不是独立的后端 HTTP 契约。
 
 ### 1.1 技术选型
 
@@ -16,7 +26,7 @@
 |------|------|------|
 | SDK | 讯飞 SparkChain ASR | 国内领先的语音识别引擎 |
 | 实现方式 | 客户端实时流式识别 | 低延迟，用户体验好 |
-| 备选方案 | 服务端 ASR（未实现） | 可扩展为上传音频文件 |
+| 正式后端接口 | `POST /api/v1/chat/text` | 识别结果统一走文本问答 |
 
 ### 1.2 功能特性
 
@@ -27,6 +37,12 @@
 - ✅ 震动反馈
 - ✅ 权限动态申请
 - ✅ 错误处理与重试
+
+当前不属于正式联调范围：
+
+- `POST /api/v1/chat/voice`
+- `audio_url`
+- 服务端回传音频
 
 ---
 
@@ -147,17 +163,17 @@ val normalizedVolume = (rms / 32767.0).coerceIn(0.0, 1.0).toFloat()
 
 ## 4. UI 实现
 
-### 4.1 VoiceInputSection 组件
+### 4.1 当前主要交互组件
 
 ```kotlin
 @Composable
-private fun VoiceInputSection(
+private fun VoiceInputButton(
     isRecording: Boolean,
-    volumeLevel: Float,
+    isCancelZone: Boolean,
+    onCancelZoneChange: (Boolean) -> Unit,
     onVoiceStart: () -> Unit,
     onVoiceStop: () -> Unit,
     onCancel: () -> Unit,
-    onClose: () -> Unit,
     modifier: Modifier = Modifier
 )
 ```
@@ -340,29 +356,13 @@ fun destroy() {
 
 ## 10. 后续扩展
 
-### 10.1 服务端语音接口
+以下能力可以扩展，但必须明确标注为“非当前正式契约”：
 
-```
-POST /api/v1/chat/voice
-Request:
-{
-    "session_id": "s_xxx",
-    "audio_url": "https://..." 或 base64 音频
-}
-Response:
-{
-    "reply_text": "...",
-    "audio_url": "https://...",
-    "avatar_action": {...}
-}
-```
-
-### 10.2 扩展计划
-
-1. **语音上传模式**：上传音频文件到服务端识别
-2. **打断功能**：支持打断数字人播报
-3. **双工交互**：全双工语音对话
-4. **多语言支持**：扩展到英语、方言等
+1. 独立语音上传接口
+2. 服务端 ASR / 服务端 TTS
+3. 语音打断数字人播报
+4. 全双工语音交互
+5. 多语言与方言支持
 
 ---
 
@@ -415,4 +415,4 @@ app/libs/
 
 **语音输入 → 本地 ASR 识别 → 文本发送到 chat/text → 显示回复**
 
-后续需与后端联调 `chat/voice` 接口，实现完整的语音问答链路。
+当前不应再把 `chat/voice`、`audio_url` 或“上传音频到服务端识别”写成既定联调前提。
