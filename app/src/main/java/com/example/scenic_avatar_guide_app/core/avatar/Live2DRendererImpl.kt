@@ -36,9 +36,10 @@ class Live2DRendererImpl(
     private var currentExpressionIntensity = 0.7f
     private var currentGesture: AvatarGesture = AvatarGesture.IDLE
     private var surfaceViewRef: WeakReference<Live2DGLSurfaceView>? = null
+    private var hasSurfaceAttached = false
 
     override val isInitialized: Boolean get() = _isInitialized
-    override val isModelLoaded: Boolean get() = _isModelLoaded
+    override val isModelLoaded: Boolean get() = _isModelLoaded && hasSurfaceAttached
 
     /**
      * 初始化渲染器
@@ -68,13 +69,27 @@ class Live2DRendererImpl(
 
         try {
             withTimeout(MODEL_LOAD_TIMEOUT) {
-                context.assets.open(modelPath).close()
+                // 1. 验证文件存在且可读
+                val fileData = context.assets.open(modelPath)
+                val fileSize = fileData.available()
+                fileData.close()
+                if (fileSize == 0) {
+                    throw IllegalStateException("Model file is empty: $modelPath")
+                }
+
+                // 2. 通过 JNI 的 LoadFile 验证 C++ 层能否读取
+                val jniData = JniBridgeJava.LoadFile(modelPath)
+                if (jniData == null || jniData.isEmpty()) {
+                    throw IllegalStateException("JNI cannot load model: $modelPath")
+                }
+
                 currentModelPath = modelPath
                 _isModelLoaded = true
-                Log.i(TAG, "Model loaded: $modelPath")
+                Log.i(TAG, "Model validated: $modelPath (${fileSize} bytes)")
             }
             Result.success(Unit)
         } catch (e: Exception) {
+            _isModelLoaded = false
             Log.e(TAG, "Failed to load model: $modelPath", e)
             Result.failure(e)
         }
@@ -191,6 +206,8 @@ class Live2DRendererImpl(
 
     fun attachSurfaceView(surfaceView: Live2DGLSurfaceView) {
         surfaceViewRef = WeakReference(surfaceView)
+        hasSurfaceAttached = true
+        Log.d(TAG, "Surface attached, model ready: $_isModelLoaded")
     }
 
     /**
@@ -203,6 +220,7 @@ class Live2DRendererImpl(
     private fun applyExpressionPreset(expressionId: String, intensity: Float) {
         val safeIntensity = intensity.coerceIn(0f, 1f)
 
+        // 重置所有可能被表情修改的参数，防止旧表情残留
         setParameter(Live2DParams.EYE_L_OPEN, 1.0f)
         setParameter(Live2DParams.EYE_R_OPEN, 1.0f)
         setParameter(Live2DParams.BROW_L_Y, 0f)
@@ -211,6 +229,10 @@ class Live2DRendererImpl(
         setParameter(Live2DParams.BROW_R_ANGLE, 0f)
         setParameter(Live2DParams.EYE_BALL_X, 0f)
         setParameter(Live2DParams.EYE_BALL_Y, 0f)
+        setParameter(Live2DParams.ANGLE_X, 0f)
+        setParameter(Live2DParams.ANGLE_Y, 0f)
+        setParameter(Live2DParams.ANGLE_Z, 0f)
+        setParameter(Live2DParams.BODY_ANGLE_X, 0f)
 
         when (AvatarExpression.fromValue(expressionId)) {
             AvatarExpression.NEUTRAL -> Unit
@@ -301,7 +323,11 @@ class Live2DRendererImpl(
     }
 
     private fun runOnRenderThread(action: () -> Unit) {
-        surfaceViewRef?.get()?.runOnRenderThread(action) ?: action()
+        val surfaceView = surfaceViewRef?.get()
+        if (surfaceView == null) {
+            return
+        }
+        surfaceView.runOnRenderThread(action)
     }
 
     private fun findActivity(context: Context): Activity? {

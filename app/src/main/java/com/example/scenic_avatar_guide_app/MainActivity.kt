@@ -5,10 +5,16 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import com.example.scenic_avatar_guide_app.core.avatar.JniBridgeJava
 import com.example.scenic_avatar_guide_app.ui.screens.MainScreen
 import com.example.scenic_avatar_guide_app.ui.screens.SettingsScreen
@@ -28,14 +34,19 @@ class MainActivity : ComponentActivity() {
                 BackHandler(enabled = showSettings) {
                     showSettings = false
                 }
-                if (showSettings) {
-                    SettingsScreen(
-                        onNavigateBack = { showSettings = false }
-                    )
-                } else {
+                Box(modifier = Modifier.fillMaxSize()) {
                     MainScreen(
                         onSettingsClick = { showSettings = true }
                     )
+                    AnimatedVisibility(
+                        visible = showSettings,
+                        enter = slideInHorizontally { it },
+                        exit = slideOutHorizontally { it }
+                    ) {
+                        SettingsScreen(
+                            onNavigateBack = { showSettings = false }
+                        )
+                    }
                 }
             }
         }

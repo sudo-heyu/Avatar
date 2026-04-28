@@ -1,47 +1,80 @@
 package com.example.scenic_avatar_guide_app.ui.components
 
-import androidx.compose.animation.core.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.RecordVoiceOver
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.example.scenic_avatar_guide_app.core.avatar.*
-import com.example.scenic_avatar_guide_app.domain.model.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.airbnb.lottie.compose.LottieAnimation
+import com.airbnb.lottie.compose.LottieCompositionSpec
+import com.airbnb.lottie.compose.animateLottieCompositionAsState
+import com.airbnb.lottie.compose.rememberLottieComposition
+import com.example.scenic_avatar_guide_app.core.avatar.Live2DGLSurfaceView
+import com.example.scenic_avatar_guide_app.core.avatar.Live2DRendererImpl
+import com.example.scenic_avatar_guide_app.domain.model.AvatarExpression
+import com.example.scenic_avatar_guide_app.domain.model.AvatarFullState
+import com.example.scenic_avatar_guide_app.domain.model.AvatarGesture
+import com.example.scenic_avatar_guide_app.domain.model.AvatarState
 import com.example.scenic_avatar_guide_app.ui.theme.Primary
 import com.example.scenic_avatar_guide_app.ui.theme.PrimaryLight
-import kotlinx.coroutines.delay
-import kotlin.math.abs
 
 /**
  * 数字人展示组件
- * 优先显示真实 Live2D；异常时降级为占位头像
+ * 加载完成前播放 Lottie 过渡动画，随后无缝淡入 Live2D 模型
  */
 @Composable
 fun AvatarView(
     avatarState: AvatarState,
     modifier: Modifier = Modifier,
     fullState: AvatarFullState? = null,
-    enableLive2D: Boolean = true,  // 启用 Live2D 渲染
-    showUpperBodyOnly: Boolean = false  // 只显示上半身（裁剪下半身）
+    enableLive2D: Boolean = true,
+    showUpperBodyOnly: Boolean = false
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -50,6 +83,29 @@ fun AvatarView(
     var renderer by remember { mutableStateOf<Live2DRendererImpl?>(null) }
     var isLive2DReady by remember { mutableStateOf(false) }
     var live2dError by remember { mutableStateOf<String?>(null) }
+
+    // Lottie 状态
+    val composition by rememberLottieComposition(
+        LottieCompositionSpec.Asset("lottie/avatar_idle.json")
+    )
+    var lottieFinished by remember { mutableStateOf(false) }
+    val lottieState = animateLottieCompositionAsState(
+        composition = composition,
+        isPlaying = true,
+        iterations = 1,
+    )
+
+    LaunchedEffect(lottieState.isAtEnd) {
+        if (lottieState.isAtEnd) {
+            lottieFinished = true
+        }
+    }
+
+    LaunchedEffect(composition) {
+        if (composition == null) {
+            lottieFinished = true
+        }
+    }
 
     // 初始化 Live2D 渲染器（仅在启用时）
     LaunchedEffect(enableLive2D) {
@@ -60,8 +116,6 @@ fun AvatarView(
                 val result = newRenderer.loadModel("live2d/hiyori/Hiyori.model3.json")
                 isLive2DReady = result.isSuccess
                 renderer = newRenderer
-                // 初始化完成后立即同步上半身模式（解决时序问题）
-                newRenderer.setUpperBodyMode(showUpperBodyOnly)
             } catch (e: Exception) {
                 isLive2DReady = false
                 live2dError = e.message
@@ -70,7 +124,7 @@ fun AvatarView(
     }
 
     // 更新 Live2D 状态
-    LaunchedEffect(fullState) {
+    SideEffect {
         fullState?.let { state ->
             renderer?.updateState(state)
         }
@@ -119,35 +173,90 @@ fun AvatarView(
         renderer?.setUpperBodyMode(showUpperBodyOnly)
     }
 
+    val showLive2D = enableLive2D && isLive2DReady && live2dError == null && lottieFinished
+
     Box(
         modifier = modifier
             .background(Brush.verticalGradient(colors = listOf(Primary, PrimaryLight))),
         contentAlignment = Alignment.Center
     ) {
+        // Live2D 层：就绪后渲染
         if (enableLive2D && isLive2DReady && live2dError == null && live2DView != null) {
             AndroidView(
                 factory = {
                     renderer?.attachSurfaceView(live2DView)
+                    renderer?.setUpperBodyMode(showUpperBodyOnly)
+                    fullState?.let { state -> renderer?.updateState(state) }
                     live2DView
                 },
                 modifier = Modifier.fillMaxSize(),
                 update = {
                     renderer?.attachSurfaceView(it)
+                    renderer?.setUpperBodyMode(showUpperBodyOnly)
+                    fullState?.let { state -> renderer?.updateState(state) }
                 }
             )
-        } else {
-            PlaceholderAvatar(
-                avatarState = avatarState,
-                fullState = fullState,
-                modifier = Modifier.fillMaxSize()
-            )
+        }
+
+        // Lottie 过渡层：播放完成且 Live2D 就绪后淡出
+        AnimatedVisibility(
+            visible = !showLive2D,
+            enter = EnterTransition.None,
+            exit = fadeOut(animationSpec = tween(600))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Brush.verticalGradient(colors = listOf(Primary, PrimaryLight))),
+                contentAlignment = Alignment.Center
+            ) {
+                if (composition != null) {
+                    LottieAnimation(
+                        composition = composition,
+                        progress = { lottieState.progress },
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit
+                    )
+                } else {
+                    ComposeBreathingAnimation(modifier = Modifier.fillMaxSize())
+                }
+            }
         }
     }
 }
 
 /**
- * 占位头像
- * 可视化显示表情、动作和口型
+ * Compose 实现的呼吸动画兜底
+ * 当 Lottie 资源缺失时作为过渡动画使用
+ */
+@Composable
+private fun ComposeBreathingAnimation(modifier: Modifier = Modifier) {
+    val infiniteTransition = rememberInfiniteTransition(label = "breath")
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "scale"
+    )
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .size(80.dp)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                }
+                .clip(CircleShape)
+                .background(Color.White.copy(0.25f))
+        )
+    }
+}
+
+/**
+ * 占位头像（保留为极端异常兜底，正常流程不再走这里）
  */
 @Composable
 private fun PlaceholderAvatar(
@@ -163,9 +272,8 @@ private fun PlaceholderAvatar(
     Column(
         modifier = modifier.padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
     ) {
-        // 主显示区域
         Box(
             modifier = Modifier
                 .size(120.dp)
@@ -173,10 +281,9 @@ private fun PlaceholderAvatar(
                 .background(Color.White.copy(0.15f)),
             contentAlignment = Alignment.Center
         ) {
-            // 内部动态圆圈（口型可视化）
-            val animatedSize by animateDpAsState(
-                targetValue = 40.dp + (mouthOpen * 30).dp,
-                animationSpec = spring(stiffness = Spring.StiffnessLow),
+            val animatedSize by androidx.compose.animation.core.animateDpAsState(
+                targetValue = 32.dp + (mouthOpen * 56).dp,
+                animationSpec = tween(durationMillis = 40),
                 label = "mouth_size"
             )
 
@@ -187,7 +294,6 @@ private fun PlaceholderAvatar(
                 else -> Color.White.copy(0.3f)
             }
 
-            // 动态口型圆（根据 mouthForm 变形：圆唇拉宽，扁嘴压扁）
             val mouthScaleX = 1f + (mouthForm * 0.6f)
             val mouthScaleY = 1f - (mouthForm * 0.3f)
 
@@ -202,10 +308,8 @@ private fun PlaceholderAvatar(
                     .background(animatedColor),
                 contentAlignment = Alignment.Center
             ) {
-                // 状态图标
                 when (avatarState) {
                     AvatarState.SPEAKING -> {
-                        // 显示动态波纹
                         SpeakingWaves(
                             mouthOpen = mouthOpen,
                             modifier = Modifier.size(24.dp)
@@ -248,7 +352,6 @@ private fun PlaceholderAvatar(
 
         Spacer(Modifier.height(12.dp))
 
-        // 表情指示
         if (expression != AvatarExpression.NEUTRAL) {
             val expressionEmoji = when (expression) {
                 AvatarExpression.HAPPY -> "😊"
@@ -270,7 +373,6 @@ private fun PlaceholderAvatar(
             }
         }
 
-        // 状态文字
         Text(
             text = when (avatarState) {
                 AvatarState.IDLE -> "您好，请问有什么可以帮助您？"
@@ -284,7 +386,6 @@ private fun PlaceholderAvatar(
             maxLines = 2
         )
 
-        // 动作指示
         if (gesture != AvatarGesture.IDLE) {
             Spacer(Modifier.height(6.dp))
             Surface(
@@ -300,13 +401,11 @@ private fun PlaceholderAvatar(
             }
         }
 
-        // 口型数值（调试）
         if (avatarState == AvatarState.SPEAKING) {
             Spacer(Modifier.height(6.dp))
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            androidx.compose.foundation.layout.Row(
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
             ) {
-                // 口型进度条
                 LinearProgressIndicator(
                     progress = { mouthOpen },
                     modifier = Modifier.width(60.dp).height(4.dp),
@@ -337,7 +436,7 @@ private fun SpeakingWaves(
         initialValue = 0.8f,
         targetValue = 1.2f,
         animationSpec = infiniteRepeatable(
-            animation = tween(600, easing = LinearEasing),
+            animation = tween(600, easing = androidx.compose.animation.core.LinearEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "scale1"
@@ -347,7 +446,7 @@ private fun SpeakingWaves(
         initialValue = 1.0f,
         targetValue = 0.7f,
         animationSpec = infiniteRepeatable(
-            animation = tween(400, easing = LinearEasing),
+            animation = tween(400, easing = androidx.compose.animation.core.LinearEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "scale2"
@@ -357,7 +456,6 @@ private fun SpeakingWaves(
         modifier = modifier,
         contentAlignment = Alignment.Center
     ) {
-        // 波纹效果
         if (mouthOpen > 0.1f) {
             Box(
                 modifier = Modifier
@@ -375,7 +473,6 @@ private fun SpeakingWaves(
             )
         }
 
-        // 中心图标
         Icon(
             Icons.Default.RecordVoiceOver,
             contentDescription = "说话中",
@@ -402,4 +499,3 @@ private fun gestureToText(gesture: AvatarGesture): String {
         AvatarGesture.GUIDE -> "引导"
     }
 }
-

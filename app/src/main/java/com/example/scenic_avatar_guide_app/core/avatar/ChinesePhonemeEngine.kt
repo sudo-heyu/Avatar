@@ -197,14 +197,27 @@ object ChinesePhonemeEngine {
                 return@forEachIndexed
             }
 
-            val initial = effectivePhonemes.firstOrNull()?.takeIf {
+            // 校正 j/q/x/y 后的 u → ü（后端 phonemes 也可能使用拼音省略写法）
+            val correctedPhonemes = effectivePhonemes.toMutableList()
+            if (correctedPhonemes.isNotEmpty()) {
+                val first = correctedPhonemes[0]
+                if (first in setOf("j", "q", "x", "y") && correctedPhonemes.size >= 2) {
+                    when (correctedPhonemes[1].lowercase()) {
+                        "u" -> correctedPhonemes[1] = "v"
+                        "un" -> correctedPhonemes[1] = "vn"
+                        "ue" -> correctedPhonemes[1] = "ve"
+                    }
+                }
+            }
+
+            val initial = correctedPhonemes.firstOrNull()?.takeIf {
                 it.length <= 2 && it !in listOf("a", "o", "e", "i", "u", "v")
             }
             val initialRatio = ChineseVisemeMapper.getInitialDurationRatio(initial)
             val initialDuration = (markDuration * initialRatio).toLong()
             val finalDuration = markDuration - initialDuration
 
-            val finalPhonemes = if (initial != null) effectivePhonemes.drop(1) else effectivePhonemes
+            val finalPhonemes = if (initial != null) correctedPhonemes.drop(1) else correctedPhonemes
             val finalPartDuration = if (finalPhonemes.isNotEmpty()) finalDuration / finalPhonemes.size else finalDuration
 
             var currentMs = mark.startMs.toLong()

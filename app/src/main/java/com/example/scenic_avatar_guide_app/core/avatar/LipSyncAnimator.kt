@@ -90,13 +90,13 @@ class LipSyncAnimator {
     /**
      * 协同发音混合：加权平均前后音素
      *
-     * 权重分配：前一音素 25%，当前 55%，后一音素 20%
-     * 这使得口型过渡更自然，避免机械跳变
+     * 权重分配：前一音素 20%，当前 60%，后一音素 20%
+     * 提高当前音素权重，使口型更清晰，同时保留前后过渡平滑
      */
     private fun blendMouth(prev: Float?, current: Float, next: Float?): Float {
         val p = prev ?: current
         val n = next ?: current
-        return p * 0.25f + current * 0.55f + n * 0.2f
+        return p * 0.2f + current * 0.6f + n * 0.2f
     }
 
     /**

@@ -42,7 +42,8 @@ class Live2DGLSurfaceView @JvmOverloads constructor(
 
     fun runOnRenderThread(block: () -> Unit) {
         if (!isRendererSet) {
-            block()
+            // Renderer 尚未初始化，CubismFramework 也未初始化
+            // 此时执行 Native 调用会导致空指针崩溃，丢弃该请求
             return
         }
         queueEvent(block)

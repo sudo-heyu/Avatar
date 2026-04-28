@@ -37,8 +37,12 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,6 +50,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.content.getSystemService
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.example.scenic_avatar_guide_app.ui.theme.*
@@ -86,7 +92,7 @@ fun MainScreen(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
-
+    val density = LocalDensity.current
     var isCancelZone by remember { mutableStateOf(false) }
     var showImagePickerDialog by remember { mutableStateOf(false) }
     var cameraImageUri by remember { mutableStateOf<Uri?>(null) }
@@ -96,6 +102,20 @@ fun MainScreen(
     }
     var hasCameraPermission by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasAudioPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                hasCameraPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
@@ -142,41 +162,51 @@ fun MainScreen(
         if (messages.isNotEmpty()) coroutineScope.launch { listState.animateScrollToItem(messages.size - 1) }
     }
 
+    // 输入法弹出/收起时滚动到底部，确保最新消息不被遮挡
+    val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
+    LaunchedEffect(imeBottom) {
+        if (messages.isNotEmpty()) {
+            delay(150)
+            coroutineScope.launch { listState.animateScrollToItem(messages.size - 1) }
+        }
+    }
+
     Scaffold(
         containerColor = Surface,
         contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp)
     ) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-            // 主内容区：不响应输入法，保持固定
-            Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-                TopBar(
-                    onSettingsClick = onSettingsClick,
-                    onTestToggle = { viewModel.toggleTestPanel() },
-                    showTestPanel = showTestPanel
-                )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .statusBarsPadding()
+        ) {
+            TopBar(
+                onSettingsClick = onSettingsClick,
+                onTestToggle = { viewModel.toggleTestPanel() },
+                showTestPanel = showTestPanel
+            )
 
-                // 数字人区域：占据约40%屏幕高度，只展示上半身
-                AvatarSection(
-                    avatarState = avatarState,
-                    fullState = avatarFullState,
-                    showUpperBodyOnly = true,
-                    modifier = Modifier.fillMaxWidth().weight(2f)
-                )
+            // 数字人区域：占据约40%屏幕高度，只展示上半身
+            AvatarSection(
+                avatarState = avatarState,
+                fullState = avatarFullState,
+                showUpperBodyOnly = true,
+                modifier = Modifier.fillMaxWidth().weight(2f)
+            )
 
-                // 消息列表：占据剩余空间
-                MessageList(
-                    messages = messages,
-                    isLoading = isLoading,
-                    listState = listState,
-                    modifier = Modifier.fillMaxWidth().weight(3f),
-                    bottomPaddingDp = 140.dp
-                )
-            }
+            // 消息列表：底部定位在功能卡片上方，不随输入法变化
+            MessageList(
+                messages = messages,
+                isLoading = isLoading,
+                listState = listState,
+                modifier = Modifier.fillMaxWidth().weight(3f),
+                bottomPaddingDp = 4.dp
+            )
 
-            // 底栏：测试卡片 + 功能卡片，同步响应输入法上推
+            // 底栏：测试卡片 + 功能卡片，响应输入法上推
             Column(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .imePadding()
                     .navigationBarsPadding()
@@ -521,13 +551,16 @@ private fun InputSection(
         Box(Modifier.clip(RoundedCornerShape(24.dp)).background(InputBarBg)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (mode == InteractionMode.Chat) IconButton(onClick = onCameraInput, modifier = Modifier.size(40.dp)) { Icon(Icons.Default.CameraAlt, "拍照识景", Modifier.size(22.dp), Primary) }
+                val canSend = inputText.isNotBlank() || pendingImageUri != null
                 BasicTextField(
                     value = inputText,
-                    onValueChange = onInputChange,
+                    onValueChange = { if (it.length <= 300) onInputChange(it) },
                     modifier = Modifier.weight(1f),
                     maxLines = 3,
-                    keyboardOptions = KeyboardOptions.Default,
-                    keyboardActions = KeyboardActions.Default,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(
+                        onSend = { if (canSend && !isLoading) onSend() }
+                    ),
                     decorationBox = { innerTextField ->
                         OutlinedTextFieldDefaults.DecorationBox(
                             value = inputText,
@@ -542,7 +575,6 @@ private fun InputSection(
                         )
                     }
                 )
-                val canSend = inputText.isNotBlank() || pendingImageUri != null
                 if (canSend) FilledIconButton(onClick = onSend, enabled = !isLoading, modifier = Modifier.size(40.dp), shape = CircleShape) { Icon(Icons.AutoMirrored.Filled.Send, "发送", Modifier.size(20.dp), Color.White) }
                 else IconButton(onClick = onVoiceClick, modifier = Modifier.size(40.dp)) { Icon(Icons.Default.Mic, "语音输入", Modifier.size(22.dp), TextSecondary) }
             }

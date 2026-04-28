@@ -119,6 +119,9 @@ dependencies {
     // Pinyin conversion for Chinese lip sync
     implementation("com.belerweb:pinyin4j:2.5.1")
 
+    // Lottie animation
+    implementation(libs.lottie.compose)
+
     // Testing
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

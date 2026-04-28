@@ -117,7 +117,7 @@ class MainViewModel @Inject constructor(
         observeAvatarState()
         observeVoiceChanges()
         observeSessionChanges()
-        initVoiceFromSettings()
+        observeVoiceSettings()
     }
 
     fun onScenicSpotSelected(scenicId: String, spotId: String) {
@@ -363,20 +363,20 @@ class MainViewModel @Inject constructor(
     fun getVoicesByStyle(): Map<VoiceStyle, List<VoiceInfo>> = playbackManager.getVoicesByStyle()
 
     /**
-     * 从设置初始化发音人
+     * 监听设置中发音人变化，实时同步到播放管理器
      */
-    private fun initVoiceFromSettings() {
+    private fun observeVoiceSettings() {
         viewModelScope.launch {
-            val savedVoiceId = settingsDataStore.voiceId.first()
-            playbackManager.setVoice(savedVoiceId)
+            settingsDataStore.voiceId.collect { voiceId ->
+                playbackManager.setVoice(voiceId)
+            }
         }
     }
 
     /**
-     * 设置发音人
+     * 设置发音人（供 UI 直接调用，同时更新 DataStore）
      */
     fun setVoice(voiceId: String) {
-        playbackManager.setVoice(voiceId)
         viewModelScope.launch {
             settingsDataStore.setVoiceId(voiceId)
         }

@@ -117,10 +117,8 @@ class AvatarPlaybackManager(
             lipSyncAnimator.start(events, scope)
         }
 
-        // 向后兼容：单个音素回调（仍更新状态，但 LipSyncAnimator 已接管平滑）
-        ttsController.onPhonemeCallback = { event ->
-            updateMouthFromViseme(event.viseme)
-        }
+        // 单个音素回调已由 LipSyncAnimator 的平滑动画接管，不再直接更新状态
+        // 避免双重竞争导致口型跳动
     }
 
     /**

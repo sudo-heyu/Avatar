@@ -24,9 +24,9 @@ class SystemTTSController(private val context: Context) : TTSProvider {
     override var onPhonemeCallback: ((PhonemeEvent) -> Unit)? = null
     override var onSpeakStart: (() -> Unit)? = null
     override var onSpeakComplete: (() -> Unit)? = null
+    override var onPhonemeEvents: ((List<PhonemeEvent>) -> Unit)? = null
 
     private var currentText = ""
-    private var playJob: Job? = null
     private var currentVoiceLocale = Locale.CHINESE
 
     init {
@@ -76,14 +76,13 @@ class SystemTTSController(private val context: Context) : TTSProvider {
         }
 
         currentText = text
+        val events = generatePhonemeEvents(text)
         onSpeakStart?.invoke()
-        startLipSyncSimulation(text)
+        onPhonemeEvents?.invoke(events)
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, UUID.randomUUID().toString())
     }
 
     override fun stop() {
-        playJob?.cancel()
-        playJob = null
         tts?.stop()
     }
 
@@ -102,59 +101,46 @@ class SystemTTSController(private val context: Context) : TTSProvider {
 
             override fun onDone(utteranceId: String?) {
                 Log.d(TAG, "TTS done: $utteranceId")
-                playJob?.cancel()
-                playJob = null
                 onSpeakComplete?.invoke()
             }
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
                 Log.e(TAG, "TTS error: $utteranceId")
-                playJob?.cancel()
-                playJob = null
             }
 
             override fun onError(utteranceId: String?, errorCode: Int) {
                 Log.e(TAG, "TTS error: $utteranceId, code: $errorCode")
-                playJob?.cancel()
-                playJob = null
             }
         })
     }
 
-    private fun startLipSyncSimulation(text: String) {
-        playJob?.cancel()
-        val charDuration = estimateCharDurations(text)
-        playJob = CoroutineScope(Dispatchers.Main).launch {
-            var elapsed = 0L
-            text.forEachIndexed { index, char ->
-                if (!isActive) return@launch
-                val viseme = VisemeType.fromChar(char)
-                val duration = charDuration.getOrElse(index) { 150L }
-                onPhonemeCallback?.invoke(
-                    PhonemeEvent(
-                        phoneme = char.toString(),
-                        startMs = elapsed,
-                        endMs = elapsed + duration,
-                        viseme = viseme,
-                        charIndex = index
-                    )
-                )
-                delay(duration)
-                elapsed += duration
-            }
-        }
-    }
-
-    private fun estimateCharDurations(text: String): List<Long> {
-        return text.map { char ->
-            when {
+    /**
+     * 预生成音素事件列表（系统 TTS 无精确时间戳，按字符估算）
+     */
+    private fun generatePhonemeEvents(text: String): List<PhonemeEvent> {
+        val events = mutableListOf<PhonemeEvent>()
+        var elapsed = 0L
+        text.forEachIndexed { index, char ->
+            val duration = when {
                 char.isLetterOrDigit() -> 180L
                 char in setOf('，', '。', '！', '？', '、', '；', '：', '"', '"') -> 300L
                 char in setOf(',', '.', '!', '?', ';', ':', '"', '\'') -> 200L
                 char.isWhitespace() -> 100L
                 else -> 100L
             }
+            val viseme = VisemeType.fromChar(char)
+            events.add(
+                PhonemeEvent(
+                    phoneme = char.toString(),
+                    startMs = elapsed,
+                    endMs = elapsed + duration,
+                    viseme = viseme,
+                    charIndex = index
+                )
+            )
+            elapsed += duration
         }
+        return events
     }
 }

@@ -37,13 +37,23 @@ class AudioPlayer(private val context: Context) {
     var onProgressUpdate: ((Float) -> Unit)? = null
 
     private val listener = object : Player.Listener {
-        override fun onPlaybackStateChanged(playbackState: Int) {
-            when (playbackState) {
-                Player.STATE_READY -> {
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            when {
+                isPlaying -> {
                     _isPlaying.value = true
                     onPlayStart?.invoke()
                     startProgressTracking()
                 }
+                !isPlaying && _isPlaying.value -> {
+                    // 播放被暂停或停止，不触发 onPlayComplete
+                    _isPlaying.value = false
+                    stopProgressTracking()
+                }
+            }
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            when (playbackState) {
                 Player.STATE_ENDED -> {
                     _isPlaying.value = false
                     _progress.value = 0f

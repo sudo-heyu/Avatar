@@ -47,10 +47,7 @@ class RemoteTTSController(
     override var onSpeakStart: (() -> Unit)? = null
     override var onSpeakComplete: (() -> Unit)? = null
 
-    /**
-     * 新增：完整音素事件列表回调（高精度口型驱动）
-     */
-    var onPhonemeEvents: ((List<PhonemeEvent>) -> Unit)? = null
+    override var onPhonemeEvents: ((List<PhonemeEvent>) -> Unit)? = null
 
     /**
      * 预计算的音素事件（等待音频播放开始时触发）

@@ -58,6 +58,17 @@ object ChineseVisemeMapper {
         "ing" to listOf("i", "ng"),
         "ong" to listOf("o", "ng"),
 
+        // 带介音韵母
+        "ua" to listOf("u", "a"),
+        "uai" to listOf("u", "a", "i"),
+        "uan" to listOf("u", "a", "n"),
+        "uang" to listOf("u", "a", "ng"),
+        "uo" to listOf("u", "o"),
+        "iao" to listOf("i", "a", "o"),
+        "ian" to listOf("i", "a", "n"),
+        "ia" to listOf("i", "a"),
+        "iang" to listOf("i", "a", "ng"),
+
         // 特殊
         "iong" to listOf("i", "o", "ng")
     )
@@ -95,6 +106,44 @@ object ChineseVisemeMapper {
         "i" to VisemeType.I,
         "u" to VisemeType.U,
         "v" to VisemeType.V,   // ü
+
+        // 复韵母整体（后端 marks 直接使用或本地拆分后的中间形式）
+        "ai" to VisemeType.A,
+        "ei" to VisemeType.E,
+        "ui" to VisemeType.U,
+        "ao" to VisemeType.A,
+        "ou" to VisemeType.O,
+        "iu" to VisemeType.I,
+        "ie" to VisemeType.I,
+        "er" to VisemeType.E,
+
+        // 前鼻韵母整体
+        "an" to VisemeType.A,
+        "en" to VisemeType.E,
+        "in" to VisemeType.I,
+        "un" to VisemeType.U,
+        "vn" to VisemeType.V,
+
+        // 后鼻韵母整体
+        "ang" to VisemeType.A,
+        "eng" to VisemeType.E,
+        "ing" to VisemeType.I,
+        "ong" to VisemeType.O,
+
+        // 带介音韵母整体
+        "ua" to VisemeType.UA,
+        "uai" to VisemeType.UA,
+        "uan" to VisemeType.UA,
+        "uang" to VisemeType.UA,
+        "uo" to VisemeType.O,
+        "iao" to VisemeType.UA,
+        "ian" to VisemeType.UA,
+        "ia" to VisemeType.UA,
+        "iang" to VisemeType.UA,
+
+        // üe / ün 整体
+        "ve" to VisemeType.V,
+        "iong" to VisemeType.I,
 
         // 韵尾
         "n" to VisemeType.DT,   // 舌尖抵上齿龈
@@ -139,8 +188,19 @@ object ChineseVisemeMapper {
             else -> initial
         }
 
-        // 3. 韵母拆分
-        val finalParts = FINALS[remaining.lowercase()] ?: listOf(remaining.lowercase())
+        // 3. j/q/x/y 后的 u/un/ue 实际为 ü/ün/üe（拼音省略两点规则）
+        val correctedRemaining = when {
+            effectiveInitial in setOf("j", "q", "x", "y") -> when (remaining.lowercase()) {
+                "u" -> "v"
+                "un" -> "vn"
+                "ue" -> "ve"
+                else -> remaining.lowercase()
+            }
+            else -> remaining.lowercase()
+        }
+
+        // 4. 韵母拆分
+        val finalParts = FINALS[correctedRemaining] ?: listOf(correctedRemaining)
 
         // 4. 组合
         return if (effectiveInitial.isNotEmpty()) {
@@ -166,13 +226,20 @@ object ChineseVisemeMapper {
 
     /**
      * 获取声母在整字时长中的占比
+     *
+     * 分类依据：
+     * - 爆破音 / 塞擦音（b,p,d,t,g,k,zh,ch,z,c,j,q）：有闭气 + 释放过程，占时较长 → 0.30
+     * - 擦音（f,h,sh,r,s,x）：连续气流，占时较短 → 0.20
+     * - 鼻音 / 边音（m,n,l）：连续 voiced，占时较短 → 0.20
+     * - 零声母 / 半元音（y,w,空）：无声母，不占独立时长 → 0.00
      */
     fun getInitialDurationRatio(initial: String?): Float {
-        return when {
-            initial.isNullOrEmpty() -> 0f
-            initial in listOf("zh", "ch", "sh") -> 0.25f
-            initial in listOf("z", "c", "s", "j", "q", "x") -> 0.25f
-            else -> 0.3f
+        return when (initial) {
+            null, "", "y", "w" -> 0.00f
+            in listOf("b", "p", "d", "t", "g", "k", "zh", "ch", "z", "c", "j", "q") -> 0.30f
+            in listOf("f", "h", "sh", "r", "s", "x") -> 0.20f
+            in listOf("m", "n", "l") -> 0.20f
+            else -> 0.25f
         }
     }
 }
