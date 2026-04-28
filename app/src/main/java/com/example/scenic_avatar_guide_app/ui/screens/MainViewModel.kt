@@ -75,18 +75,18 @@ class MainViewModel @Inject constructor(
     private val _showTestPanel = MutableStateFlow(true)
     val showTestPanel: StateFlow<Boolean> = _showTestPanel.asStateFlow()
 
-    // 当前发音人
+    // 当前发音人（默认 Edge-TTS 晓晓）
     private val _currentVoice = MutableStateFlow(VoiceInfo(
-        id = "aisxping",
-        displayName = "小萍",
-        description = "温柔女声",
+        id = "zh-CN-XiaoxiaoNeural",
+        displayName = "晓晓",
+        description = "亲和女声",
         gender = com.example.scenic_avatar_guide_app.core.tts.Gender.FEMALE,
-        style = VoiceStyle.GENTLE
+        style = VoiceStyle.FRIENDLY
     ))
     val currentVoice: StateFlow<VoiceInfo> = _currentVoice.asStateFlow()
 
     // 数字人播放管理器
-    private val playbackManager = AvatarPlaybackManager(application)
+    private val playbackManager = AvatarPlaybackManager(application, repository)
 
     // 会话ID
     private var sessionId: String? = null

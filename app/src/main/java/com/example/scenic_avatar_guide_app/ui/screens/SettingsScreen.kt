@@ -1,39 +1,36 @@
 package com.example.scenic_avatar_guide_app.ui.screens
 
+import androidx.compose.animation.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.example.scenic_avatar_guide_app.core.network.NetworkModule
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+// import com.example.scenic_avatar_guide_app.core.network.NetworkModule
 import com.example.scenic_avatar_guide_app.ui.theme.*
 
-data class ServerEnvironment(
-    val name: String,
-    val url: String,
-    val description: String
-)
-
-val ENVIRONMENTS = listOf(
-    ServerEnvironment(
-        "真机本地",
-        NetworkModule.DEVICE_LOCAL,
-        "真机调试（需修改为本机IP）"
-    )
-)
+// ==================== 主界面 ====================
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,26 +38,17 @@ fun SettingsScreen(
     onNavigateBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
-    val baseUrl by viewModel.baseUrl.collectAsState()
-    val serverEndpoint by viewModel.serverEndpoint.collectAsState()
-    val deviceId by viewModel.deviceId.collectAsState()
-    val userId by viewModel.userId.collectAsState()
-    val sessionId by viewModel.sessionId.collectAsState()
-    val statusMessage by viewModel.statusMessage.collectAsState()
+    val baseUrl by viewModel.baseUrl.collectAsStateWithLifecycle()
+    val serverEndpoint by viewModel.serverEndpoint.collectAsStateWithLifecycle()
+    val deviceId by viewModel.deviceId.collectAsStateWithLifecycle()
+    val userId by viewModel.userId.collectAsStateWithLifecycle()
+    val sessionId by viewModel.sessionId.collectAsStateWithLifecycle()
+    val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
+    val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
+    val isChecking by viewModel.isCheckingConnection.collectAsStateWithLifecycle()
 
-    var showServerConfigDialog by remember { mutableStateOf(false) }
-    var tempScheme by remember { mutableStateOf("http") }
-    var tempHost by remember { mutableStateOf("") }
-    var tempPort by remember { mutableStateOf("") }
+    var showServerDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
-
-    LaunchedEffect(serverEndpoint, showServerConfigDialog) {
-        if (showServerConfigDialog) {
-            tempScheme = serverEndpoint.scheme.ifBlank { "http" }
-            tempHost = serverEndpoint.host
-            tempPort = serverEndpoint.port
-        }
-    }
 
     LaunchedEffect(statusMessage) {
         statusMessage?.let {
@@ -95,167 +83,118 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
+                .background(Surface)
         ) {
-            // 服务器设置
-            Text(
-                text = "服务器设置",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = TextSecondary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+            // 连接状态卡片
+            ConnectionStatusCard(
+                connectionState = connectionState,
+                isChecking = isChecking,
+                onCheck = { viewModel.checkConnection() },
+                modifier = Modifier.padding(16.dp)
             )
 
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White)
-            ) {
-                Column {
-                    // 当前环境显示
-                    SettingItem(
-                        icon = Icons.Default.Dns,
-                        title = "后端地址",
-                        subtitle = baseUrl,
-                        onClick = { showServerConfigDialog = true }
-                    )
-                    HorizontalDivider(color = SurfaceVariant)
-                    SettingInfoItem(
-                        icon = Icons.Default.Lan,
-                        title = "服务器主机",
-                        subtitle = serverEndpoint.host.ifBlank { "未配置" }
-                    )
-                    HorizontalDivider(color = SurfaceVariant)
-                    SettingInfoItem(
-                        icon = Icons.Default.SettingsEthernet,
-                        title = "服务器端口",
-                        subtitle = buildString {
-                            append(serverEndpoint.port.ifBlank { "未配置" })
-                            if (serverEndpoint.scheme.isNotBlank()) {
-                                append(" · ")
-                                append(serverEndpoint.scheme.uppercase())
-                            }
-                        }
-                    )
-                    HorizontalDivider(color = SurfaceVariant)
-                    // 快速切换按钮
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        ENVIRONMENTS.forEach { env ->
-                            val isSelected = baseUrl == env.url
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = { viewModel.updateBaseUrl(env.url) },
-                                label = { Text(env.name, fontSize = 12.sp) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Primary.copy(alpha = 0.2f),
-                                    selectedLabelColor = Primary
-                                )
-                            )
+            // 服务器设置
+            SettingsGroup(title = "服务器配置") {
+                // 当前地址
+                SettingsListItem(
+                    icon = Icons.Default.Dns,
+                    title = "后端地址",
+                    subtitle = if (baseUrl.isBlank()) "未配置" else baseUrl,
+                    onClick = { showServerDialog = true },
+                    trailing = {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = null,
+                            tint = Primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                )
+
+                HorizontalDivider(color = SurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
+
+                // 主机信息
+                SettingsListItem(
+                    icon = Icons.Default.Lan,
+                    title = "主机",
+                    subtitle = serverEndpoint.host.ifBlank { "未配置" }
+                )
+
+                HorizontalDivider(color = SurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
+
+                // 端口信息
+                SettingsListItem(
+                    icon = Icons.Default.SettingsEthernet,
+                    title = "端口 / 协议",
+                    subtitle = buildString {
+                        append(serverEndpoint.port.ifBlank { "未配置" })
+                        if (serverEndpoint.scheme.isNotBlank()) {
+                            append(" · ")
+                            append(serverEndpoint.scheme.uppercase())
                         }
                     }
-                    TextButton(
-                        onClick = { showServerConfigDialog = true },
-                        modifier = Modifier
-                            .align(Alignment.End)
-                            .padding(end = 12.dp, bottom = 8.dp)
-                    ) {
-                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("手动配置 IP 和端口")
-                    }
-                }
+                )
+
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // 会话信息
-            Text(
-                text = "会话信息",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = TextSecondary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-            )
-
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White)
-            ) {
-                Column {
-                    SettingInfoItem(
-                        icon = Icons.Default.Person,
-                        title = "用户 ID",
-                        subtitle = userId ?: "未生成"
-                    )
-                    HorizontalDivider(color = SurfaceVariant)
-                    SettingInfoItem(
-                        icon = Icons.Default.Devices,
-                        title = "设备 ID",
-                        subtitle = deviceId ?: "未生成"
-                    )
-                    HorizontalDivider(color = SurfaceVariant)
-                    SettingInfoItem(
-                        icon = Icons.Default.Chat,
-                        title = "会话 ID",
-                        subtitle = sessionId ?: "未创建"
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // 操作
-            Text(
-                text = "操作",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = TextSecondary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-            )
-
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White)
-            ) {
-                SettingItem(
-                    icon = Icons.Default.Refresh,
-                    title = "重置会话",
-                    subtitle = "清除当前会话，创建新会话",
-                    onClick = { viewModel.clearSession() },
-                    titleColor = Warning
+            SettingsGroup(title = "会话信息") {
+                SettingsListItem(
+                    icon = Icons.Default.Person,
+                    iconBg = Primary.copy(alpha = 0.1f),
+                    title = "用户 ID",
+                    subtitle = userId ?: "未生成"
+                )
+                HorizontalDivider(color = SurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
+                SettingsListItem(
+                    icon = Icons.Default.Devices,
+                    iconBg = Primary.copy(alpha = 0.1f),
+                    title = "设备 ID",
+                    subtitle = deviceId ?: "未生成"
+                )
+                HorizontalDivider(color = SurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
+                SettingsListItem(
+                    icon = Icons.AutoMirrored.Default.Chat,
+                    iconBg = Primary.copy(alpha = 0.1f),
+                    title = "会话 ID",
+                    subtitle = sessionId ?: "未创建"
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 操作
+            SettingsGroup(title = "操作") {
+                SettingsListItem(
+                    icon = Icons.Default.Refresh,
+                    iconBg = Warning.copy(alpha = 0.1f),
+                    iconTint = Warning,
+                    title = "重置会话",
+                    subtitle = "清除当前会话并创建新会话",
+                    titleColor = Warning,
+                    onClick = { viewModel.clearSession() },
+                    trailing = {
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = TextHint
+                        )
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             // 关于
-            Text(
-                text = "关于",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = TextSecondary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-            )
-
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White)
-            ) {
-                SettingInfoItem(
+            SettingsGroup(title = "关于") {
+                SettingsListItem(
                     icon = Icons.Default.Info,
+                    iconBg = TextHint.copy(alpha = 0.1f),
+                    iconTint = TextSecondary,
                     title = "版本",
-                    subtitle = "1.0.0"
+                    subtitle = "景灵智导 v1.0.0"
                 )
             }
 
@@ -263,147 +202,287 @@ fun SettingsScreen(
         }
     }
 
-    if (showServerConfigDialog) {
-        AlertDialog(
-            onDismissRequest = { showServerConfigDialog = false },
-            title = { Text("配置服务器地址") },
-            text = {
-                Column {
-                    Text(
-                        text = "用于真机与电脑同网段联调。保存后将清除旧会话，后续请求直接走新地址。",
-                        fontSize = 13.sp,
-                        color = TextSecondary
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf("http", "https").forEach { scheme ->
-                            FilterChip(
-                                selected = tempScheme == scheme,
-                                onClick = { tempScheme = scheme },
-                                label = { Text(scheme.uppercase()) }
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = tempHost,
-                        onValueChange = { tempHost = it },
-                        label = { Text("IP 或域名") },
-                        placeholder = { Text("例如 192.168.1.23") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = tempPort,
-                        onValueChange = { tempPort = it.filter(Char::isDigit) },
-                        label = { Text("端口") },
-                        placeholder = { Text("例如 8000") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.saveServerEndpoint(
-                            scheme = tempScheme,
-                            host = tempHost,
-                            port = tempPort
-                        )
-                        showServerConfigDialog = false
-                    }
-                ) {
-                    Text("保存")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showServerConfigDialog = false }) {
-                    Text("取消")
-                }
+    // 服务器配置对话框
+    if (showServerDialog) {
+        ServerConfigDialog(
+            currentEndpoint = serverEndpoint,
+            onDismiss = { showServerDialog = false },
+            onSave = { scheme, host, port ->
+                viewModel.saveServerEndpoint(scheme, host, port)
+                showServerDialog = false
             }
         )
     }
 }
 
+// ==================== 连接状态卡片 ====================
+
 @Composable
-fun SettingItem(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit = {},
-    titleColor: Color = TextPrimary
+private fun ConnectionStatusCard(
+    connectionState: ConnectionState,
+    isChecking: Boolean,
+    onCheck: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically
+    val (bgColor, icon, text) = when (connectionState) {
+        ConnectionState.UNKNOWN -> Triple(SurfaceVariant, Icons.AutoMirrored.Default.HelpOutline, "未检测连接状态")
+        ConnectionState.CHECKING -> Triple(SurfaceVariant, Icons.Default.Sync, "正在检测...")
+        ConnectionState.CONNECTED -> Triple(Success.copy(alpha = 0.1f), Icons.Default.CheckCircle, "后端连接正常")
+        ConnectionState.DISCONNECTED -> Triple(Error.copy(alpha = 0.1f), Icons.Default.ErrorOutline, "无法连接后端")
+    }
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(16.dp)
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = Primary,
-            modifier = Modifier.size(24.dp)
-        )
-        Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
-                color = titleColor
-            )
-            Text(
-                text = subtitle,
-                fontSize = 13.sp,
-                color = TextSecondary
-            )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(bgColor),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isChecking) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp,
+                        color = Primary
+                    )
+                } else {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = when (connectionState) {
+                            ConnectionState.CONNECTED -> Success
+                            ConnectionState.DISCONNECTED -> Error
+                            else -> TextSecondary
+                        },
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = text,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = TextPrimary
+                )
+                Text(
+                    text = when (connectionState) {
+                        ConnectionState.CONNECTED -> "可以正常使用语音和问答功能"
+                        ConnectionState.DISCONNECTED -> "请检查服务器地址和网络"
+                        else -> "点击右侧按钮检测后端连通性"
+                    },
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+            }
+
+            FilledTonalButton(
+                onClick = onCheck,
+                enabled = !isChecking,
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = Primary.copy(alpha = 0.1f),
+                    contentColor = Primary
+                ),
+                shape = RoundedCornerShape(12.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+            ) {
+                Text("检测", fontSize = 13.sp)
+            }
         }
-        Icon(
-            imageVector = Icons.Default.ChevronRight,
-            contentDescription = null,
-            tint = TextHint
-        )
     }
 }
 
+// ==================== 设置分组 ====================
+
 @Composable
-fun SettingInfoItem(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+private fun SettingsGroup(
     title: String,
-    subtitle: String
+    content: @Composable ColumnScope.() -> Unit
 ) {
+    Column {
+        Text(
+            text = title,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = TextSecondary,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+        )
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(content = content)
+        }
+    }
+}
+
+// ==================== 统一设置项 ====================
+
+@Composable
+private fun SettingsListItem(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier,
+    iconBg: Color = Primary.copy(alpha = 0.1f),
+    iconTint: Color = Primary,
+    titleColor: Color = TextPrimary,
+    onClick: (() -> Unit)? = null,
+    trailing: @Composable (() -> Unit)? = null
+) {
+    val clickableModifier = if (onClick != null) {
+        Modifier.clickable(onClick = onClick)
+    } else Modifier
+
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
+            .then(clickableModifier)
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = Primary,
-            modifier = Modifier.size(24.dp)
-        )
-        Spacer(modifier = Modifier.width(16.dp))
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(iconBg),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(14.dp))
+
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                fontSize = 16.sp,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
-                color = TextPrimary
+                color = titleColor
             )
-            Text(
-                text = subtitle,
-                fontSize = 13.sp,
-                color = TextSecondary
-            )
+            if (subtitle.isNotBlank()) {
+                Text(
+                    text = subtitle,
+                    fontSize = 13.sp,
+                    color = TextSecondary,
+                    lineHeight = 18.sp
+                )
+            }
         }
+
+        trailing?.invoke()
     }
+}
+
+// ==================== 服务器配置对话框 ====================
+
+@Composable
+private fun ServerConfigDialog(
+    currentEndpoint: ServerEndpointConfig,
+    onDismiss: () -> Unit,
+    onSave: (String, String, String) -> Unit
+) {
+    var tempScheme by remember { mutableStateOf(currentEndpoint.scheme.ifBlank { "http" }) }
+    var tempHost by remember { mutableStateOf(currentEndpoint.host) }
+    var tempPort by remember { mutableStateOf(currentEndpoint.port) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Dns, contentDescription = null, tint = Primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("配置服务器地址")
+            }
+        },
+        text = {
+            Column {
+                Text(
+                    text = "用于真机与电脑同网段联调。保存后将清除旧会话。",
+                    fontSize = 13.sp,
+                    color = TextSecondary
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // 协议选择
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("http", "https").forEach { scheme ->
+                        FilterChip(
+                            selected = tempScheme == scheme,
+                            onClick = { tempScheme = scheme },
+                            label = { Text(scheme.uppercase()) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Primary.copy(alpha = 0.15f),
+                                selectedLabelColor = Primary
+                            )
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = tempHost,
+                    onValueChange = { tempHost = it },
+                    label = { Text("IP 或域名") },
+                    placeholder = { Text("例如 192.168.1.100") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = tempPort,
+                    onValueChange = { tempPort = it.filter(Char::isDigit) },
+                    label = { Text("端口") },
+                    placeholder = { Text("例如 8000 或 8081") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(tempScheme, tempHost, tempPort) },
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Primary)
+            ) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+        shape = RoundedCornerShape(20.dp)
+    )
 }

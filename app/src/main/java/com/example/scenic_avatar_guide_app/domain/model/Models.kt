@@ -97,7 +97,7 @@ data class ChatTextResponse(
 /**
  * 聊天响应数据
  *
- * 注意：TTS 由移动端执行，后端仅返回文本和动作指令
+ * TTS 由后端 Edge-TTS 服务统一提供，移动端通过 /api/v1/tts/synthesize 获取音频 URL
  */
 @Serializable
 data class ChatResponseData(
@@ -109,7 +109,7 @@ data class ChatResponseData(
 
     /**
      * 回复文本
-     * 移动端使用讯飞 TTS SDK 进行语音合成
+     * 移动端通过后端 /api/v1/tts/synthesize 接口请求语音合成
      */
     @SerialName("reply_text")
     val replyText: String,

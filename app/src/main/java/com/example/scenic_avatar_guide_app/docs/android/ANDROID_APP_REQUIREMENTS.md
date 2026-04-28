@@ -1,8 +1,9 @@
 # 景灵智导 Android 端需求基线
 
-版本：v2.0  
-日期：2026-04-28  
-适用仓库：`scenic_avatar_guide_app`
+版本：v2.2  
+日期：2026-04-29  
+适用仓库：`scenic_avatar_guide_app`  
+变更：TTS 方案由端侧讯飞切换为后端 Edge-TTS
 
 ---
 
@@ -17,30 +18,42 @@
 
 ### 2.1 正式 HTTP 接口
 
-当前 Android 端只依赖以下 3 个接口：
+当前 Android 端依赖以下接口：
 
+**核心问答接口（已有）**：
 1. `GET /api/v1/health`
 2. `POST /api/v1/session/create`
 3. `POST /api/v1/chat/text`
+
+**TTS 接口（Edge-TTS 方案新增）**：
+4. `POST /api/v1/tts/synthesize` — 文本合成音频
+5. `GET /api/v1/tts/voices` — 获取可用发音人列表
+6. `GET /api/v1/tts/file/{file_name}` — 读取音频文件
 
 ### 2.2 当前交互能力
 
 1. 文本输入问答
 2. 端侧 ASR 识别后转文本问答
-3. 端侧 TTS 播放 `reply_text`
-4. 基于 `avatar_action` 的数字人状态联动
-5. Base URL、用户 ID、设备 ID、会话 ID 的本地存储
-6. 右上角设置页可配置后端 `IP / 端口 / 协议` 并持久化保存
+3. 后端 TTS 合成 `reply_text`，返回 `audio_url`
+4. Android 端使用 ExoPlayer 播放音频
+5. 基于 `avatar_action` 与 `marks` 的数字人状态联动
+6. Base URL、用户 ID、设备 ID、会话 ID 的本地存储
+7. 右上角设置页可配置后端 `IP / 端口 / 协议` 并持久化保存
 
 ### 2.3 不属于当前正式契约的内容
 
 以下内容只能视为后续扩展，不应作为当前联调前提：
 
 1. `POST /api/v1/chat/voice`
-2. `audio_url`、服务端回传音频
-3. 服务端 ASR / 服务端 TTS 作为正式主链路
+2. 服务端 ASR 作为正式主链路
+3. `marks` 词级时间戳驱动口型（第一阶段可用字符估算兜底）
 4. 独立的路线推荐、游客偏好、会话历史 HTTP 接口
 5. 管理后台、OpenAvatarChat、LiteAvatar 等完整后端部署方案
+
+说明：
+
+1. `audio_url` 与 `/api/v1/tts/*` 自本版本起纳入当前正式契约，属于 Edge-TTS 方案必需接口。
+2. 端侧讯飞 TTS 与系统 TTS 仅作为 **网络异常时的降级兜底**，不再是主链路。
 
 ---
 
@@ -95,7 +108,8 @@ App 启动
 → 插入用户消息
 → 调用 /api/v1/chat/text
 → 展示 reply_text
-→ 端侧 TTS 播放
+→ 调用 /api/v1/tts/synthesize 请求音频
+→ ExoPlayer 播放 audio_url
 → 数字人进入 SPEAKING / 恢复 IDLE
 ```
 
@@ -105,12 +119,13 @@ App 启动
 收到响应
 → 解析 reply_text / sources / latency_ms / confidence / is_fallback
 → 若存在 avatar_action / metadata，则进一步消费增强字段
-→ Android 端执行 TTS
-→ TTS 过程中驱动口型
+→ 请求后端 /api/v1/tts/synthesize 获取 audio_url
+→ ExoPlayer 播放音频
+→ 播放过程中驱动口型（marks 优先，无 marks 则字符估算）
 → 数字人动作完成后恢复待机
 ```
 
-这里不存在“后端生成音频再下发给 App”的正式要求。
+Edge-TTS 音频由后端生成，Android 端通过 `audio_url` 播放。
 
 ---
 
@@ -129,8 +144,9 @@ App 启动
 | 依赖注入 | Hilt |
 | 本地存储 | DataStore |
 | 数字人 | Live2D Native + JNI |
-| 语音识别 | 讯飞 SparkChain SDK |
-| 语音播报 | Android System TTS（当前实现） |
+| 语音识别 | 讯飞 SparkChain SDK（端侧） |
+| 语音播报 | 后端 Edge-TTS + ExoPlayer 播放（主链路） |
+| TTS 兜底 | Android System TTS（无网络时降级） |
 
 ### 5.2 当前关键目录
 
@@ -139,9 +155,13 @@ app/src/main/java/com/example/scenic_avatar_guide_app/
 ├── core/avatar/         # 数字人状态、播放管理、Live2D 渲染封装
 ├── core/network/        # Retrofit / OkHttp / Base URL 配置
 ├── core/speech/         # 讯飞 ASR 封装
-├── core/tts/            # 端侧 TTS 与口型事件
+├── core/tts/            # TTS 抽象与实现
+│   ├── TTSController.kt           # TTS 抽象接口（统一播放、口型回调）
+│   ├── RemoteTTSController.kt     # 后端 Edge-TTS 调用（主链路）
+│   └── SystemTTSController.kt     # Android 系统 TTS（降级兜底）
+├── core/audio/          # ExoPlayer 音频播放封装
 ├── data/local/          # DataStore
-├── data/remote/         # ApiService
+├── data/remote/         # ApiService（新增 TTS 接口）
 ├── data/repository/     # GuideRepository
 ├── domain/model/        # API 数据模型与 Avatar 状态模型
 ├── ui/components/       # AvatarView、波形组件
@@ -208,25 +228,27 @@ app/src/main/jniLibs/
 
 ### 9.1 功能验收
 
-- [ ] 无会话时能自动创建会话
-- [ ] 文本发送与回复完整可见
-- [ ] 返回结构字段解析正确
-- [ ] 异常场景有提示并支持重试
-- [ ] 连续问答流程稳定
+- [x] 无会话时能自动创建会话
+- [x] 文本发送与回复完整可见
+- [x] 返回结构字段解析正确
+- [x] 异常场景有提示并支持重试
+- [x] 连续问答流程稳定
 
 ### 9.2 UI 验收
 
-- [ ] 页面布局一致
-- [ ] 主色与辅助色使用统一
-- [ ] 动效流畅
+- [x] 页面布局一致
+- [x] 主色与辅助色使用统一
+- [x] 动效流畅
 
 ### 9.3 联调验收
 
 - [x] 可切换 baseUrl
-- [ ] 完成 session/create → chat/text 主链路
-- [ ] health 可用于显式探活
-- [ ] 对 code!=0 有统一处理
-- [ ] 网络超时和错误可恢复
+- [x] 完成 session/create → chat/text 主链路
+- [x] health 可用于显式探活
+- [x] 对 code!=0 有统一处理
+- [x] 网络超时和错误可恢复
+- [x] Edge-TTS 音频合成与播放正常
+- [x] 系统 TTS 降级兜底正常
 
 ---
 

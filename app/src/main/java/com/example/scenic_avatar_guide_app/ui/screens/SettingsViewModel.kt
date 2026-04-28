@@ -3,6 +3,7 @@ package com.example.scenic_avatar_guide_app.ui.screens
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.scenic_avatar_guide_app.data.local.SettingsDataStore
+import com.example.scenic_avatar_guide_app.data.repository.GuideRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -10,6 +11,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.net.URI
 import javax.inject.Inject
+
+enum class ConnectionState {
+    UNKNOWN, CHECKING, CONNECTED, DISCONNECTED
+}
 
 data class ServerEndpointConfig(
     val scheme: String = "http",
@@ -19,7 +24,8 @@ data class ServerEndpointConfig(
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val settingsDataStore: SettingsDataStore
+    private val settingsDataStore: SettingsDataStore,
+    private val repository: GuideRepository
 ) : ViewModel() {
 
     private val _baseUrl = MutableStateFlow("")
@@ -39,6 +45,12 @@ class SettingsViewModel @Inject constructor(
 
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
+
+    private val _connectionState = MutableStateFlow(ConnectionState.UNKNOWN)
+    val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+
+    private val _isCheckingConnection = MutableStateFlow(false)
+    val isCheckingConnection: StateFlow<Boolean> = _isCheckingConnection.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -98,6 +110,27 @@ class SettingsViewModel @Inject constructor(
 
     fun clearStatusMessage() {
         _statusMessage.value = null
+    }
+
+    fun checkConnection() {
+        viewModelScope.launch {
+            _isCheckingConnection.value = true
+            _connectionState.value = ConnectionState.CHECKING
+            try {
+                val result = repository.healthCheck()
+                _connectionState.value = if (result is com.example.scenic_avatar_guide_app.core.common.NetworkResult.Success) {
+                    _statusMessage.value = "连接成功"
+                    ConnectionState.CONNECTED
+                } else {
+                    _statusMessage.value = "连接失败"
+                    ConnectionState.DISCONNECTED
+                }
+            } catch (e: Exception) {
+                _connectionState.value = ConnectionState.DISCONNECTED
+                _statusMessage.value = "连接异常：${e.message}"
+            }
+            _isCheckingConnection.value = false
+        }
     }
 
     private fun parseBaseUrl(url: String): ServerEndpointConfig {

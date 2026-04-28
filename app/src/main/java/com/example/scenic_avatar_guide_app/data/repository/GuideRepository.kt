@@ -108,6 +108,67 @@ class GuideRepository @Inject constructor(
     }
 
     /**
+     * TTS 文本合成
+     */
+    suspend fun synthesizeTTS(
+        text: String,
+        voice: String = "zh-CN-XiaoxiaoNeural",
+        rate: String = "+0%",
+        volume: String = "+0%",
+        pitch: String = "+0Hz",
+        format: String = "audio"
+    ): Result<TtsSynthesizeData> {
+        return try {
+            val request = TtsSynthesizeRequest(
+                text = text,
+                voice = voice,
+                rate = rate,
+                volume = volume,
+                pitch = pitch,
+                format = format
+            )
+            val response = apiService.ttsSynthesize(request)
+            if (response.code == 0) {
+                Result.success(response.data)
+            } else {
+                Result.failure(Exception(response.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 获取 TTS 发音人列表
+     */
+    suspend fun getTtsVoices(): Result<List<TtsVoiceInfo>> {
+        return try {
+            val response = apiService.ttsVoices()
+            if (response.code == 0) {
+                Result.success(response.data)
+            } else {
+                Result.failure(Exception(response.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 拼接完整音频 URL
+     */
+    suspend fun buildAudioUrl(relativePath: String): String {
+        val baseUrl = settingsDataStore.baseUrl.first() ?: SettingsDataStore.DEFAULT_BASE_URL
+        return if (relativePath.startsWith("http")) {
+            relativePath
+        } else {
+            val cleanBase = baseUrl.removeSuffix("/")
+            val cleanPath = relativePath.removePrefix("/")
+            "$cleanBase/$cleanPath"
+        }
+    }
+
+    /**
      * 清除会话
      */
     suspend fun clearSession() {

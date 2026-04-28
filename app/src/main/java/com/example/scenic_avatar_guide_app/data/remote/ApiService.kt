@@ -24,4 +24,16 @@ interface ApiService {
      */
     @POST("api/v1/chat/text")
     suspend fun chatText(@Body request: ChatTextRequest): ChatTextResponse
+
+    /**
+     * TTS 文本合成
+     */
+    @POST("api/v1/tts/synthesize")
+    suspend fun ttsSynthesize(@Body request: TtsSynthesizeRequest): TtsSynthesizeResponse
+
+    /**
+     * TTS 获取发音人列表
+     */
+    @GET("api/v1/tts/voices")
+    suspend fun ttsVoices(): TtsVoicesResponse
 }
