@@ -110,6 +110,11 @@ interface Live2DRenderer {
     fun updateState(state: AvatarFullState)
 
     /**
+     * 设置是否只显示上半身
+     */
+    fun setUpperBodyMode(enabled: Boolean)
+
+    /**
      * 释放资源
      */
     fun release()

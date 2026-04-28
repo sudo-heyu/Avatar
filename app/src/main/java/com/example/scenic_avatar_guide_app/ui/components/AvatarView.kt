@@ -16,7 +16,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -113,14 +116,13 @@ fun AvatarView(
     }
 
     val upperBodyModifier = if (showUpperBodyOnly) {
-        Modifier.graphicsLayer {
-            clip = true
-            // 只保留上半部分（约 65%），下半身被裁掉
-            // 通过 scaleY 放大后再向上偏移，使画面中心落在胸部以上
-            scaleY = 1.5f
-            translationY = -size.height * 0.15f
-        }
+        Modifier.clip(UpperBodyShape)
     } else Modifier
+
+    // 同步上半身模式到 Live2D 渲染器
+    LaunchedEffect(showUpperBodyOnly) {
+        renderer?.setUpperBodyMode(showUpperBodyOnly)
+    }
 
     Box(
         modifier = modifier
@@ -397,5 +399,17 @@ private fun gestureToText(gesture: AvatarGesture): String {
         AvatarGesture.BOW -> "鞠躬"
         AvatarGesture.THINKING_POSE -> "思考"
         AvatarGesture.GUIDE -> "引导"
+    }
+}
+
+private val UpperBodyShape = object : Shape {
+    override fun createOutline(
+        size: androidx.compose.ui.geometry.Size,
+        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+        density: Density
+    ): Outline {
+        return Outline.Rectangle(
+            Rect(0f, 0f, size.width, size.height * 0.65f)
+        )
     }
 }

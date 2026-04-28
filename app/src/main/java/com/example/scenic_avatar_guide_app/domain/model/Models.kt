@@ -324,6 +324,21 @@ data class ResponseMetadata(
     val latencyMs: Long? = null
 )
 
+// ==================== 图片上传 ====================
+
+@Serializable
+data class UploadImageResponse(
+    val code: Int,
+    val message: String,
+    val data: UploadImageData
+)
+
+@Serializable
+data class UploadImageData(
+    @SerialName("image_url")
+    val imageUrl: String
+)
+
 // ==================== 路线规划 ====================
 
 /**

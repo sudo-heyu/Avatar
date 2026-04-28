@@ -162,6 +162,15 @@ class Live2DRendererImpl(
     }
 
     /**
+     * 设置是否只显示上半身
+     */
+    override fun setUpperBodyMode(enabled: Boolean) {
+        runOnRenderThread {
+            JniBridgeJava.nativeSetUpperBodyMode(enabled)
+        }
+    }
+
+    /**
      * 释放资源
      */
     override fun release() {

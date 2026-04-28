@@ -280,7 +280,7 @@
 
 ## 五、聊天响应结构
 
-### 3.4 图片上传接口（前置）
+### 5.1 图片上传接口（前置）
 
 **接口**：`POST /api/v1/upload/image`
 
@@ -303,7 +303,7 @@
 
 ---
 
-### 4.1 完整响应示例（聊天问答模式）
+### 5.2 完整响应示例（聊天问答模式）
 
 ```json
 {
@@ -355,7 +355,7 @@
 }
 ```
 
-### 4.2 响应字段说明
+### 5.3 响应字段说明
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -369,7 +369,6 @@
 | sources | Array | 否 | 来源引用列表 |
 | metadata | Object | 否 | 增强版元数据；若存在则优先于同名顶层字段 |
 | created_at | String | 否 | 创建时间 |
-
 | route_data | Object | 否 | 路线规划数据，仅在 `mode=route` 时返回 |
 
 兼容说明：
@@ -380,7 +379,7 @@
 
 ---
 
-### 4.3 路线规划模式响应示例
+### 5.4 路线规划模式响应示例
 
 ```json
 {
@@ -459,9 +458,9 @@
 
 ---
 
-## 五、AvatarAction 结构
+## 六、AvatarAction 结构
 
-### 5.1 数据模型
+### 6.1 数据模型
 
 ```kotlin
 @Serializable
@@ -480,7 +479,7 @@ data class AvatarAction(
 )
 ```
 
-### 5.2 表情系统
+### 6.2 表情系统
 
 ```kotlin
 @Serializable
@@ -511,7 +510,7 @@ data class AvatarExpressionData(
 
 ---
 
-### 5.3 动作系统
+### 6.3 动作系统
 
 ```kotlin
 @Serializable
@@ -547,7 +546,7 @@ data class AvatarGestureData(
 
 ---
 
-### 5.4 动作队列
+### 6.4 动作队列
 
 ```kotlin
 @Serializable
@@ -576,7 +575,7 @@ data class MotionQueueItem(
 
 ---
 
-### 5.5 特效标记
+### 6.5 特效标记
 
 ```kotlin
 @Serializable
@@ -599,7 +598,7 @@ data class AvatarMarkData(
 
 ---
 
-## 六、来源引用结构
+## 七、来源引用结构
 
 ```kotlin
 @Serializable
@@ -640,7 +639,7 @@ data class SourceInfo(
 
 ---
 
-## 七、元数据结构
+## 八、元数据结构
 
 ```kotlin
 @Serializable
@@ -675,7 +674,7 @@ data class ResponseMetadata(
 
 ---
 
-## 八、端侧处理流程
+## 九、端侧处理流程
 
 ### 8.1 完整播放流程
 
@@ -760,7 +759,7 @@ reply_text
 
 ---
 
-## 九、移动端数据模型（Kotlin）
+## 十、移动端数据模型（Kotlin）
 
 ### 9.1 后端响应模型
 
@@ -872,7 +871,7 @@ enum class VisemeType(val mouthOpen: Float, val mouthForm: Float = 0f) {
 
 ---
 
-## 十、场景示例
+## 十一、场景示例
 
 ### 场景 1：欢迎问候
 
@@ -965,7 +964,7 @@ enum class VisemeType(val mouthOpen: Float, val mouthForm: Float = 0f) {
 
 ---
 
-## 十一、当前确认结论
+## 十二、当前确认结论
 
 ### 必须确认
 
@@ -978,17 +977,19 @@ enum class VisemeType(val mouthOpen: Float, val mouthForm: Float = 0f) {
 | 5 | `avatar_action` 是否必返？ | 否，属于增强字段 |
 | 6 | TTS 接口是否独立于 chat 接口？ | **是**，`POST /api/v1/tts/synthesize` |
 | 7 | 口型同步优先用什么驱动？ | **marks（词级时间戳）**，无 marks 时字符估算兜底 |
+| 8 | 交互模式是否统一为 `chat/text` 接口？ | **是**，通过 `mode` 字段区分 `chat` / `route` |
+| 9 | `route_data` 是否只在 `mode=route` 时返回？ | **是**，`mode=chat` 时返回 null |
 
 ### 可选确认
 
 | # | 问题 | 说明 |
 |---|------|------|
-| 6 | 是否返回 `emotion` 字段 | 可用于表情降级，推荐保留 |
-| 7 | 是否返回 `intent` 字段 | 可用于动作降级，推荐保留 |
+| 10 | 是否返回 `emotion` 字段 | 可用于表情降级，推荐保留 |
+| 11 | 是否返回 `intent` 字段 | 可用于动作降级，推荐保留 |
 
 ---
 
-## 十二、版本历史
+## 十三、版本历史
 
 | 版本 | 日期 | 变更 |
 |------|------|------|

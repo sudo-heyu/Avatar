@@ -38,6 +38,8 @@ public class JniBridgeJava {
 
     public static native void nativeSetParameter(String parameterId, float value, float weight);
 
+    public static native void nativeSetUpperBodyMode(boolean enabled);
+
     // Java -----------------------------------------------------------------
 
     public static void SetContext(Context context) {
