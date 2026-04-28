@@ -105,22 +105,19 @@ class MainViewModel @Inject constructor(
     private var sessionId: String? = null
 
     init {
-        initSession()
-        observeAvatarState()
-        observeVoiceChanges()
-        observeSessionChanges()
-        initVoiceFromSettings()
-        checkScenicSpotSelection()
-    }
-
-    private fun checkScenicSpotSelection() {
         viewModelScope.launch {
             val scenicId = settingsDataStore.scenicId.first()
             val spotId = settingsDataStore.spotId.first()
             if (scenicId == null || spotId == null) {
                 _showScenicSelection.value = true
+            } else {
+                initSession()
             }
         }
+        observeAvatarState()
+        observeVoiceChanges()
+        observeSessionChanges()
+        initVoiceFromSettings()
     }
 
     fun onScenicSpotSelected(scenicId: String, spotId: String) {
@@ -128,7 +125,7 @@ class MainViewModel @Inject constructor(
             settingsDataStore.setScenicId(scenicId)
             settingsDataStore.setSpotId(spotId)
             _showScenicSelection.value = false
-            createNewSession()
+            initSession()
         }
     }
 
