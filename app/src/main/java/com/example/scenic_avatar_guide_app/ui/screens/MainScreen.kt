@@ -80,6 +80,8 @@ fun MainScreen(
     val volumeLevel by viewModel.volumeLevel.collectAsStateWithLifecycle()
     val showTestPanel by viewModel.showTestPanel.collectAsStateWithLifecycle()
     val pendingImageUri by viewModel.pendingImageUri.collectAsStateWithLifecycle()
+    val showScenicSelection by viewModel.showScenicSelection.collectAsStateWithLifecycle()
+    val scenicAreas = viewModel.scenicAreas
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -153,20 +155,20 @@ fun MainScreen(
                     showTestPanel = showTestPanel
                 )
 
-                // 数字人区域：高度自适应，只展示上半身
+                // 数字人区域：占据约40%屏幕高度，只展示上半身
                 AvatarSection(
                     avatarState = avatarState,
                     fullState = avatarFullState,
                     showUpperBodyOnly = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().weight(2f)
                 )
 
-                // 消息列表：占据剩余所有空间
+                // 消息列表：占据剩余空间
                 MessageList(
                     messages = messages,
                     isLoading = isLoading,
                     listState = listState,
-                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    modifier = Modifier.fillMaxWidth().weight(3f),
                     bottomPaddingDp = 140.dp
                 )
             }
@@ -253,6 +255,16 @@ fun MainScreen(
                 showImagePickerDialog = false
                 galleryLauncher.launch("image/*")
             }
+        )
+    }
+
+    if (showScenicSelection) {
+        ScenicSelectionDialog(
+            scenicAreas = scenicAreas,
+            onSelected = { scenicId, spotId ->
+                viewModel.onScenicSpotSelected(scenicId, spotId)
+            },
+            onDismiss = { viewModel.dismissScenicSelection() }
         )
     }
 }
@@ -699,4 +711,79 @@ private fun createImageUri(context: android.content.Context): Uri? {
     } catch (e: Exception) {
         null
     }
+}
+
+@Composable
+fun ScenicSelectionDialog(
+    scenicAreas: List<com.example.scenic_avatar_guide_app.domain.model.ScenicArea>,
+    onSelected: (String, String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selectedScenicId by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = if (selectedScenicId == null) "选择景区" else "选择景点",
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            if (selectedScenicId == null) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    scenicAreas.forEach { area ->
+                        Surface(
+                            onClick = { selectedScenicId = area.id },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = SurfaceVariant
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Icon(Icons.Default.Landscape, null, tint = Primary, modifier = Modifier.size(28.dp))
+                                Text(area.name, fontSize = 15.sp, color = TextPrimary)
+                            }
+                        }
+                    }
+                }
+            } else {
+                val area = scenicAreas.find { it.id == selectedScenicId }
+                Column {
+                    if (area != null) {
+                        LazyColumn(
+                            modifier = Modifier.heightIn(max = 320.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            items(area.spots) { spot ->
+                                Surface(
+                                    onClick = { onSelected(area.id, spot.id) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = SurfaceVariant
+                                ) {
+                                    Text(
+                                        spot.name,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                        fontSize = 14.sp,
+                                        color = TextPrimary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = { if (selectedScenicId == null) onDismiss() else selectedScenicId = null }) {
+                Text(if (selectedScenicId == null) "取消" else "返回")
+            }
+        },
+        shape = RoundedCornerShape(20.dp)
+    )
 }

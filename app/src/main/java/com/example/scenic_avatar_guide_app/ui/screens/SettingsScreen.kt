@@ -48,9 +48,17 @@ fun SettingsScreen(
     val isChecking by viewModel.isCheckingConnection.collectAsStateWithLifecycle()
     val currentVoiceId by viewModel.currentVoiceId.collectAsStateWithLifecycle()
     val availableVoices = viewModel.availableVoices
+    val scenicId by viewModel.scenicId.collectAsStateWithLifecycle()
+    val spotId by viewModel.spotId.collectAsStateWithLifecycle()
+    val scenicAreas = viewModel.scenicAreas
 
     var showServerDialog by remember { mutableStateOf(false) }
+    var showScenicDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+
+    val currentScenicName = scenicAreas.find { it.id == scenicId }?.name ?: "未选择"
+    val currentSpotName = scenicAreas.find { it.id == scenicId }?.spots?.find { it.id == spotId }?.name ?: "未选择"
+    val scenicSubtitle = if (scenicId == null || spotId == null) "请选择景区和景点" else "$currentScenicName · $currentSpotName"
 
     LaunchedEffect(statusMessage) {
         statusMessage?.let {
@@ -163,6 +171,38 @@ fun SettingsScreen(
                     title = "会话 ID",
                     subtitle = sessionId ?: "未创建"
                 )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 景区与景点设置
+            SettingsGroup(title = "景区与景点") {
+                SettingsListItem(
+                    icon = Icons.Default.Landscape,
+                    iconBg = Primary.copy(alpha = 0.1f),
+                    title = "当前位置",
+                    subtitle = scenicSubtitle,
+                    onClick = { showScenicDialog = true },
+                    trailing = {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = null,
+                            tint = Primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                )
+
+                if (showScenicDialog) {
+                    ScenicSelectionDialog(
+                        scenicAreas = scenicAreas,
+                        onSelected = { newScenicId, newSpotId ->
+                            viewModel.setScenicSpot(newScenicId, newSpotId)
+                            showScenicDialog = false
+                        },
+                        onDismiss = { showScenicDialog = false }
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))

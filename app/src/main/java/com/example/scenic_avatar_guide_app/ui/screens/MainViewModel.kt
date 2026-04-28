@@ -20,6 +20,7 @@ import com.example.scenic_avatar_guide_app.core.avatar.AvatarPlaybackManager
 import com.example.scenic_avatar_guide_app.core.avatar.AvatarPlayAction
 import com.example.scenic_avatar_guide_app.core.tts.VoiceInfo
 import com.example.scenic_avatar_guide_app.core.tts.VoiceStyle
+import com.example.scenic_avatar_guide_app.data.local.ScenicDataSource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,8 +34,11 @@ import javax.inject.Inject
 class MainViewModel @Inject constructor(
     private val application: Application,
     private val repository: GuideRepository,
-    private val settingsDataStore: SettingsDataStore
+    private val settingsDataStore: SettingsDataStore,
+    private val scenicDataSource: ScenicDataSource
 ) : ViewModel() {
+
+    val scenicAreas = scenicDataSource.loadScenicAreas()
 
     // 消息列表
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -80,6 +84,10 @@ class MainViewModel @Inject constructor(
     private val _pendingImageUri = MutableStateFlow<String?>(null)
     val pendingImageUri: StateFlow<String?> = _pendingImageUri.asStateFlow()
 
+    // 是否显示景区景点选择对话框
+    private val _showScenicSelection = MutableStateFlow(false)
+    val showScenicSelection: StateFlow<Boolean> = _showScenicSelection.asStateFlow()
+
     // 当前发音人（默认 Edge-TTS 晓晓）
     private val _currentVoice = MutableStateFlow(VoiceInfo(
         id = "zh-CN-XiaoxiaoNeural",
@@ -102,6 +110,30 @@ class MainViewModel @Inject constructor(
         observeVoiceChanges()
         observeSessionChanges()
         initVoiceFromSettings()
+        checkScenicSpotSelection()
+    }
+
+    private fun checkScenicSpotSelection() {
+        viewModelScope.launch {
+            val scenicId = settingsDataStore.scenicId.first()
+            val spotId = settingsDataStore.spotId.first()
+            if (scenicId == null || spotId == null) {
+                _showScenicSelection.value = true
+            }
+        }
+    }
+
+    fun onScenicSpotSelected(scenicId: String, spotId: String) {
+        viewModelScope.launch {
+            settingsDataStore.setScenicId(scenicId)
+            settingsDataStore.setSpotId(spotId)
+            _showScenicSelection.value = false
+            createNewSession()
+        }
+    }
+
+    fun dismissScenicSelection() {
+        _showScenicSelection.value = false
     }
 
     /**

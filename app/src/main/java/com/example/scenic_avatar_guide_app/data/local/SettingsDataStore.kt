@@ -24,6 +24,8 @@ class SettingsDataStore @Inject constructor(
         private val SESSION_ID_KEY = stringPreferencesKey("session_id")
         private val USER_ID_KEY = stringPreferencesKey("user_id")
         private val VOICE_ID_KEY = stringPreferencesKey("voice_id")
+        private val SCENIC_ID_KEY = stringPreferencesKey("scenic_id")
+        private val SPOT_ID_KEY = stringPreferencesKey("spot_id")
 
         const val DEFAULT_BASE_URL = "http://10.0.2.2:8000/"
         const val DEFAULT_VOICE_ID = "zh-CN-XiaoxiaoNeural"
@@ -47,6 +49,14 @@ class SettingsDataStore @Inject constructor(
 
     val voiceId: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[VOICE_ID_KEY] ?: DEFAULT_VOICE_ID
+    }
+
+    val scenicId: Flow<String?> = context.dataStore.data.map { preferences ->
+        preferences[SCENIC_ID_KEY]
+    }
+
+    val spotId: Flow<String?> = context.dataStore.data.map { preferences ->
+        preferences[SPOT_ID_KEY]
     }
 
     suspend fun setBaseUrl(url: String) {
@@ -82,6 +92,25 @@ class SettingsDataStore @Inject constructor(
     suspend fun setVoiceId(id: String) {
         context.dataStore.edit { preferences ->
             preferences[VOICE_ID_KEY] = id
+        }
+    }
+
+    suspend fun setScenicId(id: String) {
+        context.dataStore.edit { preferences ->
+            preferences[SCENIC_ID_KEY] = id
+        }
+    }
+
+    suspend fun setSpotId(id: String) {
+        context.dataStore.edit { preferences ->
+            preferences[SPOT_ID_KEY] = id
+        }
+    }
+
+    suspend fun clearScenicSpot() {
+        context.dataStore.edit { preferences ->
+            preferences.remove(SCENIC_ID_KEY)
+            preferences.remove(SPOT_ID_KEY)
         }
     }
 

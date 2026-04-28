@@ -4,9 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.scenic_avatar_guide_app.core.tts.RemoteTTSController
 import com.example.scenic_avatar_guide_app.core.tts.VoiceInfo
-import com.example.scenic_avatar_guide_app.core.tts.VoiceStyle
+import com.example.scenic_avatar_guide_app.data.local.ScenicDataSource
 import com.example.scenic_avatar_guide_app.data.local.SettingsDataStore
 import com.example.scenic_avatar_guide_app.data.repository.GuideRepository
+import com.example.scenic_avatar_guide_app.domain.model.ScenicArea
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,7 +29,8 @@ data class ServerEndpointConfig(
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settingsDataStore: SettingsDataStore,
-    private val repository: GuideRepository
+    private val repository: GuideRepository,
+    private val scenicDataSource: ScenicDataSource
 ) : ViewModel() {
 
     private val _baseUrl = MutableStateFlow("")
@@ -59,6 +61,13 @@ class SettingsViewModel @Inject constructor(
     val currentVoiceId: StateFlow<String> = _currentVoiceId.asStateFlow()
 
     val availableVoices: List<VoiceInfo> = RemoteTTSController.AVAILABLE_VOICES
+    val scenicAreas: List<ScenicArea> = scenicDataSource.loadScenicAreas()
+
+    private val _scenicId = MutableStateFlow<String?>(null)
+    val scenicId: StateFlow<String?> = _scenicId.asStateFlow()
+
+    private val _spotId = MutableStateFlow<String?>(null)
+    val spotId: StateFlow<String?> = _spotId.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -78,6 +87,12 @@ class SettingsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             settingsDataStore.voiceId.collect { _currentVoiceId.value = it }
+        }
+        viewModelScope.launch {
+            settingsDataStore.scenicId.collect { _scenicId.value = it }
+        }
+        viewModelScope.launch {
+            settingsDataStore.spotId.collect { _spotId.value = it }
         }
     }
 
@@ -123,6 +138,17 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             settingsDataStore.setVoiceId(voiceId)
             _statusMessage.value = "发音人已切换"
+        }
+    }
+
+    fun setScenicSpot(scenicId: String, spotId: String) {
+        viewModelScope.launch {
+            settingsDataStore.setScenicId(scenicId)
+            settingsDataStore.setSpotId(spotId)
+            settingsDataStore.clearSession()
+            _scenicId.value = scenicId
+            _spotId.value = spotId
+            _statusMessage.value = "景区景点已更新，会话已重置"
         }
     }
 
