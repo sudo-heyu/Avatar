@@ -408,8 +408,6 @@ class MainViewModel @Inject constructor(
                             receivedText = true
                             // 使用打字机效果，添加到缓冲区
                             typewriterController.append(event.delta)
-                            // 累计文本用于 TTS 降级
-                            playbackManager.appendStreamingText(event.delta)
                         }
                         is ChatStreamEvent.TtsSegment -> {
                             Log.d(TAG, "TtsSegment: segmentId=${event.segment.segmentId}, audioUrl=${event.segment.audioUrl}, durationMs=${event.segment.durationMs}")

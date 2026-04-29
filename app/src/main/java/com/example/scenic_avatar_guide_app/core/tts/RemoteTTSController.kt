@@ -5,13 +5,11 @@ import android.util.Log
 import com.example.scenic_avatar_guide_app.core.audio.AudioPlayer
 import com.example.scenic_avatar_guide_app.core.avatar.ChinesePhonemeEngine
 import com.example.scenic_avatar_guide_app.data.repository.GuideRepository
-import com.example.scenic_avatar_guide_app.domain.model.VisemeType
 import kotlinx.coroutines.*
 
 /**
- * 远程 TTS 控制器（主链路）
+ * 远程 TTS 控制器
  * 调用后端 Edge-TTS 服务获取音频 URL，用 ExoPlayer 播放
- * 网络失败时自动降级到系统 TTS
  */
 class RemoteTTSController(
     private val context: Context,
@@ -34,7 +32,6 @@ class RemoteTTSController(
     }
 
     private val audioPlayer = AudioPlayer(context)
-    private val fallbackTts = SystemTTSController(context)
 
     private var currentVoiceId = DEFAULT_VOICE.id
     private var currentSpeed = 1.0f
@@ -57,17 +54,19 @@ class RemoteTTSController(
 
     init {
         setupAudioPlayerCallbacks()
-        syncFallbackCallbacks()
     }
 
     private fun setupAudioPlayerCallbacks() {
         audioPlayer.onPlayStart = {
-            Log.d(TAG, "音频播放开始")
+            Log.d(TAG, "[TTS] 音频播放开始")
             isSpeaking = true
             onSpeakStart?.invoke()
 
             // 音频开始时，启动预计算好的口型动画
             pendingPhonemeEvents?.let { events ->
+                val eventCount = events.size
+                val lastEvent = events.lastOrNull()
+                Log.d(TAG, "[TTS] 触发口型事件: count=$eventCount, 时间范围=0-${lastEvent?.endMs}ms")
                 onPhonemeEvents?.invoke(events)
 
                 // 向后兼容：逐个回调旧接口
@@ -85,7 +84,7 @@ class RemoteTTSController(
             }
         }
         audioPlayer.onPlayComplete = {
-            Log.d(TAG, "音频播放完成")
+            Log.d(TAG, "[TTS] 音频播放完成, duration=${audioPlayer.getDuration()}ms")
             isSpeaking = false
             lipSyncJob?.cancel()
             pendingPhonemeEvents = null
@@ -96,15 +95,8 @@ class RemoteTTSController(
             isSpeaking = false
             lipSyncJob?.cancel()
             pendingPhonemeEvents = null
-            // 播放失败时降级到系统 TTS
-            fallbackSpeak()
+            onSpeakComplete?.invoke()
         }
-    }
-
-    private fun syncFallbackCallbacks() {
-        fallbackTts.onSpeakStart = { onSpeakStart?.invoke() }
-        fallbackTts.onSpeakComplete = { onSpeakComplete?.invoke() }
-        fallbackTts.onPhonemeCallback = { event -> onPhonemeCallback?.invoke(event) }
     }
 
     override fun speak(text: String) {
@@ -147,23 +139,15 @@ class RemoteTTSController(
                         audioPlayer.play(fullUrl)
                     },
                     onFailure = { e ->
-                        Log.e(TAG, "后端 TTS 请求失败，降级到系统 TTS", e)
-                        fallbackSpeak()
+                        Log.e(TAG, "后端 TTS 请求失败", e)
+                        onSpeakComplete?.invoke()
                     }
                 )
             } catch (e: Exception) {
-                Log.e(TAG, "TTS 请求异常，降级到系统 TTS", e)
-                fallbackSpeak()
+                Log.e(TAG, "TTS 请求异常", e)
+                onSpeakComplete?.invoke()
             }
         }
-    }
-
-    private fun fallbackSpeak() {
-        Log.w(TAG, "使用系统 TTS 兜底播放")
-        fallbackTts.setVoice(currentVoiceId)
-        fallbackTts.setSpeed(currentSpeed)
-        fallbackTts.setPitch(currentPitch)
-        fallbackTts.speak(currentText)
     }
 
     override fun stop() {
@@ -171,13 +155,11 @@ class RemoteTTSController(
         lipSyncJob?.cancel()
         pendingPhonemeEvents = null
         audioPlayer.stop()
-        fallbackTts.stop()
     }
 
     override fun release() {
         stop()
         audioPlayer.release()
-        fallbackTts.release()
     }
 
     override fun setVoice(voiceId: String) {
@@ -290,5 +272,21 @@ class RemoteTTSController(
                 else -> 180L
             }
         }
+    }
+
+    /**
+     * 获取当前音频播放位置（毫秒）
+     * 用于口型同步
+     */
+    fun getCurrentPosition(): Long {
+        return audioPlayer.getCurrentPosition()
+    }
+
+    /**
+     * 获取当前是否正在播放（直接查询 ExoPlayer 状态）
+     * 用于口型同步判断
+     */
+    fun isAudioPlaying(): Boolean {
+        return audioPlayer.isActuallyPlaying()
     }
 }

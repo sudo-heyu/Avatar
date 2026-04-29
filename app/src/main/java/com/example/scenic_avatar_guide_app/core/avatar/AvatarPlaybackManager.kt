@@ -7,7 +7,6 @@ import com.example.scenic_avatar_guide_app.core.audio.AudioPlayer
 import com.example.scenic_avatar_guide_app.core.tts.PhonemeEvent
 import com.example.scenic_avatar_guide_app.core.tts.RemoteTTSController
 import com.example.scenic_avatar_guide_app.core.tts.StreamingTtsQueue
-import com.example.scenic_avatar_guide_app.core.tts.SystemTTSController
 import com.example.scenic_avatar_guide_app.core.tts.VoiceInfo
 import com.example.scenic_avatar_guide_app.core.tts.VoiceStyle
 import com.example.scenic_avatar_guide_app.data.repository.GuideRepository
@@ -39,17 +38,11 @@ class AvatarPlaybackManager(
     private val _currentVoice = MutableStateFlow(RemoteTTSController.DEFAULT_VOICE)
     val currentVoice: StateFlow<VoiceInfo> = _currentVoice.asStateFlow()
 
-    // TTS 控制器（远程 Edge-TTS，用于非流式播放）
+    // TTS 控制器（远程 Edge-TTS）
     private val ttsController = RemoteTTSController(context, repository)
-
-    // 系统 TTS 控制器（降级兜底）
-    private val systemTtsController = SystemTTSController(context)
 
     // 口型动画驱动器
     private val lipSyncAnimator = LipSyncAnimator()
-
-    // 流式 TTS 累计文本（用于降级时播放）
-    private var streamingText = StringBuilder()
 
     // 是否收到过 TTS 片段
     private var receivedTtsSegment = false
@@ -155,9 +148,6 @@ class AvatarPlaybackManager(
         // 设置 TTS 回调
         setupTTSCallbacks()
 
-        // 设置系统 TTS 回调（降级方案）
-        setupSystemTTSCallbacks()
-
         // 设置口型动画回调
         lipSyncAnimator.setOnUpdateListener { open, form ->
             _avatarState.update {
@@ -182,7 +172,6 @@ class AvatarPlaybackManager(
      */
     fun setVoice(voiceId: String) {
         ttsController.setVoice(voiceId)
-        systemTtsController.setVoice(voiceId)
         _currentVoice.value = RemoteTTSController.AVAILABLE_VOICES.find { it.id == voiceId }
             ?: RemoteTTSController.DEFAULT_VOICE
     }
@@ -192,7 +181,6 @@ class AvatarPlaybackManager(
      */
     fun setSpeed(speed: Float) {
         ttsController.setSpeed(speed)
-        systemTtsController.setSpeed(speed)
     }
 
     /**
@@ -200,7 +188,6 @@ class AvatarPlaybackManager(
      */
     fun setPitch(pitch: Float) {
         ttsController.setPitch(pitch)
-        systemTtsController.setPitch(pitch)
     }
 
     /**
@@ -252,30 +239,6 @@ class AvatarPlaybackManager(
     /**
      * 设置系统 TTS 回调（降级方案）
      */
-    private fun setupSystemTTSCallbacks() {
-        systemTtsController.onSpeakStart = {
-            _avatarState.update { it.copy(state = AvatarState.SPEAKING) }
-            // 系统 TTS 无法获取精确的播放进度，清除外部时间源
-            lipSyncAnimator.clearExternalTimeSource()
-        }
-
-        systemTtsController.onSpeakComplete = {
-            lipSyncAnimator.stop()
-            val shouldKeepGesture = currentPlayAction?.gestureLoop == true
-            _avatarState.update {
-                it.copy(
-                    state = AvatarState.IDLE,
-                    gesture = if (shouldKeepGesture) it.gesture else AvatarGesture.IDLE,
-                    gesturePriority = if (shouldKeepGesture) it.gesturePriority else GesturePriority.NORMAL,
-                    mouthOpen = 0f,
-                    mouthForm = 0f
-                )
-            }
-            isPlaying = false
-            currentPlayAction = null
-        }
-    }
-
     /**
      * 播放动作和语音
      */
@@ -287,7 +250,6 @@ class AvatarPlaybackManager(
             stop()
         }
         streamingTtsQueue.cancel()
-        streamingText.clear()
         currentPlayAction = action
 
         // 计算动作过渡时间：速度越快，过渡时间越短
@@ -358,7 +320,6 @@ class AvatarPlaybackManager(
     ) {
         Log.d(TAG, "[STREAMING] 开始流式播放会话")
         stop()
-        streamingText.clear()
         receivedTtsSegment = false
         currentSegmentEvents.clear()
         currentSegmentId = null
@@ -405,50 +366,12 @@ class AvatarPlaybackManager(
         }
     }
 
-    /**
-     * 累计流式文本（用于降级时播放）
-     */
-    fun appendStreamingText(text: String) {
-        streamingText.append(text)
-    }
-
     fun enqueueSpeechSegment(segment: TtsSegmentData) {
         streamingTtsQueue.enqueue(segment)
     }
 
     fun finishStreamingInput() {
         streamingTtsQueue.finishInput()
-
-        // 如果没有收到 TTS 片段，但有文本，使用系统 TTS 降级播放
-        if (!receivedTtsSegment && streamingText.isNotEmpty()) {
-            Log.d(TAG, "未收到 TTS 片段，降级到系统 TTS 播放")
-            scope.launch {
-                delay(300) // 稍微延迟，等待状态稳定
-                playWithSystemTTS(streamingText.toString())
-            }
-        }
-    }
-
-    /**
-     * 使用系统 TTS 播放（降级方案）
-     */
-    private fun playWithSystemTTS(text: String) {
-        isPlaying = true
-        _avatarState.update {
-            it.copy(
-                state = AvatarState.SPEAKING,
-                currentText = text
-            )
-        }
-
-        // 生成口型事件
-        val events = ChinesePhonemeEngine.textToPhonemeEvents(
-            text = text,
-            totalDurationMs = estimateTextDuration(text)
-        )
-        lipSyncAnimator.start(events, scope)
-
-        systemTtsController.speak(text)
     }
 
     /**
@@ -516,7 +439,6 @@ class AvatarPlaybackManager(
      */
     fun stop() {
         ttsController.stop()
-        systemTtsController.stop()
         streamingTtsQueue.cancel()
         audioPositionSyncJob?.cancel()
         audioPositionSyncJob = null
@@ -693,6 +615,7 @@ class AvatarPlaybackManager(
 
     /**
      * 根据音频位置计算口型
+     * 包含字间过渡处理，让连续开口音有起伏变化
      */
     private fun calculateLipSync(audioPos: Long): Pair<Float, Float> {
         if (currentSegmentEvents.isEmpty()) return Pair(0f, 0f)
@@ -701,13 +624,22 @@ class AvatarPlaybackManager(
         val currentEvent = currentSegmentEvents.find { audioPos >= it.startMs && audioPos < it.endMs }
 
         if (currentEvent != null) {
-            // 在某个事件内：直接使用该事件的口型
-            val open = currentEvent.viseme.mouthOpen
+            // 在某个事件内：计算事件内的进度并应用缓动
+            val eventDuration = (currentEvent.endMs - currentEvent.startMs).coerceAtLeast(1)
+            val progress = ((audioPos - currentEvent.startMs).toFloat() / eventDuration).coerceIn(0f, 1f)
+
+            // 在事件内应用轻微的"中间高两端低"缓动，模拟自然说话
+            val easedOpen = currentEvent.viseme.mouthOpen * when {
+                progress < 0.3f -> 0.7f + progress  // 进入阶段：从70%渐增
+                progress > 0.7f -> 0.7f + (1f - progress)  // 退出阶段：渐减到70%
+                else -> 1f  // 中间阶段：100%
+            }
+
             val form = currentEvent.viseme.mouthForm
 
             // 与上一帧平滑过渡
-            lastMouthOpen = lerpValue(lastMouthOpen, open, 0.35f)
-            lastMouthForm = lerpValue(lastMouthForm, form, 0.35f)
+            lastMouthOpen = lerpValue(lastMouthOpen, easedOpen, 0.4f)
+            lastMouthForm = lerpValue(lastMouthForm, form, 0.4f)
             return Pair(lastMouthOpen, lastMouthForm)
         }
 
@@ -716,15 +648,28 @@ class AvatarPlaybackManager(
         val nextEvent = currentSegmentEvents.firstOrNull { it.startMs > audioPos }
 
         if (prevEvent != null && nextEvent != null) {
-            // 字间过渡：插值
+            // 字间过渡：插值 + 保持系数
             val gap = (nextEvent.startMs - prevEvent.endMs).coerceAtLeast(1)
             val t = ((audioPos - prevEvent.endMs).toFloat() / gap).coerceIn(0f, 1f)
 
-            val open = lerpValue(prevEvent.viseme.mouthOpen, nextEvent.viseme.mouthOpen, t)
+            val prevOpen = prevEvent.viseme.mouthOpen
+            val nextOpen = nextEvent.viseme.mouthOpen
+            val avgOpen = (prevOpen + nextOpen) / 2f
+
+            // 字间保持系数：让连续开口音之间有闭合过渡
+            val holdFactor = when {
+                gap >= 150 -> 0.5f   // 长停顿，允许较多闭合
+                gap >= 80 -> 0.6f    // 中等停顿
+                avgOpen >= 0.7f -> 0.55f  // 连续高开口音，要有起伏
+                avgOpen >= 0.5f -> 0.6f
+                else -> 0.7f
+            }
+
+            val open = lerpValue(prevOpen, nextOpen, t) * holdFactor
             val form = lerpValue(prevEvent.viseme.mouthForm, nextEvent.viseme.mouthForm, t)
 
-            lastMouthOpen = lerpValue(lastMouthOpen, open, 0.25f)
-            lastMouthForm = lerpValue(lastMouthForm, form, 0.25f)
+            lastMouthOpen = lerpValue(lastMouthOpen, open, 0.35f)
+            lastMouthForm = lerpValue(lastMouthForm, form, 0.35f)
             return Pair(lastMouthOpen, lastMouthForm)
         }
 
@@ -841,7 +786,6 @@ class AvatarPlaybackManager(
     fun release() {
         stop()
         ttsController.release()
-        systemTtsController.release()
         streamingTtsQueue.release()
         streamingAudioPlayer.release()
         scope.cancel()
