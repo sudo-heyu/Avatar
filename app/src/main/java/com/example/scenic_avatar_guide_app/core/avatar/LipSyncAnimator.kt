@@ -1,11 +1,14 @@
 package com.example.scenic_avatar_guide_app.core.avatar
 
+import android.util.Log
 import com.example.scenic_avatar_guide_app.core.audio.AudioAmplitudeAnalyzer
 import com.example.scenic_avatar_guide_app.core.avatar.animation.Easing
 import com.example.scenic_avatar_guide_app.core.avatar.animation.EasingType
 import com.example.scenic_avatar_guide_app.core.tts.PhonemeEvent
 import com.example.scenic_avatar_guide_app.domain.model.VisemeType
 import kotlinx.coroutines.*
+
+private const val TAG = "LipSyncAnimator"
 
 /**
  * 口型动画驱动器
@@ -18,8 +21,50 @@ import kotlinx.coroutines.*
  * - 平滑过渡：帧级插值避免跳跃
  * - 情绪影响：根据情绪强度调整口型幅度
  * - 音频振幅校正：实时振幅辅助口型同步（P4优化）
+ * - 音频进度同步：支持外部时间源，实现与音频播放精确同步
  */
 class LipSyncAnimator {
+
+    companion object {
+        /**
+         * 按字（charIndex）合并音素事件
+         *
+         * 同一字的声母+韵母合并为一个字级口型事件，消除字内声母导致的快速闭合抖动。
+         */
+        fun mergeEventsByChar(events: List<PhonemeEvent>): List<PhonemeEvent> {
+            if (events.size <= 1) return events
+
+            return events.groupBy { it.charIndex }
+                .toSortedMap()
+                .values
+                .flatMap { group ->
+                    if (group.size == 1) {
+                        listOf(group.first())
+                    } else if (group.any { it.viseme == VisemeType.BP }) {
+                        // 含闭唇声母（b,p,m）的字保留原样，确保闭嘴动作不被吞掉
+                        group.sortedBy { it.startMs }
+                    } else {
+                        val startMs = group.minOf { it.startMs }
+                        val endMs = group.maxOf { it.endMs }
+                        // 优先选非静音中 mouthOpen 最大的（通常是韵母）
+                        val rep = group
+                            .filter { it.viseme != VisemeType.SIL }
+                            .maxByOrNull { it.viseme.mouthOpen }
+                            ?: group.first()
+
+                        listOf(
+                            PhonemeEvent(
+                                phoneme = rep.phoneme,
+                                startMs = startMs,
+                                endMs = endMs,
+                                viseme = rep.viseme,
+                                charIndex = rep.charIndex
+                            )
+                        )
+                    }
+                }
+        }
+    }
 
     private var job: Job? = null
     private var onUpdate: ((mouthOpen: Float, mouthForm: Float) -> Unit)? = null
@@ -36,6 +81,12 @@ class LipSyncAnimator {
 
     // 是否启用振幅校正
     private var enableAmplitudeCorrection: Boolean = false
+
+    // 外部时间源（用于音频同步）
+    private var externalTimeSource: (() -> Long)? = null
+
+    // 外部播放状态源（用于判断是否应该停止动画）
+    private var externalIsPlaying: (() -> Boolean)? = null
 
     fun setOnUpdateListener(listener: (mouthOpen: Float, mouthForm: Float) -> Unit) {
         onUpdate = listener
@@ -60,12 +111,43 @@ class LipSyncAnimator {
     }
 
     /**
+     * 设置外部时间源（用于音频同步）
+     *
+     * @param timeSource 返回当前音频播放位置（毫秒）的函数
+     * @param isPlayingSource 返回当前是否正在播放的函数
+     */
+    fun setExternalTimeSource(
+        timeSource: () -> Long,
+        isPlayingSource: () -> Boolean
+    ) {
+        externalTimeSource = timeSource
+        externalIsPlaying = isPlayingSource
+    }
+
+    /**
+     * 清除外部时间源，使用系统时间
+     */
+    fun clearExternalTimeSource() {
+        externalTimeSource = null
+        externalIsPlaying = null
+    }
+
+    /**
+     * 获取当前时间（毫秒）
+     * 如果设置了外部时间源，使用外部时间；否则使用系统时间
+     */
+    private fun getCurrentTime(): Long {
+        return externalTimeSource?.invoke() ?: System.currentTimeMillis()
+    }
+
+    /**
      * 启动口型动画
      *
      * @param events 按时间排序的音素事件列表
      * @param scope 协程作用域（通常使用 AvatarPlaybackManager 的 scope）
+     * @param useAudioSync 是否使用音频同步模式（基于外部时间源）
      */
-    fun start(events: List<PhonemeEvent>, scope: CoroutineScope) {
+    fun start(events: List<PhonemeEvent>, scope: CoroutineScope, useAudioSync: Boolean = false) {
         stop()
 
         if (events.isEmpty()) {
@@ -73,33 +155,55 @@ class LipSyncAnimator {
             return
         }
 
+        // 按字合并，消除字内声母导致的快速闭合抖动
+        val mergedEvents = mergeEventsByChar(events)
+
+        // 音频同步模式：使用外部时间源（音频进度）驱动口型
+        if (useAudioSync && externalTimeSource != null) {
+            startAudioSynced(mergedEvents, scope)
+            return
+        }
+
+        // 传统模式：使用系统时间驱动
         job = scope.launch {
             val startTime = System.currentTimeMillis()
             var lastOpen = 0f
             var lastForm = 0f
 
-            events.forEachIndexed { index, event ->
+            mergedEvents.forEachIndexed { index, event ->
                 if (!isActive) return@launch
+
+                // 检查外部播放状态
+                if (externalIsPlaying?.invoke() == false) {
+                    // 音频已停止，立即闭合
+                    animateTransitionWithEasing(lastOpen, lastForm, 0f, 0f, 100, isOpening = false)
+                    onUpdate?.invoke(0f, 0f)
+                    return@launch
+                }
 
                 // 等待到该音素的开始时间
                 val elapsed = System.currentTimeMillis() - startTime
                 val waitTime = event.startMs - elapsed
                 if (waitTime > 0) delay(waitTime)
 
-                val duration = (event.endMs - event.startMs).coerceAtLeast(40)
+                val duration = (event.endMs - event.startMs).coerceAtLeast(60)
 
                 // 增强协同发音：根据音素类型差异化处理
                 val result = animateWithCoarticulation(
-                    events = events,
+                    events = mergedEvents,
                     index = index,
                     lastOpen = lastOpen,
                     lastForm = lastForm,
                     duration = duration
                 )
 
-                // 大开口音素结束时保留基础开度，避免频繁完全闭合
-                val endOpenFloor = if (event.viseme.mouthOpen >= 0.7f) 0.35f else 0f
-                lastOpen = result.first.coerceAtLeast(endOpenFloor)
+                // 字间自然衰减：向中性微张靠拢，避免连续开口字时嘴一直大张
+                val isLast = index == mergedEvents.lastIndex
+                lastOpen = when {
+                    event.viseme == VisemeType.SIL -> 0f
+                    isLast -> result.first
+                    else -> result.first + (0.12f - result.first) * 0.25f
+                }
                 lastForm = result.second
             }
 
@@ -110,12 +214,192 @@ class LipSyncAnimator {
     }
 
     /**
+     * 音频同步模式：基于外部时间源（音频进度）驱动口型
+     *
+     * 超前补偿：让口型比音频进度提前触发，确保视觉和听觉同步
+     */
+    private fun startAudioSynced(events: List<PhonemeEvent>, scope: CoroutineScope) {
+        Log.d(TAG, "[AUDIOSYNC] 启动音频同步模式, events=${events.size}, lastEventEnd=${events.lastOrNull()?.endMs}")
+
+        job = scope.launch {
+            var lastOpen = 0f
+            var lastForm = 0f
+            var lastPosition = -1L
+            var samePositionCount = 0
+            var frameCount = 0
+            val lastEventEnd = events.lastOrNull()?.endMs ?: 0L
+
+            // 超前补偿（毫秒）
+            val leadMs = 30L
+
+            // 闭合提前量：音频结束前多少毫秒开始闭合嘴巴
+            val closeLeadMs = 80L
+
+            while (isActive) {
+                frameCount++
+
+                // 检查播放状态
+                val isPlaying = externalIsPlaying?.invoke() ?: true
+                val currentPosition = externalTimeSource?.invoke() ?: 0L
+
+                // 应用超前补偿
+                val lipPosition = (currentPosition + leadMs).coerceAtLeast(0L)
+
+                // 每10帧输出诊断日志
+                if (frameCount % 10 == 0) {
+                    val currentEvent = events.find { lipPosition in it.startMs..it.endMs }
+                    val eventInfo = currentEvent?.let { "${it.phoneme}:${it.startMs}-${it.endMs}" } ?: "none"
+                    Log.d(TAG, "[AUDIOSYNC] audioPos=$currentPosition, lipPos=$lipPosition, event=$eventInfo, isPlaying=$isPlaying")
+                }
+
+                // 保底机制1：音频位置停滞检测
+                if (currentPosition == lastPosition && currentPosition > 0) {
+                    samePositionCount++
+                    if (samePositionCount >= 3) {
+                        Log.d(TAG, "[AUDIOSYNC] 音频停滞，强制闭合")
+                        onUpdate?.invoke(0f, 0f)
+                        return@launch
+                    }
+                } else {
+                    samePositionCount = 0
+                }
+                lastPosition = currentPosition
+
+                // 保底机制2：音频已停止（最可靠的停止信号）
+                if (!isPlaying && currentPosition > 0) {
+                    Log.d(TAG, "[AUDIOSYNC] 音频停止，强制闭合")
+                    onUpdate?.invoke(0f, 0f)
+                    return@launch
+                }
+
+                // 保底机制3：口型时间轴已结束（立即退出，不继续循环）
+                if (lipPosition > lastEventEnd + 30) {
+                    Log.d(TAG, "[AUDIOSYNC] 时间轴结束，强制闭合 lipPos=$lipPosition, lastEnd=$lastEventEnd")
+                    onUpdate?.invoke(0f, 0f)
+                    return@launch
+                }
+
+                // 查找当前应该的口型事件（使用超前位置）
+                val currentEvent = events.find { lipPosition in it.startMs..it.endMs }
+
+                if (currentEvent != null) {
+                    val currentIndex = events.indexOf(currentEvent)
+                    val progress = (lipPosition - currentEvent.startMs).toFloat() /
+                        (currentEvent.endMs - currentEvent.startMs).coerceAtLeast(1)
+                    val prevViseme = events.getOrNull(currentIndex - 1)?.viseme
+                    val nextViseme = events.getOrNull(currentIndex + 1)?.viseme
+
+                    val targetOpen = applyAllCorrections(
+                        blendMouth(prevViseme?.mouthOpen, currentEvent.viseme.mouthOpen, nextViseme?.mouthOpen)
+                    )
+                    val targetForm = blendMouth(prevViseme?.mouthForm, currentEvent.viseme.mouthForm, nextViseme?.mouthForm)
+
+                    val easedProgress = Easing.easeInOutCubic(progress.coerceIn(0f, 1f))
+                    val fromOpen = lastOpen
+                    val fromForm = lastForm
+
+                    lastOpen = lerp(fromOpen, targetOpen, easedProgress)
+                    lastForm = lerp(fromForm, targetForm, easedProgress)
+                    onUpdate?.invoke(lastOpen, lastForm)
+                } else {
+                    // 不在任何事件中：检查是否在两事件之间
+                    val prevEvent = events.lastOrNull { it.endMs < lipPosition }
+                    val nextEvent = events.firstOrNull { it.startMs > lipPosition }
+
+                    if (prevEvent != null && nextEvent != null) {
+                        // 字间过渡：动态保持系数，避免快语速时频繁闭合
+                        val gap = (nextEvent.startMs - prevEvent.endMs).coerceAtLeast(1)
+                        val intoGap = lipPosition - prevEvent.endMs
+                        val t = (intoGap.toFloat() / gap).coerceIn(0f, 1f)
+
+                        val prevOpen = prevEvent.viseme.mouthOpen
+                        val nextOpen = nextEvent.viseme.mouthOpen
+                        val avgOpen = (prevOpen + nextOpen) / 2f
+
+                        // 语速快（gap 小）且前后都是开口音时，保持更多开度
+                        val holdFactor = when {
+                            gap >= 150 -> 0.35f // 长停顿，允许自然闭合
+                            avgOpen >= 0.55f -> 0.8f // 连续高开口音（元音），保持高开口
+                            avgOpen >= 0.35f -> 0.6f
+                            else -> 0.45f
+                        }
+
+                        lastOpen = lerp(prevOpen, nextOpen, t) * holdFactor
+                        lastForm = lerp(prevEvent.viseme.mouthForm, nextEvent.viseme.mouthForm, t)
+                        onUpdate?.invoke(lastOpen, lastForm)
+                    } else if (prevEvent != null) {
+                        // 在所有事件之后，快速闭合（最多50ms）
+                        val afterEnd = lipPosition - prevEvent.endMs
+                        if (afterEnd < 50) {
+                            val t = (afterEnd / 50f).coerceIn(0f, 1f)
+                            lastOpen = lerp(lastOpen, 0f, t)
+                            lastForm = lerp(lastForm, 0f, t)
+                            onUpdate?.invoke(lastOpen, lastForm)
+                        } else {
+                            onUpdate?.invoke(0f, 0f)
+                            return@launch
+                        }
+                    } else {
+                        // 在所有事件之前，保持闭合
+                        onUpdate?.invoke(0f, 0f)
+                    }
+                }
+
+                delay(16) // ~60fps
+            }
+        }
+    }
+
+    /**
      * 立即停止口型动画并重置嘴巴状态
      */
     fun stop() {
         job?.cancel()
         job = null
         onUpdate?.invoke(0f, 0f)
+    }
+
+    /**
+     * 按字（charIndex）合并音素事件
+     *
+     * 同一字的声母+韵母合并为一个字级口型事件：
+     * - 时间范围取该字所有事件的最小 startMs 到最大 endMs
+     * - 代表口型取该字所有非静音音素中 mouthOpen 最大的（即韵母）
+     *
+     * 这能消除字内声母导致的"快速闭合->张开"抖动。
+     */
+    private fun mergeEventsByChar(events: List<PhonemeEvent>): List<PhonemeEvent> {
+        if (events.size <= 1) return events
+
+        return events.groupBy { it.charIndex }
+            .toSortedMap()
+            .values
+            .flatMap { group ->
+                if (group.size == 1) {
+                    listOf(group.first())
+                } else if (group.any { it.viseme == VisemeType.BP }) {
+                    // 含闭唇声母（b,p,m）的字保留原样，确保闭嘴动作不被吞掉
+                    group.sortedBy { it.startMs }
+                } else {
+                    val startMs = group.minOf { it.startMs }
+                    val endMs = group.maxOf { it.endMs }
+                    // 优先选非静音中 mouthOpen 最大的（通常是韵母）
+                    val rep = group
+                        .filter { it.viseme != VisemeType.SIL }
+                        .maxByOrNull { it.viseme.mouthOpen }
+                        ?: group.first()
+
+                    listOf(
+                        PhonemeEvent(
+                            phoneme = rep.phoneme,
+                            startMs = startMs,
+                            endMs = endMs,
+                            viseme = rep.viseme,
+                            charIndex = rep.charIndex
+                        )
+                    )
+                }
+            }
     }
 
     /**
@@ -160,7 +444,7 @@ class LipSyncAnimator {
      * 爆破音动画
      *
      * 特点：前期闭气准备（嘴巴接近闭合），后期快速释放到目标口型
-     * 时间分配：40% 闭气准备 + 60% 释放
+     * 时间分配：55% 闭气准备 + 45% 释放
      */
     private suspend fun animatePlosive(
         current: VisemeType,
@@ -170,9 +454,9 @@ class LipSyncAnimator {
         lastForm: Float,
         duration: Long
     ): Pair<Float, Float> {
-        // 闭气准备阶段（40%）
-        val holdDuration = (duration * 0.4f).toLong().coerceAtLeast(20)
-        // 释放阶段（60%）
+        // 闭气准备阶段（55%，让闭嘴姿态更明显）
+        val holdDuration = (duration * 0.55f).toLong().coerceAtLeast(30)
+        // 释放阶段（45%）
         val releaseDuration = duration - holdDuration
 
         // 闭气阶段：嘴巴接近闭合

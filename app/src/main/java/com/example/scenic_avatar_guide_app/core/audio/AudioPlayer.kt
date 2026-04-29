@@ -1,16 +1,10 @@
 package com.example.scenic_avatar_guide_app.core.audio
 
 import android.content.Context
-import android.media.AudioAttributes
-import android.media.MediaPlayer
-import android.net.Uri
 import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
-import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import kotlinx.coroutines.*
@@ -23,30 +17,14 @@ private const val TAG = "AudioPlayer"
 
 /**
  * 音频播放器
- * 支持本地文件和网络URL播放，带缓存预加载
+ * 支持本地文件和网络URL播放
  */
 class AudioPlayer(private val context: Context) {
 
-    companion object {
-        private var simpleCache: SimpleCache? = null
-
-        private fun getCache(context: Context): SimpleCache {
-            if (simpleCache == null) {
-                val cacheDir = File(context.cacheDir, "audio_cache")
-                val evictor = LeastRecentlyUsedCacheEvictor(50 * 1024 * 1024L) // 50MB
-                simpleCache = SimpleCache(cacheDir, evictor)
-            }
-            return simpleCache!!
-        }
-    }
-
-    private val cache = getCache(context)
-    private val cacheDataSourceFactory = CacheDataSource.Factory()
-        .setCache(cache)
-        .setUpstreamDataSourceFactory(DefaultDataSource.Factory(context))
+    private val dataSourceFactory = DefaultDataSource.Factory(context)
 
     private val player: ExoPlayer = ExoPlayer.Builder(context)
-        .setMediaSourceFactory(DefaultMediaSourceFactory(cacheDataSourceFactory))
+        .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
         .build()
     private var playJob: Job? = null
     private var currentUrl: String? = null
@@ -185,6 +163,15 @@ class AudioPlayer(private val context: Context) {
     fun hasMediaItems(): Boolean = player.mediaItemCount > 0
 
     /**
+     * 移除指定索引的媒体项（用于清理已播放的片段，保持播放列表精简）
+     */
+    fun removeMediaItem(index: Int) {
+        if (index in 0 until player.mediaItemCount) {
+            player.removeMediaItem(index)
+        }
+    }
+
+    /**
      * 播放本地文件
      */
     fun playFile(file: File) {
@@ -253,6 +240,14 @@ class AudioPlayer(private val context: Context) {
      */
     fun getCurrentPosition(): Long {
         return player.currentPosition.coerceAtLeast(0)
+    }
+
+    /**
+     * 获取播放器是否真的在播放（直接查询 ExoPlayer 状态）
+     * 比 isPlaying StateFlow 更可靠，用于口型同步
+     */
+    fun isActuallyPlaying(): Boolean {
+        return player.isPlaying
     }
 
     /**

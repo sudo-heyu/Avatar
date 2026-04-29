@@ -162,6 +162,75 @@ fun setAmplitudeAnalyzer(analyzer: AudioAmplitudeAnalyzer?, enabled: Boolean = t
 - 无声段：快速衰减到 30%
 - 平滑处理：避免振幅跳变
 
+### 优化6：按字合并音素事件 ✅（P5 已完成）
+
+**实现方式**：在 `LipSyncAnimator` 中使用 `mergeEventsByChar()`
+
+```kotlin
+fun mergeEventsByChar(events: List<PhonemeEvent>): List<PhonemeEvent> {
+    return events.groupBy { it.charIndex }
+        .toSortedMap()
+        .values
+        .flatMap { group ->
+            if (group.size == 1) {
+                listOf(group.first())
+            } else if (group.any { it.viseme == VisemeType.BP }) {
+                group.sortedBy { it.startMs }  // 含闭唇声母保留原样
+            } else {
+                val startMs = group.minOf { it.startMs }
+                val endMs = group.maxOf { it.endMs }
+                val rep = group
+                    .filter { it.viseme != VisemeType.SIL }
+                    .maxByOrNull { it.viseme.mouthOpen }
+                    ?: group.first()
+                listOf(PhonemeEvent(..., startMs, endMs, rep.viseme, rep.charIndex))
+            }
+        }
+}
+```
+
+**效果**：消除字内声母→韵母的快速闭合抖动，口型只在字间切换。
+
+### 优化7：音频进度同步 ✅（P6 已完成）
+
+**实现方式**：流式模式下，使用 ExoPlayer 实时播放位置驱动口型
+
+```kotlin
+// AvatarPlaybackManager.kt
+private fun startAudioSyncedLipSync() {
+    audioPositionSyncJob = scope.launch {
+        while (isActive && isPlaying) {
+            val audioPos = streamingAudioPlayer.getCurrentPosition()
+
+            val (open, form) = calculateLipSync(audioPos)
+            _avatarState.update { it.copy(mouthOpen = open, mouthForm = form) }
+
+            delay(16)
+        }
+    }
+}
+```
+
+**特性**：
+- 基于音频播放位置直接驱动口型
+- 多层保底：进度停滞、音频结束、时间轴结束
+- 简化的帧间平滑（0.25-0.35），避免过度延迟
+
+### 优化8：移除音频缓存 ✅（P7 已完成）
+
+**原因**：确保每次播放都是最新音频，避免缓存导致的陈旧数据问题
+
+**实现方式**：使用 `DefaultDataSource.Factory` 直接请求网络，移除 `SimpleCache` 和 `CacheDataSource`
+
+```kotlin
+// AudioPlayer.kt
+private val dataSourceFactory = DefaultDataSource.Factory(context)
+
+private val player: ExoPlayer = ExoPlayer.Builder(context)
+    .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+    .build()
+```
+
 ---
 
 ## 三、实施优先级
@@ -173,6 +242,9 @@ fun setAmplitudeAnalyzer(analyzer: AudioAmplitudeAnalyzer?, enabled: Boolean = t
 | P2 | 情绪影响 | 中 | 高 | ✅ 已完成 |
 | P3 | 协同发音增强 | 大 | 中 | ✅ 已完成 |
 | P4 | 音频振幅校准 | 大 | 中 | ✅ 已完成 |
+| P5 | 按字合并音素事件 | 小 | 高 | ✅ 已完成 |
+| P6 | 音频进度同步 | 中 | 高 | ✅ 已完成 |
+| P7 | 移除音频缓存 | 小 | 中 | ✅ 已完成 |
 
 ---
 
@@ -220,5 +292,8 @@ when (expression) {
 3. ✅ **情绪影响**：根据情绪强度动态调整口型幅度
 4. ✅ **协同发音增强**：爆破音闭气释放、元音平滑滑动
 5. ✅ **音频振幅校准**：实时振幅辅助口型同步兜底
+6. ✅ **按字合并音素事件**：消除字内声母抖动，口型只在字间切换
+7. ✅ **音频进度同步**：流式模式下基于 ExoPlayer 实时位置驱动口型，多层保底机制
+8. ✅ **移除音频缓存**：每次播放重新请求网络，确保数据新鲜
 
 当前系统的**口型定义（15种）已经优于主流开源方案**，配合以上优化，口型同步自然度和准确性达到生产级别。

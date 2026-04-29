@@ -11,6 +11,8 @@ import com.example.scenic_avatar_guide_app.core.tts.SystemTTSController
 import com.example.scenic_avatar_guide_app.core.tts.VoiceInfo
 import com.example.scenic_avatar_guide_app.core.tts.VoiceStyle
 import com.example.scenic_avatar_guide_app.data.repository.GuideRepository
+import com.example.scenic_avatar_guide_app.core.avatar.animation.Easing
+import com.example.scenic_avatar_guide_app.core.avatar.animation.GestureTransitionController
 import com.example.scenic_avatar_guide_app.domain.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,20 +69,25 @@ class AvatarPlaybackManager(
                     currentText = segment.text
                 )
             }
-            startSegmentLipSync(segment)
+            // 更新当前 segment 的口型事件（不再累计，每个 segment 独立）
+            currentSegmentId = segment.segmentId
+            updateCurrentSegmentLipSync(segment)
         },
-        onSegmentComplete = {
-            // 不立即停止唇形动画，让 LipSyncAnimator 自然结束或保持当前口型。
-            // 若下一段很快开始，嘴部不会闪闭再张开，从而消除视觉顿挫感。
+        onSegmentComplete = { segment, actualDurationMs ->
+            Log.d(TAG, "segment ${segment.segmentId} 完成，实际时长=${actualDurationMs}ms")
         },
         onWaitingForSegment = {
-            // 延迟关闭口型：短 gap 内不闭嘴，避免嘴部频繁开合
-            scheduleMouthClose()
+            // 短 gap 内保持当前状态，不闭合嘴巴
         },
         onAllComplete = {
             cancelWaitingClose()
-            lipSyncAnimator.stop()
+            audioPositionSyncJob?.cancel()
+            audioPositionSyncJob = null
+            streamingLipSyncJob?.cancel()
+            streamingLipSyncJob = null
             isPlaying = false
+            currentSegmentEvents.clear()
+            currentSegmentId = null
             _avatarState.update {
                 it.copy(
                     state = AvatarState.IDLE,
@@ -94,8 +101,13 @@ class AvatarPlaybackManager(
         },
         onError = {
             cancelWaitingClose()
-            lipSyncAnimator.stop()
+            audioPositionSyncJob?.cancel()
+            audioPositionSyncJob = null
+            streamingLipSyncJob?.cancel()
+            streamingLipSyncJob = null
             isPlaying = false
+            currentSegmentEvents.clear()
+            currentSegmentId = null
             _avatarState.update {
                 it.copy(
                     state = AvatarState.ERROR,
@@ -122,6 +134,22 @@ class AvatarPlaybackManager(
     private var motionQueueJob: Job? = null
     private var expressionTimelineJob: Job? = null
     private var waitingCloseJob: Job? = null
+
+    // 流式口型实时更新协程
+    private var streamingLipSyncJob: Job? = null
+
+    // 音频播放进度同步：记录当前音频播放位置
+    private var audioPositionSyncJob: Job? = null
+
+    // 当前 segment 的口型事件（相对于该 segment 从 0 开始）
+    private var currentSegmentEvents = mutableListOf<PhonemeEvent>()
+
+    // 当前 segment 的 ID（用于判断 segment 切换）
+    private var currentSegmentId: String? = null
+
+    // 帧间平滑：记住上一帧的口型值
+    private var lastMouthOpen = 0f
+    private var lastMouthForm = 0f
 
     init {
         // 设置 TTS 回调
@@ -182,10 +210,18 @@ class AvatarPlaybackManager(
         ttsController.onSpeakStart = {
             _avatarState.update { it.copy(state = AvatarState.SPEAKING) }
             isPlaying = true
+
+            // 设置外部时间源（音频进度）用于口型同步
+            lipSyncAnimator.setExternalTimeSource(
+                timeSource = { ttsController.getCurrentPosition() },
+                isPlayingSource = { ttsController.isAudioPlaying() }
+            )
         }
 
         ttsController.onSpeakComplete = {
+            Log.d(TAG, "[TTS] 非流式播放完成")
             lipSyncAnimator.stop()
+            lipSyncAnimator.clearExternalTimeSource()
             val shouldKeepGesture = currentPlayAction?.gestureLoop == true
             _avatarState.update {
                 it.copy(
@@ -201,8 +237,12 @@ class AvatarPlaybackManager(
         }
 
         // 音素事件列表回调 - 驱动高精度口型动画
+        // 使用音频同步模式
         ttsController.onPhonemeEvents = { events ->
-            lipSyncAnimator.start(events, scope)
+            val eventCount = events.size
+            val lastEvent = events.lastOrNull()
+            Log.d(TAG, "[TTS] 非流式口型事件: count=$eventCount, 时间范围=0-${lastEvent?.endMs}ms")
+            lipSyncAnimator.start(events, scope, useAudioSync = true)
         }
 
         // 单个音素回调已由 LipSyncAnimator 的平滑动画接管，不再直接更新状态
@@ -215,6 +255,8 @@ class AvatarPlaybackManager(
     private fun setupSystemTTSCallbacks() {
         systemTtsController.onSpeakStart = {
             _avatarState.update { it.copy(state = AvatarState.SPEAKING) }
+            // 系统 TTS 无法获取精确的播放进度，清除外部时间源
+            lipSyncAnimator.clearExternalTimeSource()
         }
 
         systemTtsController.onSpeakComplete = {
@@ -238,7 +280,8 @@ class AvatarPlaybackManager(
      * 播放动作和语音
      */
     fun play(action: AvatarPlayAction) {
-        Log.d(TAG, "play: gesture=${action.gesture}, expression=${action.expression}, motions=${action.motionQueue.size}, priority=${action.gesturePriority}, loop=${action.gestureLoop}, speed=${action.gestureSpeed}")
+        val hasSpeech = !action.text.isNullOrBlank()
+        Log.d(TAG, "play: gesture=${action.gesture}, expression=${action.expression}, hasSpeech=$hasSpeech, text=${action.text?.take(20)}, motions=${action.motionQueue.size}")
 
         if (isPlaying) {
             stop()
@@ -247,7 +290,8 @@ class AvatarPlaybackManager(
         streamingText.clear()
         currentPlayAction = action
 
-        val hasSpeech = !action.text.isNullOrBlank()
+        // 计算动作过渡时间：速度越快，过渡时间越短
+        val transitionMs = GestureTransitionController.calculateTransitionMs(action.gestureSpeed)
 
         _avatarState.update {
             it.copy(
@@ -255,7 +299,8 @@ class AvatarPlaybackManager(
                 expression = action.expression,
                 expressionIntensity = action.expressionIntensity,
                 gesture = action.gesture,
-                gesturePriority = action.gesturePriority
+                gesturePriority = action.gesturePriority,
+                gestureTransitionMs = transitionMs
             )
         }
 
@@ -311,9 +356,12 @@ class AvatarPlaybackManager(
         expressionIntensity: Float = 0.7f,
         gesture: AvatarGesture = AvatarGesture.THINKING_POSE
     ) {
+        Log.d(TAG, "[STREAMING] 开始流式播放会话")
         stop()
         streamingText.clear()
         receivedTtsSegment = false
+        currentSegmentEvents.clear()
+        currentSegmentId = null
         streamingTtsQueue.start()
         _avatarState.update {
             it.copy(
@@ -423,11 +471,15 @@ class AvatarPlaybackManager(
             return
         }
 
+        // 计算过渡时间：速度越快，过渡时间越短
+        val transitionMs = GestureTransitionController.calculateTransitionMs(speed)
+
         _avatarState.update {
             it.copy(
                 gesture = gesture,
                 expression = expression,
-                gesturePriority = priority
+                gesturePriority = priority,
+                gestureTransitionMs = transitionMs
             )
         }
 
@@ -437,7 +489,11 @@ class AvatarPlaybackManager(
             scope.launch {
                 delay(autoResetDelay)
                 _avatarState.update {
-                    it.copy(gesture = AvatarGesture.IDLE, gesturePriority = GesturePriority.NORMAL)
+                    it.copy(
+                        gesture = AvatarGesture.IDLE,
+                        gesturePriority = GesturePriority.NORMAL,
+                        gestureTransitionMs = GestureTransitionController.DEFAULT_TRANSITION_MS
+                    )
                 }
             }
         }
@@ -462,6 +518,10 @@ class AvatarPlaybackManager(
         ttsController.stop()
         systemTtsController.stop()
         streamingTtsQueue.cancel()
+        audioPositionSyncJob?.cancel()
+        audioPositionSyncJob = null
+        streamingLipSyncJob?.cancel()
+        streamingLipSyncJob = null
         motionQueueJob?.cancel()
         motionQueueJob = null
         expressionTimelineJob?.cancel()
@@ -469,6 +529,8 @@ class AvatarPlaybackManager(
         cancelWaitingClose()
         isPlaying = false
         currentPlayAction = null
+        currentSegmentEvents.clear()
+        currentSegmentId = null
         _avatarState.update {
             AvatarFullState()
         }
@@ -510,17 +572,187 @@ class AvatarPlaybackManager(
         }
     }
 
-    private fun startSegmentLipSync(segment: TtsSegmentData) {
+    /**
+     * 更新当前 segment 的口型事件（每个 segment 独立，从 0 开始）
+     */
+    private fun updateCurrentSegmentLipSync(segment: TtsSegmentData) {
         val marks = segment.marks
+        val segmentDuration = segment.durationMs?.toLong() ?: 0L
+
         val events = if (!marks.isNullOrEmpty()) {
+            val marksEnd = marks.lastOrNull()?.endMs ?: 0
+            Log.d(TAG, "[SEGMENT] ${segment.segmentId}: 后端 marks=${marks.size}, " +
+                    "marks范围=0-${marksEnd}ms, 音频时长=${segmentDuration}ms, " +
+                    "差异=${segmentDuration - marksEnd}ms")
             ChinesePhonemeEngine.marksToPhonemeEvents(marks)
         } else {
+            val estimatedDuration = estimateTextDuration(segment.text)
+            Log.d(TAG, "[SEGMENT] ${segment.segmentId}: 无 marks，本地估算=${estimatedDuration}ms, 音频时长=${segmentDuration}ms")
             ChinesePhonemeEngine.textToPhonemeEvents(
                 text = segment.text,
-                totalDurationMs = segment.durationMs?.toLong() ?: estimateTextDuration(segment.text)
+                totalDurationMs = segmentDuration.takeIf { it > 0 } ?: estimatedDuration
             )
         }
-        lipSyncAnimator.start(events, scope)
+
+        if (events.isEmpty()) {
+            Log.w(TAG, "[SEGMENT] ${segment.segmentId}: 生成口型事件为空")
+            currentSegmentEvents.clear()
+            return
+        }
+
+        // 按字合并，时间从 0 开始（不累计偏移）
+        currentSegmentEvents = LipSyncAnimator.mergeEventsByChar(events).toMutableList()
+
+        // 关键修复：确保最后一个口型事件的结束时间不超过音频时长
+        // 这可以避免"音频播完但嘴还在动"的问题
+        if (segmentDuration > 0 && currentSegmentEvents.isNotEmpty()) {
+            val lastEvent = currentSegmentEvents.last()
+            if (lastEvent.endMs > segmentDuration) {
+                // 按比例压缩所有事件的时间，使其匹配音频时长
+                val scale = segmentDuration.toFloat() / lastEvent.endMs
+                currentSegmentEvents = currentSegmentEvents.mapIndexed { index, event ->
+                    PhonemeEvent(
+                        phoneme = event.phoneme,
+                        startMs = (event.startMs * scale).toLong(),
+                        endMs = (event.endMs * scale).toLong(),
+                        viseme = event.viseme,
+                        charIndex = event.charIndex
+                    )
+                }.toMutableList()
+                Log.d(TAG, "[SEGMENT] ${segment.segmentId}: 时间缩放 scale=$scale, 原 end=${lastEvent.endMs}ms -> 新 end=${segmentDuration}ms")
+            }
+        }
+
+        val eventStart = currentSegmentEvents.firstOrNull()?.startMs ?: 0L
+        val eventEnd = currentSegmentEvents.lastOrNull()?.endMs ?: 0L
+        Log.d(TAG, "[SEGMENT] ${segment.segmentId}: 口型事件=${currentSegmentEvents.size}个, " +
+                "时间范围=${eventStart}-${eventEnd}ms, 音频时长=${segmentDuration}ms")
+
+        // 启动口型同步
+        startAudioSyncedLipSync()
+    }
+
+    /**
+     * 启动基于音频进度的口型同步协程。
+     */
+    private fun startAudioSyncedLipSync() {
+        if (audioPositionSyncJob?.isActive == true) return
+
+        lastMouthOpen = 0f
+        lastMouthForm = 0f
+
+        audioPositionSyncJob = scope.launch {
+            var lastAudioPosition = -1L
+            var samePositionCount = 0
+
+            while (isActive && isPlaying) {
+                val frameStart = System.currentTimeMillis()
+
+                val isAudioPlaying = streamingAudioPlayer.isActuallyPlaying()
+                val audioPos = streamingAudioPlayer.getCurrentPosition()
+                val audioDur = streamingAudioPlayer.getDuration()
+                val eventsEnd = currentSegmentEvents.lastOrNull()?.endMs ?: 0L
+
+                // 检测停滞
+                if (audioPos == lastAudioPosition && audioPos > 0) {
+                    samePositionCount++
+                } else {
+                    samePositionCount = 0
+                }
+                lastAudioPosition = audioPos
+
+                // 保底：音频停止或停滞
+                if ((!isAudioPlaying && audioPos > 0) || samePositionCount >= 3) {
+                    forceCloseMouth()
+                    return@launch
+                }
+
+                // 保底：音频即将结束
+                if (audioDur > 0 && audioPos >= audioDur - 50) {
+                    forceCloseMouth()
+                    return@launch
+                }
+
+                // 保底：口型时间轴结束
+                if (eventsEnd > 0 && audioPos > eventsEnd) {
+                    forceCloseMouth()
+                    return@launch
+                }
+
+                // 计算并应用口型
+                val (open, form) = calculateLipSync(audioPos)
+                _avatarState.update { it.copy(mouthOpen = open, mouthForm = form) }
+
+                // 帧率控制
+                val elapsed = System.currentTimeMillis() - frameStart
+                if (elapsed < 16) delay(16 - elapsed)
+            }
+            forceCloseMouth()
+        }
+    }
+
+    /**
+     * 根据音频位置计算口型
+     */
+    private fun calculateLipSync(audioPos: Long): Pair<Float, Float> {
+        if (currentSegmentEvents.isEmpty()) return Pair(0f, 0f)
+
+        // 找当前事件（音频位置落在事件时间范围内）
+        val currentEvent = currentSegmentEvents.find { audioPos >= it.startMs && audioPos < it.endMs }
+
+        if (currentEvent != null) {
+            // 在某个事件内：直接使用该事件的口型
+            val open = currentEvent.viseme.mouthOpen
+            val form = currentEvent.viseme.mouthForm
+
+            // 与上一帧平滑过渡
+            lastMouthOpen = lerpValue(lastMouthOpen, open, 0.35f)
+            lastMouthForm = lerpValue(lastMouthForm, form, 0.35f)
+            return Pair(lastMouthOpen, lastMouthForm)
+        }
+
+        // 在两个事件之间：查找前后事件
+        val prevEvent = currentSegmentEvents.lastOrNull { it.endMs <= audioPos }
+        val nextEvent = currentSegmentEvents.firstOrNull { it.startMs > audioPos }
+
+        if (prevEvent != null && nextEvent != null) {
+            // 字间过渡：插值
+            val gap = (nextEvent.startMs - prevEvent.endMs).coerceAtLeast(1)
+            val t = ((audioPos - prevEvent.endMs).toFloat() / gap).coerceIn(0f, 1f)
+
+            val open = lerpValue(prevEvent.viseme.mouthOpen, nextEvent.viseme.mouthOpen, t)
+            val form = lerpValue(prevEvent.viseme.mouthForm, nextEvent.viseme.mouthForm, t)
+
+            lastMouthOpen = lerpValue(lastMouthOpen, open, 0.25f)
+            lastMouthForm = lerpValue(lastMouthForm, form, 0.25f)
+            return Pair(lastMouthOpen, lastMouthForm)
+        }
+
+        // 在第一个事件之前
+        if (prevEvent == null && nextEvent != null) {
+            val t = (audioPos.toFloat() / nextEvent.startMs.coerceAtLeast(1)).coerceIn(0f, 1f)
+            val open = nextEvent.viseme.mouthOpen * t
+            val form = nextEvent.viseme.mouthForm * t
+            lastMouthOpen = lerpValue(lastMouthOpen, open, 0.3f)
+            lastMouthForm = lerpValue(lastMouthForm, form, 0.3f)
+            return Pair(lastMouthOpen, lastMouthForm)
+        }
+
+        // 在最后一个事件之后
+        return Pair(lastMouthOpen * 0.7f, lastMouthForm * 0.7f)
+    }
+
+    private fun lerpValue(a: Float, b: Float, t: Float): Float {
+        return a + (b - a) * t.coerceIn(0f, 1f)
+    }
+
+    /**
+     * 强制闭合嘴巴
+     */
+    private fun forceCloseMouth() {
+        lastMouthOpen = 0f
+        lastMouthForm = 0f
+        _avatarState.update { it.copy(mouthOpen = 0f, mouthForm = 0f) }
     }
 
     private fun estimateTextDuration(text: String): Long {
@@ -538,12 +770,15 @@ class AvatarPlaybackManager(
      * 播放动作队列
      *
      * 每个动作的 durationMs 都会被尊重：
-     * - 如果 duration 在下一个动作开始之前结束，先恢复 IDLE，再等待下一个动作
-     * - 最后一个动作在 duration 结束后恢复 IDLE
+     * - 如果 duration 在下一个动作开始之前结束，先平滑过渡到 IDLE，再等待下一个动作
+     * - 最后一个动作在 duration 结束后平滑过渡到 IDLE
+     * - 动作之间有平滑过渡，过渡时间由 GestureTransitionController.DEFAULT_TRANSITION_MS 控制
      */
     private fun playMotionQueue(queue: List<MotionQueueItem>) {
         motionQueueJob?.cancel()
         if (queue.isEmpty()) return
+
+        val transitionMs = GestureTransitionController.DEFAULT_TRANSITION_MS
 
         motionQueueJob = scope.launch {
             val sortedQueue = queue.sortedBy { it.startOffsetMs }
@@ -555,8 +790,14 @@ class AvatarPlaybackManager(
                 if (waitMs > 0) delay(waitMs)
 
                 val gesture = AvatarGesture.fromValue(item.type)
-                Log.d(TAG, "motion[$index]: $gesture")
-                _avatarState.update { it.copy(gesture = gesture) }
+                Log.d(TAG, "motion[$index]: $gesture, transitionMs=$transitionMs")
+                // 使用平滑过渡更新动作
+                _avatarState.update {
+                    it.copy(
+                        gesture = gesture,
+                        gestureTransitionMs = transitionMs
+                    )
+                }
 
                 if (item.durationMs > 0) {
                     val nextItem = sortedQueue.getOrNull(index + 1)
@@ -567,16 +808,27 @@ class AvatarPlaybackManager(
 
                     if (holdMs > 0) delay(holdMs)
 
-                    // duration 结束后，如果距离下一个动作还有时间，恢复 IDLE 并等待
+                    // duration 结束后，如果距离下一个动作还有时间，平滑过渡到 IDLE 并等待
                     if (nextItem != null && item.durationMs < timeUntilNext) {
-                        _avatarState.update { it.copy(gesture = AvatarGesture.IDLE) }
+                        // 平滑过渡到 IDLE
+                        _avatarState.update {
+                            it.copy(
+                                gesture = AvatarGesture.IDLE,
+                                gestureTransitionMs = transitionMs
+                            )
+                        }
                         val remainingWait = timeUntilNext - item.durationMs
                         if (remainingWait > 0) delay(remainingWait)
                     } else if (nextItem == null) {
-                        // 最后一个动作，duration 结束后恢复 IDLE
+                        // 最后一个动作，duration 结束后平滑过渡到 IDLE
                         val remaining = item.durationMs - holdMs
                         if (remaining > 0) delay(remaining)
-                        _avatarState.update { it.copy(gesture = AvatarGesture.IDLE) }
+                        _avatarState.update {
+                            it.copy(
+                                gesture = AvatarGesture.IDLE,
+                                gestureTransitionMs = transitionMs
+                            )
+                        }
                     }
                 }
             }
