@@ -328,52 +328,65 @@ class LipSyncAnimator {
                 val currentEvent = events.find { lipPosition in it.startMs..it.endMs }
 
                 if (currentEvent != null) {
-                    val currentIndex = events.indexOf(currentEvent)
-                    val progress = (lipPosition - currentEvent.startMs).toFloat() /
-                        (currentEvent.endMs - currentEvent.startMs).coerceAtLeast(1)
-                    val prevViseme = events.getOrNull(currentIndex - 1)?.viseme
-                    val nextViseme = events.getOrNull(currentIndex + 1)?.viseme
+                    // SIL 事件（标点/停顿）：强制闭唇
+                    if (currentEvent.viseme == VisemeType.SIL) {
+                        lastOpen = lerp(lastOpen, 0f, 0.5f)
+                        lastForm = lerp(lastForm, 0f, 0.5f)
+                        onUpdate?.invoke(lastOpen, lastForm)
+                    } else {
+                        val currentIndex = events.indexOf(currentEvent)
+                        val progress = (lipPosition - currentEvent.startMs).toFloat() /
+                            (currentEvent.endMs - currentEvent.startMs).coerceAtLeast(1)
+                        val prevViseme = events.getOrNull(currentIndex - 1)?.viseme
+                        val nextViseme = events.getOrNull(currentIndex + 1)?.viseme
 
-                    val targetOpen = applyAllCorrections(
-                        blendMouth(prevViseme?.mouthOpen, currentEvent.viseme.mouthOpen, nextViseme?.mouthOpen)
-                    )
-                    val targetForm = blendMouth(prevViseme?.mouthForm, currentEvent.viseme.mouthForm, nextViseme?.mouthForm)
+                        val targetOpen = applyAllCorrections(
+                            blendMouth(prevViseme?.mouthOpen, currentEvent.viseme.mouthOpen, nextViseme?.mouthOpen)
+                        )
+                        val targetForm = blendMouth(prevViseme?.mouthForm, currentEvent.viseme.mouthForm, nextViseme?.mouthForm)
 
-                    val easedProgress = Easing.easeInOutCubic(progress.coerceIn(0f, 1f))
-                    val fromOpen = lastOpen
-                    val fromForm = lastForm
+                        val easedProgress = Easing.easeInOutCubic(progress.coerceIn(0f, 1f))
+                        val fromOpen = lastOpen
+                        val fromForm = lastForm
 
-                    lastOpen = lerp(fromOpen, targetOpen, easedProgress)
-                    lastForm = lerp(fromForm, targetForm, easedProgress)
-                    onUpdate?.invoke(lastOpen, lastForm)
+                        lastOpen = lerp(fromOpen, targetOpen, easedProgress)
+                        lastForm = lerp(fromForm, targetForm, easedProgress)
+                        onUpdate?.invoke(lastOpen, lastForm)
+                    }
                 } else {
                     // 不在任何事件中：检查是否在两事件之间
                     val prevEvent = events.lastOrNull { it.endMs < lipPosition }
                     val nextEvent = events.firstOrNull { it.startMs > lipPosition }
 
                     if (prevEvent != null && nextEvent != null) {
-                        // 字间过渡：动态保持系数，让连续开口音有起伏
-                        val gap = (nextEvent.startMs - prevEvent.endMs).coerceAtLeast(1)
-                        val intoGap = lipPosition - prevEvent.endMs
-                        val t = (intoGap.toFloat() / gap).coerceIn(0f, 1f)
+                        // 如果前后有 SIL 事件，强制闭唇
+                        if (prevEvent.viseme == VisemeType.SIL || nextEvent.viseme == VisemeType.SIL) {
+                            lastOpen = lerp(lastOpen, 0f, 0.4f)
+                            lastForm = lerp(lastForm, 0f, 0.4f)
+                            onUpdate?.invoke(lastOpen, lastForm)
+                        } else {
+                            // 字间过渡：动态保持系数，让连续开口音有起伏
+                            val gap = (nextEvent.startMs - prevEvent.endMs).coerceAtLeast(1)
+                            val intoGap = lipPosition - prevEvent.endMs
+                            val t = (intoGap.toFloat() / gap).coerceIn(0f, 1f)
 
-                        val prevOpen = prevEvent.viseme.mouthOpen
-                        val nextOpen = nextEvent.viseme.mouthOpen
-                        val avgOpen = (prevOpen + nextOpen) / 2f
+                            val prevOpen = prevEvent.viseme.mouthOpen
+                            val nextOpen = nextEvent.viseme.mouthOpen
+                            val avgOpen = (prevOpen + nextOpen) / 2f
 
-                        // 语速快（gap 小）时的保持系数
-                        // 关键修改：降低连续高开口音的保持系数，让嘴有起伏
-                        val holdFactor = when {
-                            gap >= 150 -> 0.5f   // 长停顿，允许较多闭合
-                            gap >= 80 -> 0.6f    // 中等停顿
-                            avgOpen >= 0.7f -> 0.55f  // 连续高开口音，仍然要有起伏
-                            avgOpen >= 0.5f -> 0.6f
-                            else -> 0.7f
+                            // 语速快（gap 小）时的保持系数
+                            val holdFactor = when {
+                                gap >= 150 -> 0.4f   // 长停顿，闭合更多
+                                gap >= 80 -> 0.5f    // 中等停顿
+                                avgOpen >= 0.7f -> 0.5f  // 连续高开口音，要有起伏
+                                avgOpen >= 0.5f -> 0.55f
+                                else -> 0.65f
+                            }
+
+                            lastOpen = lerp(prevOpen, nextOpen, t) * holdFactor
+                            lastForm = lerp(prevEvent.viseme.mouthForm, nextEvent.viseme.mouthForm, t)
+                            onUpdate?.invoke(lastOpen, lastForm)
                         }
-
-                        lastOpen = lerp(prevOpen, nextOpen, t) * holdFactor
-                        lastForm = lerp(prevEvent.viseme.mouthForm, nextEvent.viseme.mouthForm, t)
-                        onUpdate?.invoke(lastOpen, lastForm)
                     } else if (prevEvent != null) {
                         // 在所有事件之后，快速闭合（最多50ms）
                         val afterEnd = lipPosition - prevEvent.endMs

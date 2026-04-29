@@ -3,13 +3,14 @@ package com.example.scenic_avatar_guide_app.core.avatar
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
-import com.example.scenic_avatar_guide_app.core.avatar.animation.EasingType
 import com.example.scenic_avatar_guide_app.core.avatar.animation.ExpressionTransitionController
 import com.example.scenic_avatar_guide_app.core.avatar.animation.GestureParams
-import com.example.scenic_avatar_guide_app.core.avatar.animation.GestureTransitionController
 import com.example.scenic_avatar_guide_app.core.avatar.animation.GestureAnimation
 import com.example.scenic_avatar_guide_app.core.avatar.animation.GestureAnimationPlayer
+import com.example.scenic_avatar_guide_app.core.avatar.animation.MotionTransitionManager
 import com.example.scenic_avatar_guide_app.domain.model.AvatarExpression
 import com.example.scenic_avatar_guide_app.domain.model.AvatarGesture
 import com.example.scenic_avatar_guide_app.domain.model.AvatarFullState
@@ -21,15 +22,25 @@ import java.lang.ref.WeakReference
 /**
  * Live2D 渲染器实现
  * 封装 Live2D 模型加载、参数控制、动作播放等功能
+ *
+ * 动作过渡机制 v2.1：
+ * - 使用 MotionTransitionManager 管理动作层混合
+ * - 支持动作间的交叉淡入淡出 (Cross-fade)
+ * - 原生动作播放期间记录最后参数，结束后平滑过渡
  */
 class Live2DRendererImpl(
     private val context: Context
 ) : Live2DRenderer {
 
     companion object {
-        private const val TAG = "L2D"  // 改成短名称，避免被 vivo 设备过滤
-        private const val MODEL_LOAD_TIMEOUT = 10000L // 10秒超时
+        private const val TAG = "L2D"
+        private const val MODEL_LOAD_TIMEOUT = 10000L
+        private const val DEFAULT_TRANSITION_MS = 300L
+        private const val ANIMATION_TICK_MS = 16L // ~60fps
     }
+
+    // 主线程 Handler（用于后备动画更新）
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private var _isInitialized = false
     private var _isModelLoaded = false
@@ -43,8 +54,8 @@ class Live2DRendererImpl(
     private var surfaceViewRef: WeakReference<Live2DGLSurfaceView>? = null
     private var hasSurfaceAttached = false
 
-    // 动作过渡控制器
-    private val gestureTransitionController = GestureTransitionController()
+    // 动作过渡管理器
+    private val motionTransitionManager = MotionTransitionManager()
 
     // 表情过渡控制器
     private val expressionTransitionController = ExpressionTransitionController()
@@ -58,26 +69,31 @@ class Live2DRendererImpl(
     // 动画更新是否激活
     private var animationUpdateActive = false
 
-    // 原生动作是否正在播放（用于避免归零参数覆盖原生动作）
+    // 上次动画循环执行时间（用于检测卡住）
+    private var lastLoopTime: Long = 0
+
+    // 原生动作状态
     private var nativeMotionPlaying = false
     private var nativeMotionStartTime: Long = 0
     private var nativeMotionDurationMs: Long = 0
 
-    // 嘴部宽度缩放因子（放大嘴的视觉宽度）
-    var mouthWidthScale: Float = 1.0f  // 嘴部宽度偏移，正值让嘴更宽更大
+    // SDK 报告的动作完成状态（由渲染线程更新）
+    @Volatile
+    private var sdkMotionFinished = false
 
-    // 动作精确时序跟踪（用于日志输出）
-    private var motionTimingCallTime: Long = 0
-    private var motionTimingStartedTime: Long = 0
-    private var motionTimingExpectedDuration: Long = 0
-    private var motionTimingLabel: String = ""
+    // 待执行的动作（用于动作队列）
+    private var pendingGestureAfterNative: AvatarGesture? = null
+    private var pendingTransitionMsAfterNative: Long = DEFAULT_TRANSITION_MS
+
+    // 嘴部宽度缩放因子（偏移值，0=原始，正值=更大更圆，负值=更扁）
+    var mouthWidthScale: Float = 0.3f
+
+    // 上一帧时间
+    private var lastFrameTime: Long = 0
 
     override val isInitialized: Boolean get() = _isInitialized
     override val isModelLoaded: Boolean get() = _isModelLoaded && hasSurfaceAttached
 
-    /**
-     * 初始化渲染器
-     */
     override fun initialize() {
         Log.d(TAG, "=== initialize() START: _isInitialized=$_isInitialized ===")
         if (_isInitialized) {
@@ -86,7 +102,6 @@ class Live2DRendererImpl(
         }
 
         try {
-            // 初始化 JNI 桥接
             val activity = findActivity(context)
             Log.d(TAG, "=== findActivity result: $activity ===")
             activity?.let { JniBridgeJava.SetActivityInstance(it) }
@@ -99,32 +114,22 @@ class Live2DRendererImpl(
         }
     }
 
-    /**
-     * 加载模型
-     */
     override suspend fun loadModel(modelPath: String): Result<Unit> = withContext(Dispatchers.IO) {
-        Log.d(TAG, "=== loadModel() START: path=$modelPath, _isInitialized=$_isInitialized ===")
+        Log.d(TAG, "=== loadModel() START: path=$modelPath ===")
         if (!_isInitialized) {
-            Log.d(TAG, "=== loadModel: calling initialize() first ===")
             initialize()
         }
 
         try {
             withTimeout(MODEL_LOAD_TIMEOUT) {
-                // 1. 验证文件存在且可读
-                Log.d(TAG, "=== loadModel: opening asset file ===")
                 val fileData = context.assets.open(modelPath)
                 val fileSize = fileData.available()
                 fileData.close()
-                Log.d(TAG, "=== loadModel: file size=$fileSize bytes ===")
                 if (fileSize == 0) {
                     throw IllegalStateException("Model file is empty: $modelPath")
                 }
 
-                // 2. 通过 JNI 的 LoadFile 验证 C++ 层能否读取
-                Log.d(TAG, "=== loadModel: calling JniBridgeJava.LoadFile ===")
                 val jniData = JniBridgeJava.LoadFile(modelPath)
-                Log.d(TAG, "=== loadModel: JNI data size=${jniData?.size} ===")
                 if (jniData == null || jniData.isEmpty()) {
                     throw IllegalStateException("JNI cannot load model: $modelPath")
                 }
@@ -141,25 +146,21 @@ class Live2DRendererImpl(
         }
     }
 
-    /**
-     * 设置口型参数
-     */
     override fun setMouth(mouthOpen: Float, mouthForm: Float) {
         if (!_isModelLoaded) return
 
         currentMouthOpen = mouthOpen.coerceIn(0f, 1f)
-        val amplifiedMouthOpen = (currentMouthOpen * 0.85f).coerceAtMost(1.0f)
-        setParameter(Live2DParams.MOUTH_OPEN_Y, amplifiedMouthOpen)
+        // 降低整体张开程度：0.65f 缩放因子让最大张开度约为 65%
+        val amplifiedMouthOpen = (currentMouthOpen * 0.65f).coerceAtMost(1.0f)
 
-        // 应用嘴部宽度缩放：在原有 mouthForm 基础上增加宽度偏移
-        // ParamMouthForm 正值让嘴更宽（笑），负值让嘴更窄（嘟嘴）
         val scaledMouthForm = (mouthForm + mouthWidthScale).coerceIn(-1f, 1.5f)
-        setParameter(Live2DParams.MOUTH_FORM, scaledMouthForm)
+
+        runOnRenderThread {
+            JniBridgeJava.nativeSetParameter(Live2DParams.MOUTH_OPEN_Y, amplifiedMouthOpen, 1.0f)
+            JniBridgeJava.nativeSetParameter(Live2DParams.MOUTH_FORM, scaledMouthForm, 1.0f)
+        }
     }
 
-    /**
-     * 设置表情
-     */
     override fun setExpression(expressionId: String) {
         if (!_isModelLoaded) return
 
@@ -169,12 +170,10 @@ class Live2DRendererImpl(
         }
     }
 
-    /**
-     * 播放动作
-     */
     override fun playMotion(group: String, index: Int, loop: Boolean) {
         if (!_isModelLoaded) return
         val gesture = AvatarGesture.fromValue(group)
+        Log.d(TAG, "playMotion: group=$group, gesture=$gesture")
 
         if (enableSmoothTransition) {
             transitionToGesture(gesture)
@@ -184,58 +183,96 @@ class Live2DRendererImpl(
         }
     }
 
-    /**
-     * 停止动作
-     */
     override fun stopMotion() {
         if (!_isModelLoaded) return
 
+        Log.d(TAG, "stopMotion")
         nativeMotionPlaying = false
+        pendingGestureAfterNative = null
         gestureAnimationPlayer.stop()
 
         if (enableSmoothTransition) {
             transitionToGesture(AvatarGesture.IDLE)
         } else {
             currentGesture = AvatarGesture.IDLE
+            motionTransitionManager.reset()
             applyGesturePreset(AvatarGesture.IDLE)
         }
     }
 
     /**
-     * 平滑过渡到指定动作
+     * 平滑过渡到指定动作（公开接口）
      */
     fun transitionToGesture(
         gesture: AvatarGesture,
-        durationMs: Long = GestureTransitionController.DEFAULT_TRANSITION_MS,
-        easing: EasingType = EasingType.EASE_IN_OUT_CUBIC
+        durationMs: Long = DEFAULT_TRANSITION_MS
     ) {
         if (!_isModelLoaded) {
             Log.w(TAG, "transitionToGesture skipped: model not loaded")
             return
         }
 
-        if (gesture == currentGesture && !gestureTransitionController.isTransitioning() && !gestureAnimationPlayer.isPlaying() && !nativeMotionPlaying) {
+        Log.d(TAG, "transitionToGesture: $currentGesture -> $gesture, durationMs=$durationMs, nativePlaying=$nativeMotionPlaying")
+
+        // 如果正在播放原生动作，记录待执行的动作并确保动画循环在运行
+        if (nativeMotionPlaying) {
+            // 检查是否卡住了（超过动作时长的 2 倍）
+            val elapsed = System.currentTimeMillis() - nativeMotionStartTime
+            if (elapsed > nativeMotionDurationMs * 2) {
+                Log.w(TAG, "Native motion appears stuck (elapsed=$elapsed > ${nativeMotionDurationMs * 2}), forcing reset")
+                nativeMotionPlaying = false
+                pendingGestureAfterNative = null
+                // 继续执行新动作
+            } else {
+                Log.d(TAG, "Native motion playing, queueing: $gesture")
+                pendingGestureAfterNative = gesture
+                pendingTransitionMsAfterNative = durationMs
+                // 确保动画循环在运行，以便检测原生动作完成
+                startAnimationUpdate()
+                return
+            }
+        }
+
+        transitionToGestureInternal(gesture, durationMs)
+    }
+
+    /**
+     * 内部方法：执行动作过渡（不检查 nativeMotionPlaying）
+     */
+    private fun transitionToGestureInternal(
+        gesture: AvatarGesture,
+        durationMs: Long
+    ) {
+        Log.d(TAG, "transitionToGestureInternal: $currentGesture -> $gesture, durationMs=$durationMs")
+
+        // 停止关键帧动画
+        gestureAnimationPlayer.stop()
+
+        // IDLE 特殊处理：播放官方 Idle 动作组（动态待机动画）
+        if (gesture == AvatarGesture.IDLE) {
+            playIdleMotion()
             return
         }
 
-        nativeMotionPlaying = false
-        gestureAnimationPlayer.stop()
-
         val motionPath = getMotionPathForGesture(gesture)
-        Log.d(TAG, "transitionToGesture: $gesture, motionPath=$motionPath")
+
         if (motionPath != null) {
-            playNativeMotion(motionPath)
-            currentGesture = gesture
+            // 有原生动作文件：直接播放
+            playNativeMotion(motionPath, gesture)
         } else {
+            // 无原生动作文件：使用关键帧动画或直接过渡
             val animation = GestureAnimation.fromGesture(gesture)
             if (animation != null) {
-                playGestureAnimation(animation)
+                Log.d(TAG, "Using keyframe animation for: $gesture")
+                val fromParams = motionTransitionManager.getCurrentParams()
+                gestureAnimationPlayer.play(animation, fromParams)
                 currentGesture = gesture
             } else {
-                currentGesture = gesture
+                // 直接使用过渡管理器
+                Log.d(TAG, "Using motion transition for: $gesture")
                 val targetParams = GestureParams.fromGesture(gesture)
-                applyGestureParams(targetParams)
-                gestureTransitionController.setImmediate(gesture)
+                motionTransitionManager.transitionTo(gesture, targetParams, durationMs)
+                currentGesture = gesture
             }
         }
 
@@ -243,8 +280,69 @@ class Live2DRendererImpl(
     }
 
     /**
-     * 获取动作对应的原生动作文件路径
+     * 播放官方 Idle 动作组（动态待机动画）
+     * 使用 priority=1（Idle），SDK 会自动循环播放
      */
+    private fun playIdleMotion() {
+        Log.d(TAG, "playIdleMotion: starting official Idle motion group")
+        currentGesture = AvatarGesture.IDLE
+        nativeMotionPlaying = false
+        gestureAnimationPlayer.stop()
+        motionTransitionManager.reset()
+
+        // 停止动画更新循环，让 SDK 完全控制参数
+        // Idle 动画由 SDK 管理，不需要我们手动更新参数
+        animationUpdateActive = false
+
+        runOnRenderThread {
+            // priority 1 = Idle，SDK 会自动淡入并循环
+            JniBridgeJava.nativeStartRandomMotion("Idle", 1)
+        }
+    }
+
+    /**
+     * 播放原生 Live2D 动作
+     */
+    private fun playNativeMotion(motionPath: String, gesture: AvatarGesture) {
+        Log.i(TAG, "=== playNativeMotion START: path=$motionPath, gesture=$gesture ===")
+
+        currentGesture = gesture
+        sdkMotionFinished = false
+
+        // 估算动作时长
+        nativeMotionDurationMs = estimateMotionDuration(motionPath)
+        Log.d(TAG, "Estimated motion duration: $nativeMotionDurationMs ms")
+
+        // 标记原生动作开始
+        nativeMotionPlaying = true
+        nativeMotionStartTime = System.currentTimeMillis()
+
+        // 在渲染线程播放原生动作
+        runOnRenderThread {
+            Log.i(TAG, "=== Calling nativeStartMotionByPath: $motionPath ===")
+            JniBridgeJava.nativeStartMotionByPath(motionPath, 3) // priority 3 = Force
+            Log.i(TAG, "=== nativeStartMotionByPath returned ===")
+        }
+
+        Log.i(TAG, "=== playNativeMotion END ===")
+    }
+
+    private fun estimateMotionDuration(motionPath: String): Long = when {
+        motionPath.contains("nod") -> 1200L
+        motionPath.contains("shake") -> 1400L
+        motionPath.contains("wave") -> 1400L
+        motionPath.contains("welcome") -> 2000L
+        motionPath.contains("look_left") -> 1300L
+        motionPath.contains("look_right") -> 1300L
+        motionPath.contains("point_forward") -> 1500L
+        motionPath.contains("bow") -> 1800L
+        motionPath.contains("thinking") -> 3000L
+        motionPath.contains("guide") -> 1600L
+        motionPath.contains("look_up") -> 1800L
+        motionPath.contains("listen") -> 1800L
+        else -> 1000L
+    }
+
     private fun getMotionPathForGesture(gesture: AvatarGesture): String? = when (gesture) {
         AvatarGesture.NOD -> "live2d/hiyori/motions/Hiyori_nod.motion3.json"
         AvatarGesture.SHAKE -> "live2d/hiyori/motions/Hiyori_shake.motion3.json"
@@ -252,206 +350,178 @@ class Live2DRendererImpl(
         AvatarGesture.WELCOME_GESTURE -> "live2d/hiyori/motions/Hiyori_welcome.motion3.json"
         AvatarGesture.POINT_LEFT -> "live2d/hiyori/motions/Hiyori_look_left.motion3.json"
         AvatarGesture.POINT_RIGHT -> "live2d/hiyori/motions/Hiyori_look_right.motion3.json"
+        AvatarGesture.POINT_FORWARD -> "live2d/hiyori/motions/Hiyori_point_forward.motion3.json"
+        AvatarGesture.BOW -> "live2d/hiyori/motions/Hiyori_bow.motion3.json"
+        AvatarGesture.THINKING_POSE -> "live2d/hiyori/motions/Hiyori_thinking.motion3.json"
+        AvatarGesture.GUIDE -> "live2d/hiyori/motions/Hiyori_guide.motion3.json"
+        AvatarGesture.LOOK_UP -> "live2d/hiyori/motions/Hiyori_look_up.motion3.json"
+        AvatarGesture.LISTEN -> "live2d/hiyori/motions/Hiyori_listen.motion3.json"
         else -> null
     }
 
-    /**
-     * 播放原生 Live2D 动作
-     */
-    private fun playNativeMotion(motionPath: String) {
-        Log.d(TAG, "playNativeMotion: $motionPath")
-        nativeMotionPlaying = true
-        nativeMotionStartTime = System.currentTimeMillis()
-        // 根据动作文件设置时长
-        nativeMotionDurationMs = when {
-            motionPath.contains("nod") -> 1200L  // 1.2秒
-            motionPath.contains("shake") -> 1200L
-            motionPath.contains("wave") -> 1500L
-            motionPath.contains("welcome") -> 1800L
-            motionPath.contains("look_left") -> 1200L
-            motionPath.contains("look_right") -> 1200L
-            else -> 1000L // 默认1秒
-        }
-        // 启动精确时序跟踪
-        motionTimingCallTime = System.currentTimeMillis()
-        motionTimingStartedTime = 0
-        motionTimingExpectedDuration = nativeMotionDurationMs
-        motionTimingLabel = when {
-            motionPath.contains("nod") -> "NOD"
-            motionPath.contains("shake") -> "SHAKE"
-            motionPath.contains("wave") -> "WAVE"
-            motionPath.contains("welcome") -> "WELCOME"
-            motionPath.contains("look_left") -> "LOOK_LEFT"
-            motionPath.contains("look_right") -> "LOOK_RIGHT"
-            else -> "MOTION"
-        }
-        runOnRenderThread {
-            JniBridgeJava.nativeStartMotionByPath(motionPath, 3) // priority 3 = Force
-        }
-    }
-
-    /**
-     * 播放关键帧动作动画
-     */
-    private fun playGestureAnimation(animation: GestureAnimation) {
-        val fromParams = gestureTransitionController.getCurrentParams()
-        gestureAnimationPlayer.play(animation, fromParams)
-    }
-
-    /**
-     * 设置是否启用平滑过渡
-     */
     fun setSmoothTransitionEnabled(enabled: Boolean) {
         enableSmoothTransition = enabled
     }
 
-    /**
-     * 启动动画更新循环
-     */
     private fun startAnimationUpdate() {
-        if (animationUpdateActive) return
-        animationUpdateActive = true
-        runOnRenderThread {
-            updateAnimationLoop()
+        if (animationUpdateActive) {
+            return
         }
+
+        Log.d(TAG, "startAnimationUpdate: starting animation loop")
+        animationUpdateActive = true
+        lastFrameTime = System.currentTimeMillis()
+        lastLoopTime = System.currentTimeMillis()
+
+        // 使用主线程 Handler 定期更新
+        scheduleAnimationTick()
     }
 
-    /**
-     * 动画更新循环
-     * 使用帧率限制（约 60fps）避免过于频繁的更新
-     */
-    private fun updateAnimationLoop() {
+    private fun scheduleAnimationTick() {
+        if (!animationUpdateActive) return
+        mainHandler.postDelayed({ animationTick() }, ANIMATION_TICK_MS)
+    }
+
+    private fun animationTick() {
         if (!animationUpdateActive || !_isModelLoaded) {
             animationUpdateActive = false
             return
         }
 
+        // 更新最后循环时间
+        lastLoopTime = System.currentTimeMillis()
+
+        val currentTime = System.currentTimeMillis()
+        val deltaTime = currentTime - lastFrameTime
+        lastFrameTime = currentTime
+
         var needsContinue = false
 
-        // 检查原生动作是否播放完成
+        // 1. 处理原生动作
         if (nativeMotionPlaying) {
-            val elapsed = System.currentTimeMillis() - nativeMotionStartTime
-            if (elapsed >= nativeMotionDurationMs) {
-                Log.d(TAG, "Native motion completed")
+            val elapsed = currentTime - nativeMotionStartTime
+
+            // 在渲染线程检查 SDK 动作完成状态（线程安全）
+            // 使用时间判断作为主要完成条件，避免频繁的跨线程调用
+            val timeBasedFinished = elapsed >= nativeMotionDurationMs
+
+            if (timeBasedFinished || sdkMotionFinished) {
+                Log.i(TAG, "Native motion completed: elapsed=$elapsed, duration=$nativeMotionDurationMs, sdkFinished=$sdkMotionFinished")
                 nativeMotionPlaying = false
-                currentGesture = AvatarGesture.IDLE
+                sdkMotionFinished = false
+
+                // 重置眼睛参数，确保自动眨眼系统能正常接管
+                runOnRenderThread {
+                    JniBridgeJava.nativeSetParameter(Live2DParams.EYE_L_OPEN, 1.0f, 1.0f)
+                    JniBridgeJava.nativeSetParameter(Live2DParams.EYE_R_OPEN, 1.0f, 1.0f)
+                    Log.d(TAG, "Eye parameters reset to 1.0 after native motion")
+                }
+
+                if (pendingGestureAfterNative != null) {
+                    Log.d(TAG, "Processing pending gesture: ${pendingGestureAfterNative}")
+                    val pending = pendingGestureAfterNative!!
+                    val pendingMs = pendingTransitionMsAfterNative
+                    pendingGestureAfterNative = null
+                    // 直接处理，不调用 transitionToGesture 避免队列化
+                    transitionToGestureInternal(pending, pendingMs)
+                    return
+                } else {
+                    // 动作完成后播放官方 Idle 动作组（动态待机）
+                    playIdleMotion()
+                }
             } else {
+                // 原生动作仍在播放，在渲染线程异步检查 SDK 状态
+                runOnRenderThread {
+                    if (JniBridgeJava.nativeIsMotionFinished()) {
+                        sdkMotionFinished = true
+                    }
+                }
                 needsContinue = true
             }
         }
 
-        // 更新关键帧动画（点头、摇头等）- 只有在没有原生动作时才更新
-        if (!nativeMotionPlaying) {
-            val isAnimationPlaying = gestureAnimationPlayer.isPlaying()
-            if (isAnimationPlaying) {
-                gestureAnimationPlayer.update()
-                val animParams = gestureAnimationPlayer.getCurrentParams()
-                applyGestureParams(animParams)
-                needsContinue = gestureAnimationPlayer.isPlaying()
+        // 2. 更新关键帧动画
+        if (!nativeMotionPlaying && gestureAnimationPlayer.isPlaying()) {
+            gestureAnimationPlayer.update()
+            val animParams = gestureAnimationPlayer.getCurrentParams()
+            motionTransitionManager.updateCurrentLayerParams(animParams)
 
-                // 动画播放结束，同步过渡控制器的状态
-                if (!needsContinue) {
-                    gestureTransitionController.setImmediate(AvatarGesture.IDLE)
-                    currentGesture = AvatarGesture.IDLE
-                }
+            // 在渲染线程应用参数
+            runOnRenderThread {
+                applyGestureParamsDirect(animParams)
             }
 
-            // 更新动作过渡（其他动作）- 只有过渡中才更新参数
-            val isGestureTransitioning = gestureTransitionController.isTransitioning()
-            if (isGestureTransitioning) {
-                gestureTransitionController.update()
-                if (!isAnimationPlaying) {
-                    val params = gestureTransitionController.getCurrentParams()
-                    applyGestureParams(params)
-                }
-                needsContinue = needsContinue || gestureTransitionController.isTransitioning()
+            if (!gestureAnimationPlayer.isPlaying()) {
+                motionTransitionManager.transitionTo(
+                    AvatarGesture.IDLE,
+                    GestureParams.IDLE,
+                    DEFAULT_TRANSITION_MS
+                )
+                currentGesture = AvatarGesture.IDLE
             }
+            needsContinue = true
         }
 
-        // 更新表情过渡
+        // 3. 更新动作过渡
+        if (!nativeMotionPlaying && !gestureAnimationPlayer.isPlaying() && motionTransitionManager.isInTransition()) {
+            motionTransitionManager.update(deltaTime)
+            val params = motionTransitionManager.getCurrentParams()
+
+            runOnRenderThread {
+                applyGestureParamsDirect(params)
+            }
+            needsContinue = true
+        }
+
+        // 4. 更新表情过渡
         if (expressionTransitionController.isTransitioning()) {
             expressionTransitionController.update()
-            val (expressionId, intensity) = expressionTransitionController.getCurrentExpression()
+            val (expressionId, _) = expressionTransitionController.getCurrentExpression()
             if (expressionId != currentExpression) {
                 currentExpression = expressionId
-                JniBridgeJava.nativeSetExpression(expressionId)
+                runOnRenderThread {
+                    JniBridgeJava.nativeSetExpression(expressionId)
+                }
             }
             needsContinue = needsContinue || expressionTransitionController.isTransitioning()
         }
 
-        // 精确动作时序跟踪：捕获 C++ 层动作真正开始和完成的时刻
-        if (motionTimingCallTime > 0) {
-            if (motionTimingStartedTime == 0L && !JniBridgeJava.nativeIsMotionFinished()) {
-                // C++ 层动作真正开始
-                motionTimingStartedTime = System.currentTimeMillis()
-            }
-            if (motionTimingStartedTime > 0L && JniBridgeJava.nativeIsMotionFinished()) {
-                // C++ 层动作真正完成
-                val finishedTime = System.currentTimeMillis()
-                val callDelay = motionTimingStartedTime - motionTimingCallTime
-                val actualDuration = finishedTime - motionTimingStartedTime
-                val totalTime = finishedTime - motionTimingCallTime
-                val gap = actualDuration - motionTimingExpectedDuration
-                Log.i(
-                    TAG,
-                    "[MotionTiming] ${motionTimingLabel} | " +
-                    "调用→完成=${totalTime}ms | " +
-                    "动作执行=${actualDuration}ms | " +
-                    "调用时延=${callDelay}ms | " +
-                    "执行差距=${if (gap >= 0) "+" else ""}${gap}ms (预期=${motionTimingExpectedDuration}ms)"
-                )
-                motionTimingCallTime = 0
-            } else {
-                // 仍在跟踪中，强制继续轮询
-                needsContinue = true
-            }
-        }
-
-        // 如果还需要更新，继续循环（帧率由 GLSurfaceView 的渲染循环控制）
-        if (needsContinue && animationUpdateActive) {
-            runOnRenderThread {
-                updateAnimationLoop()
-            }
+        // 继续调度
+        if (needsContinue || nativeMotionPlaying || gestureAnimationPlayer.isPlaying() || motionTransitionManager.isInTransition()) {
+            scheduleAnimationTick()
         } else {
+            Log.d(TAG, "Animation loop completed, no more updates needed")
             animationUpdateActive = false
         }
     }
 
     /**
-     * 应用动作参数（使用插值后的参数值）
-     * 注意：每次应用前先归零所有参数，避免残留
+     * 直接应用动作参数（必须在渲染线程调用）
      */
-    private fun applyGestureParams(params: com.example.scenic_avatar_guide_app.core.avatar.animation.GestureParams) {
-        // 先归零所有参数，确保干净状态
-        setParameter(Live2DParams.ANGLE_X, 0f)
-        setParameter(Live2DParams.ANGLE_Y, 0f)
-        setParameter(Live2DParams.ANGLE_Z, 0f)
-        setParameter(Live2DParams.BODY_ANGLE_X, 0f)
-        setParameter(Live2DParams.BODY_ANGLE_Y, 0f)
-        setParameter(Live2DParams.BODY_ANGLE_Z, 0f)
-        setParameter(Live2DParams.SHOULDER, 0f)
-        setParameter(Live2DParams.ARM_LA, 0f)
-        setParameter(Live2DParams.ARM_RA, 0f)
-        setParameter(Live2DParams.ARM_LB, 0f)
-        setParameter(Live2DParams.ARM_RB, 0f)
-        setParameter(Live2DParams.HAND_L, 0f)
-        setParameter(Live2DParams.HAND_R, 0f)
-        setParameter(Live2DParams.HAND_LB, 0f)
-        setParameter(Live2DParams.HAND_RB, 0f)
+    private fun applyGestureParamsDirect(params: GestureParams) {
+        JniBridgeJava.nativeSetParameter(Live2DParams.ANGLE_X, params.angleX, 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.ANGLE_Y, params.angleY, 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.ANGLE_Z, params.angleZ, 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.BODY_ANGLE_X, params.bodyAngleX, 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.BODY_ANGLE_Y, params.bodyAngleY, 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.BODY_ANGLE_Z, params.bodyAngleZ, 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.SHOULDER, params.shoulder, 1.0f)
 
-        // 然后应用当前参数
-        setParameter(Live2DParams.ANGLE_X, params.angleX)
-        setParameter(Live2DParams.ANGLE_Y, params.angleY)
-        setParameter(Live2DParams.ANGLE_Z, params.angleZ)
-        setParameter(Live2DParams.BODY_ANGLE_X, params.bodyAngleX)
-        setParameter(Live2DParams.BODY_ANGLE_Y, params.bodyAngleY)
-        setParameter(Live2DParams.BODY_ANGLE_Z, params.bodyAngleZ)
-        setParameter(Live2DParams.SHOULDER, params.shoulder)
+        // 眼球方向
+        JniBridgeJava.nativeSetParameter(Live2DParams.EYE_BALL_X, params.eyeBallX, 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.EYE_BALL_Y, params.eyeBallY, 1.0f)
+
+        // 手臂参数归零
+        JniBridgeJava.nativeSetParameter(Live2DParams.ARM_LA, 0f, 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.ARM_RA, 0f, 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.ARM_LB, 0f, 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.ARM_RB, 0f, 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.HAND_L, 0f, 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.HAND_R, 0f, 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.HAND_LB, 0f, 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.HAND_RB, 0f, 1.0f)
     }
 
-    /**
-     * 设置参数值
-     */
     override fun setParameter(paramId: String, value: Float, weight: Float) {
         if (!_isModelLoaded) return
         runOnRenderThread {
@@ -459,9 +529,6 @@ class Live2DRendererImpl(
         }
     }
 
-    /**
-     * 更新状态
-     */
     override fun updateState(state: AvatarFullState) {
         if (!_isModelLoaded) return
 
@@ -472,6 +539,7 @@ class Live2DRendererImpl(
             currentExpressionIntensity = state.expressionIntensity.coerceIn(0f, 1f)
             if (enableSmoothTransition) {
                 expressionTransitionController.transitionTo(expressionId, currentExpressionIntensity, state.expressionTransitionMs)
+                currentExpression = expressionId
                 startAnimationUpdate()
             } else {
                 currentExpression = expressionId
@@ -482,7 +550,7 @@ class Live2DRendererImpl(
         if (state.gesture != currentGesture) {
             Log.d(TAG, "updateState: gesture changed $currentGesture -> ${state.gesture}")
             if (enableSmoothTransition) {
-                transitionToGesture(state.gesture)
+                transitionToGesture(state.gesture, state.gestureTransitionMs)
             } else {
                 if (state.gesture == AvatarGesture.IDLE) {
                     stopMotion()
@@ -493,24 +561,19 @@ class Live2DRendererImpl(
         }
     }
 
-    /**
-     * 设置是否只显示上半身
-     */
     override fun setUpperBodyMode(enabled: Boolean) {
         runOnRenderThread {
             JniBridgeJava.nativeSetUpperBodyMode(enabled)
         }
     }
 
-    /**
-     * 释放资源
-     */
     override fun release() {
         if (!_isInitialized) return
 
         try {
             animationUpdateActive = false
-            gestureTransitionController.cancelTransition()
+            mainHandler.removeCallbacksAndMessages(null)
+            motionTransitionManager.reset()
             gestureAnimationPlayer.stop()
             JniBridgeJava.nativeOnStop()
             JniBridgeJava.nativeOnDestroy()
@@ -525,30 +588,20 @@ class Live2DRendererImpl(
     }
 
     fun attachSurfaceView(surfaceView: Live2DGLSurfaceView) {
-        Log.d(TAG, "=== attachSurfaceView() CALLED: surfaceView=$surfaceView ===")
+        Log.d(TAG, "=== attachSurfaceView() CALLED ===")
         surfaceViewRef = WeakReference(surfaceView)
         hasSurfaceAttached = true
-        Log.d(TAG, "=== attachSurfaceView: hasSurfaceAttached=$hasSurfaceAttached ===")
 
-        // 只在 Surface 创建完成（C++ CubismFramework 已初始化）后才预加载
-        // 否则预加载会被 nativePreloadMotionByPath 中的 IsInitialized() 检查跳过，导致首次播放 cache miss
         if (surfaceView.isSurfaceCreated) {
-            Log.d(TAG, "=== attachSurfaceView: surface already created, preloading immediately ===")
             preloadCommonMotions()
         } else {
-            Log.d(TAG, "=== attachSurfaceView: surface not ready, registering listener ===")
             surfaceView.onSurfaceCreatedListener = {
-                Log.d(TAG, "=== onSurfaceCreatedListener triggered, preloading now ===")
                 preloadCommonMotions()
                 surfaceView.onSurfaceCreatedListener = null
             }
         }
     }
 
-    /**
-     * 预加载常用动作文件
-     * 在 Surface 附加后调用，避免首次播放时的延迟
-     */
     private fun preloadCommonMotions() {
         Log.d(TAG, "=== preloadCommonMotions() START ===")
         val commonMotions = listOf(
@@ -567,28 +620,9 @@ class Live2DRendererImpl(
         }
     }
 
-    /**
-     * 表情枚举转 ID
-     */
-    private fun expressionFromEnum(expression: AvatarExpression): String {
-        return expression.value
-    }
+    private fun expressionFromEnum(expression: AvatarExpression): String = expression.value
 
-    /**
-     * 应用动作预设（Gesture 层）
-     *
-     * 参数分层规则（上半身模式，手不可见）：
-     * - Expression 层：控制眉毛、眼睛、脸颊、嘴形变形（ParamMouthForm）、头部微姿态（AngleX/Y/Z 的 Add 叠加）
-     * - Gesture 层：控制头部功能性动作（AngleX/Y/Z 的覆盖值）、身体角度、肩膀
-     *   注意：手在画面外不可见，因此不使用手臂/手部参数（ARM_* / HAND_*），
-     *   仅通过头部角度 + 身体旋转 + 肩膀来表达全部语义。
-     * - LipSync 层：独占 ParamMouthOpenY（嘴部开合度）
-     *
-     * 叠加机制：Gesture 通过 setParameter 直接覆盖基础状态，Expression 在 C++ LateUpdate 中以 Add 模式叠加。
-     * 因此 Gesture 的头部角度会覆盖 Expression 的基础值，但 Expression 的 Add 偏移仍会生效。
-     */
     private fun applyGesturePreset(gesture: AvatarGesture) {
-        // 先归零所有参数
         setParameter(Live2DParams.ANGLE_X, 0f)
         setParameter(Live2DParams.ANGLE_Y, 0f)
         setParameter(Live2DParams.ANGLE_Z, 0f)
@@ -605,91 +639,65 @@ class Live2DRendererImpl(
         setParameter(Live2DParams.HAND_LB, 0f)
         setParameter(Live2DParams.HAND_RB, 0f)
 
-        // 头部参数范围：-30 到 30
-        // 身体参数范围更小，视觉上更敏感，要设更小的值
         when (gesture) {
             AvatarGesture.IDLE -> Unit
-
             AvatarGesture.NOD -> {
-                // 点头：头部明显下低
-                setParameter(Live2DParams.ANGLE_Y, 30f)   // 大幅低头
-                setParameter(Live2DParams.BODY_ANGLE_Y, 5f) // 身体微前倾
+                setParameter(Live2DParams.ANGLE_Y, 30f)
+                setParameter(Live2DParams.BODY_ANGLE_Y, 5f)
             }
-
             AvatarGesture.SHAKE -> {
-                // 摇头：头部大幅左转 + 大幅左歪
-                setParameter(Live2DParams.ANGLE_X, -25f)  // 大幅左转
-                setParameter(Live2DParams.ANGLE_Z, -20f)  // 大幅左歪
+                setParameter(Live2DParams.ANGLE_X, -25f)
+                setParameter(Live2DParams.ANGLE_Z, -20f)
             }
-
             AvatarGesture.WAVE -> {
-                // 致意：头部右转 + 右歪 + 略仰，亲切感
-                setParameter(Live2DParams.ANGLE_X, -20f)  // 右转
-                setParameter(Live2DParams.ANGLE_Y, -10f)  // 略仰
-                setParameter(Live2DParams.ANGLE_Z, -15f)  // 右歪
+                setParameter(Live2DParams.ANGLE_X, -20f)
+                setParameter(Live2DParams.ANGLE_Y, -10f)
+                setParameter(Live2DParams.ANGLE_Z, -15f)
             }
-
             AvatarGesture.POINT_LEFT -> {
-                // 看左：头部大幅左转 + 左歪
-                setParameter(Live2DParams.ANGLE_X, -28f)  // 大幅左转
-                setParameter(Live2DParams.ANGLE_Y, 5f)    // 微低头
-                setParameter(Live2DParams.ANGLE_Z, 12f)   // 左歪
+                setParameter(Live2DParams.ANGLE_X, -28f)
+                setParameter(Live2DParams.ANGLE_Y, 5f)
+                setParameter(Live2DParams.ANGLE_Z, 12f)
             }
-
             AvatarGesture.POINT_RIGHT -> {
-                // 看右：头部大幅右转 + 右歪
-                setParameter(Live2DParams.ANGLE_X, 28f)   // 大幅右转
-                setParameter(Live2DParams.ANGLE_Y, 5f)    // 微低头
-                setParameter(Live2DParams.ANGLE_Z, -12f)  // 右歪
+                setParameter(Live2DParams.ANGLE_X, 28f)
+                setParameter(Live2DParams.ANGLE_Y, 5f)
+                setParameter(Live2DParams.ANGLE_Z, -12f)
             }
-
             AvatarGesture.POINT_FORWARD -> {
-                // 示意前方：头部前低 + 略右转
-                setParameter(Live2DParams.ANGLE_Y, 22f)   // 明显低头
-                setParameter(Live2DParams.ANGLE_X, 8f)    // 略右转
-                setParameter(Live2DParams.ANGLE_Z, -8f)   // 略右歪
+                setParameter(Live2DParams.ANGLE_Y, 22f)
+                setParameter(Live2DParams.ANGLE_X, 8f)
+                setParameter(Live2DParams.ANGLE_Z, -8f)
             }
-
             AvatarGesture.BOW -> {
-                // 鞠躬：头部深低 + 身体微前倾
-                setParameter(Live2DParams.ANGLE_Y, 28f)   // 深低头
-                setParameter(Live2DParams.ANGLE_Z, 8f)    // 右歪
-                setParameter(Live2DParams.BODY_ANGLE_Y, 3f) // 身体微前倾
-                setParameter(Live2DParams.SHOULDER, 0.5f) // 耸肩
+                setParameter(Live2DParams.ANGLE_Y, 28f)
+                setParameter(Live2DParams.ANGLE_Z, 8f)
+                setParameter(Live2DParams.BODY_ANGLE_Y, 3f)
+                setParameter(Live2DParams.SHOULDER, 0.5f)
             }
-
             AvatarGesture.THINKING_POSE -> {
-                // 思考：头部仰起 + 大幅右偏 + 右歪
-                setParameter(Live2DParams.ANGLE_X, 18f)   // 右偏
-                setParameter(Live2DParams.ANGLE_Y, -15f)  // 仰头
-                setParameter(Live2DParams.ANGLE_Z, 22f)   // 大幅右歪
+                setParameter(Live2DParams.ANGLE_X, 18f)
+                setParameter(Live2DParams.ANGLE_Y, -15f)
+                setParameter(Live2DParams.ANGLE_Z, 22f)
             }
-
             AvatarGesture.GUIDE -> {
-                // 引导：头部右转 + 前低
-                setParameter(Live2DParams.ANGLE_X, 25f)   // 右转
-                setParameter(Live2DParams.ANGLE_Y, 12f)   // 前低
-                setParameter(Live2DParams.ANGLE_Z, -10f)  // 右歪
+                setParameter(Live2DParams.ANGLE_X, 25f)
+                setParameter(Live2DParams.ANGLE_Y, 12f)
+                setParameter(Live2DParams.ANGLE_Z, -10f)
             }
-
             AvatarGesture.LOOK_UP -> {
-                // 仰望：头部大幅后仰 + 右歪
-                setParameter(Live2DParams.ANGLE_Y, -28f)  // 大幅仰头
-                setParameter(Live2DParams.ANGLE_Z, 12f)   // 右歪
+                setParameter(Live2DParams.ANGLE_Y, -28f)
+                setParameter(Live2DParams.ANGLE_Z, 12f)
             }
-
             AvatarGesture.LISTEN -> {
-                // 聆听：头部右转 + 前低 + 右歪
-                setParameter(Live2DParams.ANGLE_X, 20f)   // 右转
-                setParameter(Live2DParams.ANGLE_Y, 18f)   // 前低
-                setParameter(Live2DParams.ANGLE_Z, -18f)  // 右歪
+                setParameter(Live2DParams.ANGLE_X, 20f)
+                setParameter(Live2DParams.ANGLE_Y, 18f)
+                setParameter(Live2DParams.ANGLE_Z, -18f)
             }
-
             AvatarGesture.WELCOME_GESTURE -> {
-                // 欢迎：头部左转 + 前低 + 左歪
-                setParameter(Live2DParams.ANGLE_X, -18f)  // 左转
-                setParameter(Live2DParams.ANGLE_Y, 15f)   // 前低
-                setParameter(Live2DParams.ANGLE_Z, 15f)   // 左歪
+                setParameter(Live2DParams.ANGLE_X, -18f)
+                setParameter(Live2DParams.ANGLE_Y, 15f)
+                setParameter(Live2DParams.ANGLE_Z, 15f)
             }
         }
     }
@@ -697,7 +705,7 @@ class Live2DRendererImpl(
     private fun runOnRenderThread(action: () -> Unit) {
         val surfaceView = surfaceViewRef?.get()
         if (surfaceView == null) {
-            Log.w(TAG, "runOnRenderThread skipped: surfaceView is null")
+            Log.w(TAG, "runOnRenderThread FAILED: surfaceView is null, surfaceAttached=$hasSurfaceAttached")
             return
         }
         surfaceView.runOnRenderThread(action)

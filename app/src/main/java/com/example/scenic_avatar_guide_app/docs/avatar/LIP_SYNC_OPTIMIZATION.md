@@ -12,6 +12,7 @@
 | 动画驱动 | `LipSyncAnimator.kt` | 时间轴管理，协同发音混合，缓动曲线，情绪影响，振幅校正 | ✅ 完整 |
 | 振幅分析 | `AudioAmplitudeAnalyzer.kt` | 实时音频振幅分析，口型同步兜底 | ✅ 完整 |
 | Marks解析 | `TtsMarkItem` | 字级时间戳+音素数组 | ✅ 完整 |
+| 渲染调整 | `Live2DRendererImpl.kt` | mouthOpen 缩放，mouthForm 偏移 | ✅ 完整 |
 
 ### 开源方案对比
 
@@ -129,7 +130,7 @@ private suspend fun animateWithCoarticulation(
 **差异化处理策略**：
 | 音素类型 | 处理方式 | 时间分配 |
 |----------|----------|----------|
-| 爆破音 (BP,DT,GK) | 闭气准备→快速释放 | 40% 闭气 + 60% 释放 |
+| 爆破音 (BP,DT,GK) | 闭气准备→快速释放 | 55% 闭气 + 45% 释放 |
 | 元音 (A,O,E,I,U,V,UA) | 进入→保持→滑出 | 30% + 40% + 30% |
 | 摩擦音/其他 | 标准加权混合 | 20% + 60% + 20% |
 
@@ -162,9 +163,9 @@ fun setAmplitudeAnalyzer(analyzer: AudioAmplitudeAnalyzer?, enabled: Boolean = t
 - 无声段：快速衰减到 30%
 - 平滑处理：避免振幅跳变
 
-### 优化6：按字合并音素事件 ✅（P5 已完成）
+### 优化6：按字合并音素事件（增强版）✅（P5 已完成）
 
-**实现方式**：在 `LipSyncAnimator` 中使用 `mergeEventsByChar()`
+**实现方式**：在 `LipSyncAnimator` 中使用 `mergeEventsByChar()`，**保留声母过渡阶段**
 
 ```kotlin
 fun mergeEventsByChar(events: List<PhonemeEvent>): List<PhonemeEvent> {
@@ -175,21 +176,40 @@ fun mergeEventsByChar(events: List<PhonemeEvent>): List<PhonemeEvent> {
             if (group.size == 1) {
                 listOf(group.first())
             } else if (group.any { it.viseme == VisemeType.BP }) {
-                group.sortedBy { it.startMs }  // 含闭唇声母保留原样
+                // 含闭唇声母（b,p,m）的字保留原样，确保闭嘴动作不被吞掉
+                group.sortedBy { it.startMs }
             } else {
-                val startMs = group.minOf { it.startMs }
-                val endMs = group.maxOf { it.endMs }
-                val rep = group
-                    .filter { it.viseme != VisemeType.SIL }
-                    .maxByOrNull { it.viseme.mouthOpen }
-                    ?: group.first()
-                listOf(PhonemeEvent(..., startMs, endMs, rep.viseme, rep.charIndex))
+                // 获取声母和韵母
+                val initial = sorted.firstOrNull()
+                val finalEvents = sorted.drop(1)
+                val initialRatio = ChineseVisemeMapper.getInitialDurationRatio(initial?.phoneme)
+                val initialDuration = (charDuration * initialRatio).toLong()
+                
+                if (initialDuration > 30 && initial?.viseme != VisemeType.SIL) {
+                    // 保留声母过渡阶段（非闭唇声母）
+                    listOf(
+                        PhonemeEvent(..., startMs, startMs + initialDuration, initial.viseme, ...),
+                        PhonemeEvent(..., startMs + initialDuration, endMs, finalViseme, ...)
+                    )
+                } else {
+                    listOf(finalEvent)
+                }
             }
         }
 }
 ```
 
-**效果**：消除字内声母→韵母的快速闭合抖动，口型只在字间切换。
+**声母时长占比**：
+| 声母类型 | 时长占比 | 示例 |
+|---------|---------|------|
+| 爆破音 (b,p,d,t,g,k,zh,ch,z,c,j,q) | 30% | 需要闭气准备 |
+| 擦音 (f,h,sh,r,s,x) | 20% | 连续气流 |
+| 鼻音/边音 (m,n,l) | 20% | 连续 voiced |
+| 零声母/半元音 (y,w,空) | 0% | 无声母 |
+
+**效果**：
+- 消除字内声母导致的快速闭合抖动
+- 保留声母过渡阶段，让连续开口音有明显起伏变化
 
 ### 优化7：音频进度同步 ✅（P6 已完成）
 
@@ -201,10 +221,8 @@ private fun startAudioSyncedLipSync() {
     audioPositionSyncJob = scope.launch {
         while (isActive && isPlaying) {
             val audioPos = streamingAudioPlayer.getCurrentPosition()
-
             val (open, form) = calculateLipSync(audioPos)
             _avatarState.update { it.copy(mouthOpen = open, mouthForm = form) }
-
             delay(16)
         }
     }
@@ -214,7 +232,7 @@ private fun startAudioSyncedLipSync() {
 **特性**：
 - 基于音频播放位置直接驱动口型
 - 多层保底：进度停滞、音频结束、时间轴结束
-- 简化的帧间平滑（0.25-0.35），避免过度延迟
+- 简化的帧间平滑（0.35-0.4），避免过度延迟
 
 ### 优化8：移除音频缓存 ✅（P7 已完成）
 
@@ -231,6 +249,52 @@ private val player: ExoPlayer = ExoPlayer.Builder(context)
     .build()
 ```
 
+### 优化9：SIL 事件强制闭唇 ✅（P8 已完成）
+
+**实现方式**：遇到标点符号或停顿时，强制闭唇
+
+```kotlin
+// AvatarPlaybackManager.kt / LipSyncAnimator.kt
+if (currentEvent.viseme == VisemeType.SIL) {
+    // SIL 事件：强制闭唇
+    lastMouthOpen = lerp(lastMouthOpen, 0f, 0.5f)
+    lastMouthForm = lerp(lastMouthForm, 0f, 0.5f)
+}
+
+// 字间过渡时，如果前后有 SIL 事件，也强制闭唇
+if (prevEvent.viseme == VisemeType.SIL || nextEvent.viseme == VisemeType.SIL) {
+    lastMouthOpen = lerp(lastMouthOpen, 0f, 0.4f)
+}
+```
+
+**效果**：遇到逗号、句号等标点时嘴巴会闭合，增加自然度。
+
+### 优化10：渲染层参数调整 ✅（P9 已完成）
+
+**mouthOpen 缩放**：控制整体嘴唇张开程度
+
+```kotlin
+// Live2DRendererImpl.kt
+val amplifiedMouthOpen = (currentMouthOpen * 0.65f).coerceAtMost(1.0f)
+```
+
+当前使用 `0.65f` 缩放因子，最大张开度约为 65%，避免嘴巴张太大。
+
+**mouthForm 偏移**：控制嘴型形状（扁嘴/圆嘴）
+
+```kotlin
+var mouthWidthScale: Float = 0.3f
+val scaledMouthForm = (mouthForm + mouthWidthScale).coerceIn(-1f, 1.5f)
+```
+
+| 音素 | mouthForm 原值 | 偏移后值 | 效果 |
+|-----|---------------|---------|------|
+| i (扁嘴) | -0.5 | -0.2 | 仍扁 |
+| a (中性) | 0.0 | 0.3 | 略圆 |
+| o (圆嘴) | 0.6 | 0.9 | 圆 |
+
+**效果**：保留扁嘴和圆嘴的对比差异，发 `i` 音时嘴巴会扁，发 `o/u` 音时嘴巴会圆。
+
 ---
 
 ## 三、实施优先级
@@ -242,9 +306,11 @@ private val player: ExoPlayer = ExoPlayer.Builder(context)
 | P2 | 情绪影响 | 中 | 高 | ✅ 已完成 |
 | P3 | 协同发音增强 | 大 | 中 | ✅ 已完成 |
 | P4 | 音频振幅校准 | 大 | 中 | ✅ 已完成 |
-| P5 | 按字合并音素事件 | 小 | 高 | ✅ 已完成 |
+| P5 | 按字合并音素事件（增强版） | 小 | 高 | ✅ 已完成 |
 | P6 | 音频进度同步 | 中 | 高 | ✅ 已完成 |
 | P7 | 移除音频缓存 | 小 | 中 | ✅ 已完成 |
+| P8 | SIL 事件强制闭唇 | 小 | 高 | ✅ 已完成 |
+| P9 | 渲染层参数调整 | 小 | 高 | ✅ 已完成 |
 
 ---
 
@@ -281,6 +347,17 @@ when (expression) {
 }
 ```
 
+### 调整渲染参数
+
+```kotlin
+// Live2DRendererImpl.kt
+// 调整 mouthOpen 缩放因子（0.5-1.0）
+val amplifiedMouthOpen = (currentMouthOpen * 0.65f).coerceAtMost(1.0f)
+
+// 调整 mouthForm 偏移（0.0=原始，正值=更大更圆）
+var mouthWidthScale: Float = 0.3f
+```
+
 ---
 
 ## 五、总结
@@ -292,8 +369,10 @@ when (expression) {
 3. ✅ **情绪影响**：根据情绪强度动态调整口型幅度
 4. ✅ **协同发音增强**：爆破音闭气释放、元音平滑滑动
 5. ✅ **音频振幅校准**：实时振幅辅助口型同步兜底
-6. ✅ **按字合并音素事件**：消除字内声母抖动，口型只在字间切换
+6. ✅ **按字合并音素事件（增强版）**：保留声母过渡阶段，让连续开口音有明显起伏
 7. ✅ **音频进度同步**：流式模式下基于 ExoPlayer 实时位置驱动口型，多层保底机制
 8. ✅ **移除音频缓存**：每次播放重新请求网络，确保数据新鲜
+9. ✅ **SIL 事件强制闭唇**：遇到标点/停顿时嘴巴闭合
+10. ✅ **渲染层参数调整**：mouthOpen 缩放控制张开度，mouthForm 偏移保留扁嘴/圆嘴差异
 
 当前系统的**口型定义（15种）已经优于主流开源方案**，配合以上优化，口型同步自然度和准确性达到生产级别。
