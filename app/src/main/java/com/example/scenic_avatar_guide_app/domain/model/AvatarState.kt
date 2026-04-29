@@ -128,9 +128,9 @@ enum class VisemeType(
     F(0.2f, -0.2f),        // 唇齿音 f
     DT(0.3f, 0.0f),        // 舌尖中音 d,t,n,l
     GK(0.55f, 0.0f),       // 舌根音 g,k,h
-    JQ(0.4f, -0.4f),       // 舌面音 j,q,x
-    ZC(0.35f, 0.0f),       // 舌尖前音 z,c,s
-    ZH(0.4f, 0.0f),        // 舌尖后音 zh,ch,sh,r
+    JQ(0.15f, -0.3f),      // 舌面音 j,q,x（擦音，半闭扁嘴）
+    ZC(0.15f, 0.0f),       // 舌尖前音 z,c,s（擦音，半闭）
+    ZH(0.2f, 0.0f),        // 舌尖后音 zh,ch,sh,r（翘舌擦音，半闭）
     A(1.0f, 0.0f),         // 开口呼 a,ai,an,ang,ao
     O(0.85f, 0.6f),        // 合口呼圆唇 o,ou,ong
     E(0.7f, 0.0f),         // 半开口 e,ei,en,eng,er
@@ -228,7 +228,10 @@ data class AvatarFullState(
     val currentText: String = "",
 
     // 表情过渡时长（毫秒）
-    val expressionTransitionMs: Long = 200
+    val expressionTransitionMs: Long = 200,
+
+    // 动作过渡时长（毫秒）
+    val gestureTransitionMs: Long = 300
 )
 
 // ==================== TTS 配置（含端侧与远程）====================

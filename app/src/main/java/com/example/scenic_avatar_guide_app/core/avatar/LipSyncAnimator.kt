@@ -27,9 +27,14 @@ class LipSyncAnimator {
 
     companion object {
         /**
-         * 按字（charIndex）合并音素事件
+         * 按字（charIndex）合并音素事件 - 增强版
          *
-         * 同一字的声母+韵母合并为一个字级口型事件，消除字内声母导致的快速闭合抖动。
+         * 保留声母过渡阶段，而不是完全丢弃：
+         * - 声母阶段：20-30% 的字时长，mouthOpen 取声母值
+         * - 韵母阶段：70-80% 的字时长，mouthOpen 取韵母值
+         * - 闭唇声母（b,p,m）特殊处理：保留完整的闭嘴->张开动作
+         *
+         * 这能避免连续开口音时嘴巴一直大张的问题。
          */
         fun mergeEventsByChar(events: List<PhonemeEvent>): List<PhonemeEvent> {
             if (events.size <= 1) return events
@@ -40,27 +45,67 @@ class LipSyncAnimator {
                 .flatMap { group ->
                     if (group.size == 1) {
                         listOf(group.first())
-                    } else if (group.any { it.viseme == VisemeType.BP }) {
-                        // 含闭唇声母（b,p,m）的字保留原样，确保闭嘴动作不被吞掉
+                    } else if (group.any { it.viseme in listOf(VisemeType.BP, VisemeType.ZC, VisemeType.JQ, VisemeType.ZH) }) {
+                        // 含闭唇/半闭唇声母的字保留原样，确保闭嘴动作不被吞掉
+                        // 包括：b,p,m (BP), z,c,s (ZC), j,q,x (JQ), zh,ch,sh,r (ZH)
                         group.sortedBy { it.startMs }
                     } else {
-                        val startMs = group.minOf { it.startMs }
-                        val endMs = group.maxOf { it.endMs }
-                        // 优先选非静音中 mouthOpen 最大的（通常是韵母）
-                        val rep = group
-                            .filter { it.viseme != VisemeType.SIL }
-                            .maxByOrNull { it.viseme.mouthOpen }
-                            ?: group.first()
+                        // 获取声母和韵母
+                        val sorted = group.sortedBy { it.startMs }
+                        val initial = sorted.firstOrNull()
+                        val finalEvents = sorted.drop(1)
 
-                        listOf(
-                            PhonemeEvent(
-                                phoneme = rep.phoneme,
-                                startMs = startMs,
-                                endMs = endMs,
-                                viseme = rep.viseme,
-                                charIndex = rep.charIndex
-                            )
-                        )
+                        if (finalEvents.isEmpty() || initial == null) {
+                            // 只有声母或没有事件
+                            listOf(sorted.first())
+                        } else {
+                            val charStartMs = sorted.minOf { it.startMs }
+                            val charEndMs = sorted.maxOf { it.endMs }
+                            val charDuration = charEndMs - charStartMs
+
+                            // 声母时长占比：根据声母类型决定
+                            val initialRatio = ChineseVisemeMapper.getInitialDurationRatio(initial.phoneme)
+                            val initialDuration = (charDuration * initialRatio).toLong()
+
+                            // 韵母代表（取 mouthOpen 最大的，通常是主元音）
+                            val finalRep = finalEvents
+                                .filter { it.viseme != VisemeType.SIL }
+                                .maxByOrNull { it.viseme.mouthOpen }
+                                ?: finalEvents.first()
+
+                            if (initialDuration > 30 && initial.viseme != VisemeType.SIL) {
+                                // 保留声母过渡阶段（非闭唇声母）
+                                listOf(
+                                    // 声母阶段
+                                    PhonemeEvent(
+                                        phoneme = initial.phoneme,
+                                        startMs = charStartMs,
+                                        endMs = charStartMs + initialDuration,
+                                        viseme = initial.viseme,
+                                        charIndex = initial.charIndex
+                                    ),
+                                    // 韵母阶段（扩展到字结束）
+                                    PhonemeEvent(
+                                        phoneme = finalRep.phoneme,
+                                        startMs = charStartMs + initialDuration,
+                                        endMs = charEndMs,
+                                        viseme = finalRep.viseme,
+                                        charIndex = finalRep.charIndex
+                                    )
+                                )
+                            } else {
+                                // 声母时长太短或无声母，只保留韵母
+                                listOf(
+                                    PhonemeEvent(
+                                        phoneme = finalRep.phoneme,
+                                        startMs = charStartMs,
+                                        endMs = charEndMs,
+                                        viseme = finalRep.viseme,
+                                        charIndex = finalRep.charIndex
+                                    )
+                                )
+                            }
+                        }
                     }
                 }
         }
@@ -307,7 +352,7 @@ class LipSyncAnimator {
                     val nextEvent = events.firstOrNull { it.startMs > lipPosition }
 
                     if (prevEvent != null && nextEvent != null) {
-                        // 字间过渡：动态保持系数，避免快语速时频繁闭合
+                        // 字间过渡：动态保持系数，让连续开口音有起伏
                         val gap = (nextEvent.startMs - prevEvent.endMs).coerceAtLeast(1)
                         val intoGap = lipPosition - prevEvent.endMs
                         val t = (intoGap.toFloat() / gap).coerceIn(0f, 1f)
@@ -316,12 +361,14 @@ class LipSyncAnimator {
                         val nextOpen = nextEvent.viseme.mouthOpen
                         val avgOpen = (prevOpen + nextOpen) / 2f
 
-                        // 语速快（gap 小）且前后都是开口音时，保持更多开度
+                        // 语速快（gap 小）时的保持系数
+                        // 关键修改：降低连续高开口音的保持系数，让嘴有起伏
                         val holdFactor = when {
-                            gap >= 150 -> 0.35f // 长停顿，允许自然闭合
-                            avgOpen >= 0.55f -> 0.8f // 连续高开口音（元音），保持高开口
-                            avgOpen >= 0.35f -> 0.6f
-                            else -> 0.45f
+                            gap >= 150 -> 0.5f   // 长停顿，允许较多闭合
+                            gap >= 80 -> 0.6f    // 中等停顿
+                            avgOpen >= 0.7f -> 0.55f  // 连续高开口音，仍然要有起伏
+                            avgOpen >= 0.5f -> 0.6f
+                            else -> 0.7f
                         }
 
                         lastOpen = lerp(prevOpen, nextOpen, t) * holdFactor
@@ -361,45 +408,10 @@ class LipSyncAnimator {
 
     /**
      * 按字（charIndex）合并音素事件
-     *
-     * 同一字的声母+韵母合并为一个字级口型事件：
-     * - 时间范围取该字所有事件的最小 startMs 到最大 endMs
-     * - 代表口型取该字所有非静音音素中 mouthOpen 最大的（即韵母）
-     *
-     * 这能消除字内声母导致的"快速闭合->张开"抖动。
+     * 委托给 companion object 中的增强版实现
      */
     private fun mergeEventsByChar(events: List<PhonemeEvent>): List<PhonemeEvent> {
-        if (events.size <= 1) return events
-
-        return events.groupBy { it.charIndex }
-            .toSortedMap()
-            .values
-            .flatMap { group ->
-                if (group.size == 1) {
-                    listOf(group.first())
-                } else if (group.any { it.viseme == VisemeType.BP }) {
-                    // 含闭唇声母（b,p,m）的字保留原样，确保闭嘴动作不被吞掉
-                    group.sortedBy { it.startMs }
-                } else {
-                    val startMs = group.minOf { it.startMs }
-                    val endMs = group.maxOf { it.endMs }
-                    // 优先选非静音中 mouthOpen 最大的（通常是韵母）
-                    val rep = group
-                        .filter { it.viseme != VisemeType.SIL }
-                        .maxByOrNull { it.viseme.mouthOpen }
-                        ?: group.first()
-
-                    listOf(
-                        PhonemeEvent(
-                            phoneme = rep.phoneme,
-                            startMs = startMs,
-                            endMs = endMs,
-                            viseme = rep.viseme,
-                            charIndex = rep.charIndex
-                        )
-                    )
-                }
-            }
+        return Companion.mergeEventsByChar(events)
     }
 
     /**
@@ -555,18 +567,39 @@ class LipSyncAnimator {
     /**
      * 协同发音混合：加权平均前后音素
      *
-     * 权重分配：前一音素 20%，当前 60%，后一音素 20%
+     * 权重分配：
+     * - 正常情况：前一音素 20%，当前 60%，后一音素 20%
+     * - 连续大开口音（>=0.8）：增强前后权重到 25%，让过渡更明显
      *
-     * 大开口音素（>=0.7）降低前后权重，避免结束位置过低导致频繁张合
+     * 这样连续开口音时，前后音素的影响能让嘴巴有起伏变化
      */
     private fun blendMouth(prev: Float?, current: Float, next: Float?): Float {
         val p = prev ?: current
         val n = next ?: current
-        val isHighOpen = current >= 0.7f
-        val prevWeight = if (isHighOpen) 0.1f else 0.2f
-        val nextWeight = if (isHighOpen) 0.1f else 0.2f
-        val currentWeight = 1f - prevWeight - nextWeight
-        return p * prevWeight + current * currentWeight + n * nextWeight
+
+        // 计算是否是连续大开口音（当前和前后都是大开口）
+        val isCurrentHighOpen = current >= 0.8f
+        val isPrevHighOpen = (prev ?: 0f) >= 0.7f
+        val isNextHighOpen = (next ?: 0f) >= 0.7f
+        val isConsecutiveHighOpen = isCurrentHighOpen && (isPrevHighOpen || isNextHighOpen)
+
+        return when {
+            isConsecutiveHighOpen -> {
+                // 连续大开口音：增强前后权重，让过渡更明显
+                val prevWeight = if (isPrevHighOpen) 0.25f else 0.15f
+                val nextWeight = if (isNextHighOpen) 0.25f else 0.15f
+                val currentWeight = 1f - prevWeight - nextWeight
+                p * prevWeight + current * currentWeight + n * nextWeight
+            }
+            isCurrentHighOpen -> {
+                // 单独大开口音：正常权重
+                0.15f * p + 0.7f * current + 0.15f * n
+            }
+            else -> {
+                // 正常情况：标准权重
+                0.2f * p + 0.6f * current + 0.2f * n
+            }
+        }
     }
 
     /**
@@ -577,7 +610,7 @@ class LipSyncAnimator {
      * - 0.5：中间，当前音素为主
      * - 1.0：即将退出，后一音素影响大
      *
-     * 大开口音素（>=0.7）降低前后权重上限，结束位置保留更多开度
+     * 连续大开口音时增强前后权重，让过渡更明显
      */
     private fun blendMouthAdvanced(
         prev: VisemeType?,
@@ -589,9 +622,19 @@ class LipSyncAnimator {
         val prevOpen = prev?.mouthOpen ?: currentOpen
         val nextOpen = next?.mouthOpen ?: currentOpen
 
+        // 检测是否是连续大开口音
+        val isCurrentHighOpen = currentOpen >= 0.8f
+        val isPrevHighOpen = (prev?.mouthOpen ?: 0f) >= 0.7f
+        val isNextHighOpen = (next?.mouthOpen ?: 0f) >= 0.7f
+        val isConsecutiveHighOpen = isCurrentHighOpen && (isPrevHighOpen || isNextHighOpen)
+
         // 动态权重：根据相位调整前后音素的影响
-        // 大开口音素降低前后音素权重，避免结束时过度闭合
-        val maxNeighborWeight = if (currentOpen >= 0.7f) 0.15f else 0.3f
+        // 连续大开口音时增强前后权重，让过渡更明显
+        val maxNeighborWeight = when {
+            isConsecutiveHighOpen -> 0.35f  // 连续大开口：增强过渡
+            isCurrentHighOpen -> 0.2f       // 单独大开口：正常过渡
+            else -> 0.3f                    // 其他情况
+        }
         val prevWeight = (maxNeighborWeight * (1f - phase)).coerceIn(0f, maxNeighborWeight)
         val nextWeight = (maxNeighborWeight * phase).coerceIn(0f, maxNeighborWeight)
         val currentWeight = 1f - prevWeight - nextWeight
