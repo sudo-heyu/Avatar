@@ -60,16 +60,20 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
     private var typewriterJob: Job? = null
 
     // 基础打字间隔（毫秒）
-    private var baseIntervalMs = 90L
+    private var baseIntervalMs = 180L
 
     // 最小打字间隔（加速时）
-    private var minIntervalMs = 50L
+    private var minIntervalMs = 120L
 
     // 当前间隔
     private var currentIntervalMs = baseIntervalMs
 
     // 上次接收新文本的时间
     private var lastReceiveTime = 0L
+
+    // 批量更新间隔：累积文本后统一回调，减少 StateFlow 发射次数
+    private var batchChars = 0
+    private val batchIntervalMs = 100L
 
     // 文本更新回调
     var onTextUpdate: ((messageId: String, text: String) -> Unit)? = null
@@ -82,6 +86,7 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
         currentMessageId = messageId
         pendingText.clear()
         displayedText.clear()
+        batchChars = 0
         currentIntervalMs = baseIntervalMs
         lastReceiveTime = System.currentTimeMillis()
 
@@ -92,18 +97,31 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
                     val char = pendingText[0]
                     pendingText.deleteCharAt(0)
                     displayedText.append(char)
-
-                    currentMessageId?.let { id ->
-                        onTextUpdate?.invoke(id, displayedText.toString())
-                    }
+                    batchChars++
 
                     // 动态调整速度
                     val timeSinceLastReceive = System.currentTimeMillis() - lastReceiveTime
                     currentIntervalMs = when {
-                        pendingText.length > 20 -> minIntervalMs // 缓冲区很多内容时加速
-                        pendingText.length > 10 -> baseIntervalMs / 2
-                        timeSinceLastReceive > 500 -> baseIntervalMs * 2 // 长时间没新内容时减速
+                        pendingText.length > 30 -> minIntervalMs
+                        pendingText.length > 15 -> baseIntervalMs / 2
+                        timeSinceLastReceive > 500 -> baseIntervalMs * 2
                         else -> baseIntervalMs
+                    }
+
+                    // 批量 flush：每累积一定字符数或间隔达到阈值时统一回调
+                    if (batchChars >= 3 || pendingText.isEmpty() || timeSinceLastReceive > batchIntervalMs) {
+                        currentMessageId?.let { id ->
+                            onTextUpdate?.invoke(id, displayedText.toString())
+                        }
+                        batchChars = 0
+                    }
+                } else {
+                    // 无新内容时，flush 残余批量字符
+                    if (batchChars > 0) {
+                        currentMessageId?.let { id ->
+                            onTextUpdate?.invoke(id, displayedText.toString())
+                        }
+                        batchChars = 0
                     }
                 }
 
@@ -130,6 +148,7 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
             displayedText.clear()
             displayedText.append(allText)
             pendingText.clear()
+            batchChars = 0
         }
     }
 
@@ -142,6 +161,7 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
         currentMessageId = null
         pendingText.clear()
         displayedText.clear()
+        batchChars = 0
     }
 }
 
