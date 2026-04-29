@@ -104,6 +104,20 @@ data class ChatOptions(
 )
 
 @Serializable
+data class ChatAbortRequest(
+    @SerialName("session_id")
+    val sessionId: String,
+    @SerialName("message_id")
+    val messageId: String
+)
+
+@Serializable
+data class ChatAbortResponse(
+    val code: Int,
+    val message: String
+)
+
+@Serializable
 data class ChatTextResponse(
     val code: Int,
     val message: String,

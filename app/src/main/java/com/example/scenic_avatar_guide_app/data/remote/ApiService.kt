@@ -29,6 +29,12 @@ interface ApiService {
     suspend fun chatText(@Body request: ChatTextRequest): ChatTextResponse
 
     /**
+     * 中止当前对话
+     */
+    @POST("api/v1/chat/abort")
+    suspend fun abortChat(@Body request: ChatAbortRequest): ChatAbortResponse
+
+    /**
      * 图片上传（前置接口，用于图文问答）
      */
     @Multipart

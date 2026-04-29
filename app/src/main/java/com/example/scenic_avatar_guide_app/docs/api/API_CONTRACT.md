@@ -1,8 +1,8 @@
 # 移动端 API 接口契约
 
-版本：v7.1  
+版本：v7.2  
 日期：2026-04-30  
-状态：**新增流式问答与分段 TTS 事件协议，保留非流式接口作为降级路径；口型同步升级为15种高精度 Viseme，表情/动作枚举补全**
+状态：**新增中止对话接口 /api/v1/chat/abort；保留流式问答与非流式降级路径**
 
 ---
 
@@ -228,6 +228,55 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
 - `speech_text`：用于 `tts_segment.text`，清洗 markdown、HTML、URL 等不适合朗读的内容。
 
 若两者不完全一致，`tts_segment.text` 应是用户可理解的朗读文本，不要求 UI 再次展示。
+
+---
+
+### 3.5 中止对话接口
+
+**接口**：`POST /api/v1/chat/abort`
+
+**说明**：客户端在用户主动中止对话时调用，通知后端提前终止当前会话的流式响应处理，释放后端资源。该接口为 best-effort 语义——即使调用失败也不影响客户端后续交互流程。
+
+**请求头**：
+```http
+Content-Type: application/json
+```
+
+**请求**：
+```json
+{
+  "session_id": "s_xxx",
+  "message_id": "m_xxx"
+}
+```
+
+**请求字段说明**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| session_id | String | 是 | 当前会话 ID |
+| message_id | String | 是 | 正在流式生成的消息 ID |
+
+**响应**：
+```json
+{
+  "code": 0,
+  "message": "ok"
+}
+```
+
+**错误码**：
+
+| code | 说明 |
+|------|------|
+| 0 | 成功 |
+| 1003 | 会话不存在 |
+| 2001 | 服务内部错误 |
+
+**移动端处理约定**：
+- 该接口为 best-effort，即使网络调用失败也不阻止客户端本地清理流程。
+- 调用后客户端应立即执行：取消 SSE 流连接、停止 TTS 播放队列、重置数字人状态为 IDLE、创建新会话。
+- 中止后的消息气泡内容替换为已接收的部分文本（若为空则显示"消息已中断"）。
 
 ---
 
@@ -1248,3 +1297,4 @@ enum class VisemeType(val mouthOpen: Float, val mouthForm: Float = 0f) {
 | v6.0 | 2026-04-29 | **交互模式重构：三种模式缩减为两种（聊天问答 + 路线规划），统一 `POST /api/v1/chat/text` 接口，通过 `mode` 字段区分；新增 `route_data` 响应结构；新增图片上传接口** |
 | v7.0 | 2026-04-29 | **新增 `POST /api/v1/chat/text/stream` 流式接口摘要；引入 `text_delta`、`tts_segment`、`done` 等事件；明确分段 TTS 队列播放与非流式降级路径** |
 | v7.1 | 2026-04-30 | **口型同步升级为 15 种高精度 Viseme；AvatarExpression 补全为 13 种；AvatarGesture 补全为 13 种；同步动作语义匹配与场景示例** |
+| v7.2 | 2026-04-30 | **新增 `POST /api/v1/chat/abort` 中止对话接口；客户端支持主动终止流式对话并创建新会话** |

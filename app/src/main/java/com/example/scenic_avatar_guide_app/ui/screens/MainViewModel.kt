@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
@@ -45,6 +46,7 @@ private const val TAG = "MainViewModel"
 /**
  * 打字机效果控制器
  * 负责平滑地逐字显示文本
+ * 支持与 TTS 同步启动：等待第一个音频片段准备好后才开始显示
  */
 class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope) {
     // 待显示的文本缓冲区
@@ -61,6 +63,9 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
 
     // 是否已收到全部文本
     private var isComplete = false
+
+    // 是否允许开始显示（等待 TTS 同步信号）
+    private var canStartDisplay = false
 
     // 基础打字间隔（毫秒）- 正常速度
     private val baseIntervalMs = 180L
@@ -82,19 +87,27 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
 
     /**
      * 开始新的打字机会话
+     * @param messageId 消息 ID
+     * @param waitForSync 是否等待 TTS 同步信号（默认 true）
      */
-    fun start(messageId: String) {
+    fun start(messageId: String, waitForSync: Boolean = true) {
         stop()
         currentMessageId = messageId
         pendingText.clear()
         displayedText.clear()
         batchChars = 0
         isComplete = false
+        canStartDisplay = !waitForSync
         currentIntervalMs = baseIntervalMs
         lastReceiveTime = System.currentTimeMillis()
 
         typewriterJob = scope.launch {
-            while (true) {
+            // 等待 TTS 同步信号
+            while (!canStartDisplay && isActive) {
+                delay(16)
+            }
+
+            while (isActive) {
                 if (pendingText.isNotEmpty()) {
                     // 取出字符显示
                     val char = pendingText[0]
@@ -132,6 +145,14 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
                 delay(currentIntervalMs)
             }
         }
+    }
+
+    /**
+     * 通知 TTS 已准备好，可以开始显示文字
+     * 用于与数字人说话同步启动
+     */
+    fun notifyTtsReady() {
+        canStartDisplay = true
     }
 
     /**
@@ -199,6 +220,10 @@ class MainViewModel @Inject constructor(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    // 活跃对话中（流式响应 + 数字人播放期间），用于输入区显示 STOP 按钮
+    private val _isConversationActive = MutableStateFlow(false)
+    val isConversationActive: StateFlow<Boolean> = _isConversationActive.asStateFlow()
+
     // 当前交互模式
     private val _currentMode = MutableStateFlow(InteractionMode.Chat)
     val currentMode: StateFlow<InteractionMode> = _currentMode.asStateFlow()
@@ -246,10 +271,18 @@ class MainViewModel @Inject constructor(
     val currentVoice: StateFlow<VoiceInfo> = _currentVoice.asStateFlow()
 
     // 数字人播放管理器
-    private val playbackManager = AvatarPlaybackManager(application, repository)
+    private val playbackManager = AvatarPlaybackManager(application, repository).apply {
+        // 设置第一个 TTS 片段开始播放的回调，用于与打字机同步启动
+        onFirstSegmentStart = {
+            typewriterController.notifyTtsReady()
+        }
+    }
 
     // 会话ID
     private var sessionId: String? = null
+
+    // 当前助手消息 ID，用于中止请求
+    private var currentAssistantMessageId: String? = null
 
     private var currentStreamJob: Job? = null
 
@@ -296,12 +329,18 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             var lastGesture = _avatarFullState.value.gesture
             var lastExpression = _avatarFullState.value.expression
+            var lastState = _avatarFullState.value.state
             playbackManager.avatarState.collect { state ->
                 if (state.gesture != lastGesture || state.expression != lastExpression) {
                     Log.d(TAG, "observeAvatarState: gesture=${state.gesture}, expression=${state.expression}")
                     lastGesture = state.gesture
                     lastExpression = state.expression
                 }
+                if (lastState != AvatarState.IDLE && state.state == AvatarState.IDLE) {
+                    _isConversationActive.value = false
+                    currentAssistantMessageId = null
+                }
+                lastState = state.state
                 _avatarFullState.value = state
                 _avatarState.value = state.state
             }
@@ -383,6 +422,7 @@ class MainViewModel @Inject constructor(
         currentStreamJob = viewModelScope.launch {
             Log.d(TAG, "开始流式请求流程")
             _isLoading.value = true
+            _isConversationActive.value = true
             _avatarState.value = AvatarState.THINKING
             playbackManager.startStreaming()
 
@@ -406,6 +446,7 @@ class MainViewModel @Inject constructor(
             }
 
             val assistantMessageId = addMessage(content = "", isUser = false, isLoading = true)
+            currentAssistantMessageId = assistantMessageId
 
             // 启动打字机效果
             typewriterController.start(assistantMessageId)
@@ -490,6 +531,8 @@ class MainViewModel @Inject constructor(
                         ChatStreamEvent.Done -> {
                             Log.d(TAG, "Done")
                             _isLoading.value = false
+                            // 保底：如果没有收到 TTS 片段，也让打字机开始
+                            typewriterController.notifyTtsReady()
                             // 标记消息完成，以最大速度显示剩余文本
                             typewriterController.finish()
                             updateAssistantMessage(assistantMessageId, isLoading = false)
@@ -497,6 +540,8 @@ class MainViewModel @Inject constructor(
                         }
                         is ChatStreamEvent.Error -> {
                             Log.e(TAG, "Error: code=${event.code}, message=${event.message}")
+                            // 保底：让打字机开始
+                            typewriterController.notifyTtsReady()
                             if (!receivedText && !hadAnyEvent) {
                                 Log.d(TAG, "首事件前错误，降级到非流式接口")
                                 typewriterController.stop()
@@ -524,6 +569,8 @@ class MainViewModel @Inject constructor(
                 }
                 if (_isLoading.value) {
                     _isLoading.value = false
+                    // 保底：如果没有收到 TTS 片段，也让打字机开始
+                    typewriterController.notifyTtsReady()
                     typewriterController.finish()
                     updateAssistantMessage(assistantMessageId, isLoading = false)
                     playbackManager.finishStreamingInput()
@@ -542,6 +589,8 @@ class MainViewModel @Inject constructor(
                     )
                 } else {
                     _isLoading.value = false
+                    // 保底：让打字机开始
+                    typewriterController.notifyTtsReady()
                     typewriterController.flush()
                     playbackManager.stop()
                     updateAssistantMessage(
@@ -768,6 +817,45 @@ class MainViewModel @Inject constructor(
      */
     fun stopPlayback() {
         cancelCurrentStream()
+    }
+
+    /**
+     * 中止当前对话
+     */
+    fun abortConversation() {
+        if (!_isConversationActive.value) return
+
+        val sessionToAbort = sessionId
+        val messageToAbort = currentAssistantMessageId
+
+        cancelCurrentStream()
+
+        messageToAbort?.let { msgId ->
+            val currentList = _messages.value.toMutableList()
+            val index = currentList.indexOfFirst { it.id == msgId }
+            if (index != -1) {
+                val current = currentList[index]
+                currentList[index] = current.copy(
+                    content = current.content.ifBlank { "消息已中断。" },
+                    isLoading = false,
+                    isError = false
+                )
+                _messages.value = currentList
+            }
+        }
+
+        if (sessionToAbort != null && messageToAbort != null) {
+            viewModelScope.launch {
+                repository.abortChat(sessionToAbort, messageToAbort)
+            }
+        }
+
+        _isConversationActive.value = false
+        currentAssistantMessageId = null
+
+        viewModelScope.launch {
+            createNewSession()
+        }
     }
 
     /**

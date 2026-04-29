@@ -11,6 +11,7 @@
 #include <Math/CubismMatrix44.hpp>
 #include <Type/csmVector.hpp>
 #include <Type/csmString.hpp>
+#include <mutex>
 
 class LAppModel;
 
@@ -177,4 +178,6 @@ private:
     Csm::csmVector<Csm::csmString> _modelDir; ///< モデルディレクトリ名のコンテナ
 
     bool _upperBodyMode; ///< 上半身のみ表示モード
+
+    mutable std::mutex _managerMutex; ///< 保护模型状态跨线程访问的互斥锁
 };

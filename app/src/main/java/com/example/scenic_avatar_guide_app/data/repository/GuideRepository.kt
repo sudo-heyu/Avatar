@@ -159,6 +159,28 @@ class GuideRepository @Inject constructor(
     }
 
     /**
+     * 通知后端中止当前对话（best-effort）
+     */
+    suspend fun abortChat(sessionId: String, messageId: String): Result<Unit> {
+        return try {
+            val request = ChatAbortRequest(
+                sessionId = sessionId,
+                messageId = messageId
+            )
+            val response = apiService.abortChat(request)
+            if (response.code == 0) {
+                Result.success(Unit)
+            } else {
+                Log.w("GuideRepository", "abortChat returned code=${response.code}: ${response.message}")
+                Result.success(Unit)
+            }
+        } catch (e: Exception) {
+            Log.w("GuideRepository", "abortChat failed (best-effort, ignored)", e)
+            Result.success(Unit)
+        }
+    }
+
+    /**
      * 上传图片
      */
     suspend fun uploadImage(imageUri: Uri, context: Context): Result<String> {

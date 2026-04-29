@@ -88,6 +88,7 @@ fun MainScreen(
     val volumeLevel by viewModel.volumeLevel.collectAsStateWithLifecycle()
     val showTestPanel by viewModel.showTestPanel.collectAsStateWithLifecycle()
     val pendingImageUri by viewModel.pendingImageUri.collectAsStateWithLifecycle()
+    val isConversationActive by viewModel.isConversationActive.collectAsStateWithLifecycle()
     val showScenicSelection by viewModel.showScenicSelection.collectAsStateWithLifecycle()
     val scenicAreas = viewModel.scenicAreas
 
@@ -279,9 +280,11 @@ fun MainScreen(
                     } else {
                         InputSection(
                             mode = currentMode, inputText = inputText, isLoading = isLoading,
+                            isConversationActive = isConversationActive,
                             pendingImageUri = pendingImageUri,
                             onInputChange = { viewModel.updateInputText(it) },
                             onSend = { viewModel.sendMessage() },
+                            onAbort = { viewModel.abortConversation() },
                             onVoiceClick = {
                                 if (hasAudioPermission) viewModel.enterVoiceInputMode()
                                 else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -819,8 +822,10 @@ private fun ThinkingDotsAnimation() {
 @Composable
 private fun InputSection(
     mode: InteractionMode, inputText: String, isLoading: Boolean,
+    isConversationActive: Boolean,
     pendingImageUri: String?,
-    onInputChange: (String) -> Unit, onSend: () -> Unit, onVoiceClick: () -> Unit, onCameraInput: () -> Unit,
+    onInputChange: (String) -> Unit, onSend: () -> Unit, onAbort: () -> Unit,
+    onVoiceClick: () -> Unit, onCameraInput: () -> Unit,
     onClearImage: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -878,12 +883,42 @@ private fun InputSection(
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                             placeholder = { Text(when (mode) { InteractionMode.Chat -> "输入消息或拍照..."; InteractionMode.Route -> "输入路线偏好..." }, fontSize = 14.sp, color = TextHint) },
                             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
-                            contentPadding = PaddingValues(start = 12.dp, end = 4.dp, top = 0.dp, bottom = 0.dp)
+                            contentPadding = PaddingValues(start = 12.dp, end = 48.dp, top = 8.dp, bottom = 8.dp)
                         )
                     }
                 )
-                if (canSend) FilledIconButton(onClick = onSend, enabled = !isLoading, modifier = Modifier.size(40.dp), shape = CircleShape) { Icon(Icons.AutoMirrored.Filled.Send, "发送", Modifier.size(20.dp), Color.White) }
-                else IconButton(onClick = onVoiceClick, modifier = Modifier.size(40.dp)) { Icon(Icons.Default.Mic, "语音输入", Modifier.size(22.dp), TextSecondary) }
+                when {
+                    isConversationActive -> {
+                        IconButton(
+                            onClick = onAbort,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(Color(0xFFE53935), CircleShape)
+                        ) {
+                            Icon(
+                                Icons.Filled.Stop,
+                                contentDescription = "停止回复",
+                                modifier = Modifier.size(20.dp),
+                                tint = Color.White
+                            )
+                        }
+                    }
+                    canSend -> {
+                        FilledIconButton(
+                            onClick = onSend,
+                            enabled = !isLoading,
+                            modifier = Modifier.size(40.dp),
+                            shape = CircleShape
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Send, "发送", Modifier.size(20.dp), Color.White)
+                        }
+                    }
+                    else -> {
+                        IconButton(onClick = onVoiceClick, modifier = Modifier.size(40.dp)) {
+                            Icon(Icons.Default.Mic, "语音输入", Modifier.size(22.dp), TextSecondary)
+                        }
+                    }
+                }
             }
         }
     }

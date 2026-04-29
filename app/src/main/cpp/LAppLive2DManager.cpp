@@ -110,6 +110,7 @@ LAppModel* LAppLive2DManager::GetModel(csmUint32 no) const
 
 void LAppLive2DManager::SetRenderTargetSize(csmUint32 width, csmUint32 height)
 {
+    std::lock_guard<std::mutex> lock(_managerMutex);
     for (csmUint32 i = 0; i < _models.GetSize(); i++)
     {
         LAppModel* model = GetModel(i);
@@ -120,6 +121,7 @@ void LAppLive2DManager::SetRenderTargetSize(csmUint32 width, csmUint32 height)
 
 void LAppLive2DManager::OnDrag(csmFloat32 x, csmFloat32 y) const
 {
+    std::lock_guard<std::mutex> lock(_managerMutex);
     for (csmUint32 i = 0; i < _models.GetSize(); i++)
     {
         LAppModel* model = GetModel(i);
@@ -130,6 +132,7 @@ void LAppLive2DManager::OnDrag(csmFloat32 x, csmFloat32 y) const
 
 void LAppLive2DManager::OnTap(csmFloat32 x, csmFloat32 y)
 {
+    std::lock_guard<std::mutex> lock(_managerMutex);
     int width = LAppDelegate::GetInstance()->GetWindowWidth();
     int height = LAppDelegate::GetInstance()->GetWindowHeight();
     float aspectRatio = static_cast<float>(width) / static_cast<float>(height);
@@ -176,6 +179,7 @@ void LAppLive2DManager::OnTap(csmFloat32 x, csmFloat32 y)
 
 void LAppLive2DManager::OnUpdate() const
 {
+    std::lock_guard<std::mutex> lock(_managerMutex);
     int width = LAppDelegate::GetInstance()->GetWindowWidth();
     int height = LAppDelegate::GetInstance()->GetWindowHeight();
     float aspectRatio = static_cast<float>(width) / static_cast<float>(height);
@@ -248,6 +252,7 @@ void LAppLive2DManager::OnUpdate() const
 
 void LAppLive2DManager::SetParameter(const csmChar* parameterId, csmFloat32 value, csmFloat32 weight)
 {
+    std::lock_guard<std::mutex> lock(_managerMutex);
     for (csmUint32 i = 0; i < _models.GetSize(); ++i)
     {
         if (_models[i] != NULL)
@@ -259,6 +264,7 @@ void LAppLive2DManager::SetParameter(const csmChar* parameterId, csmFloat32 valu
 
 void LAppLive2DManager::SetExpression(const csmChar* expressionId)
 {
+    std::lock_guard<std::mutex> lock(_managerMutex);
     for (csmUint32 i = 0; i < _models.GetSize(); ++i)
     {
         if (_models[i] != NULL)
@@ -276,6 +282,7 @@ void LAppLive2DManager::NextScene()
 
 void LAppLive2DManager::ChangeScene(Csm::csmInt32 index)
 {
+    std::lock_guard<std::mutex> lock(_managerMutex);
     LAppDelegate::GetInstance()->SetSceneIndex(index);
     if (DebugLogEnable)
     {
@@ -332,6 +339,7 @@ csmUint32 LAppLive2DManager::GetModelNum() const
 
 void LAppLive2DManager::SetViewMatrix(CubismMatrix44* m)
 {
+    std::lock_guard<std::mutex> lock(_managerMutex);
     for (int i = 0; i < 16; i++) {
         _viewMatrix->GetArray()[i] = m->GetArray()[i];
     }
@@ -339,11 +347,13 @@ void LAppLive2DManager::SetViewMatrix(CubismMatrix44* m)
 
 void LAppLive2DManager::SetUpperBodyMode(bool enabled)
 {
+    std::lock_guard<std::mutex> lock(_managerMutex);
     _upperBodyMode = enabled;
 }
 
 bool LAppLive2DManager::IsMotionFinished() const
 {
+    std::lock_guard<std::mutex> lock(_managerMutex);
     if (_models.GetSize() == 0)
     {
         return true;
@@ -360,6 +370,7 @@ bool LAppLive2DManager::IsMotionFinished() const
 
 void LAppLive2DManager::StartMotion(const csmChar* group, csmInt32 index, csmInt32 priority)
 {
+    std::lock_guard<std::mutex> lock(_managerMutex);
     for (csmUint32 i = 0; i < _models.GetSize(); ++i)
     {
         if (_models[i] != NULL)
@@ -371,6 +382,7 @@ void LAppLive2DManager::StartMotion(const csmChar* group, csmInt32 index, csmInt
 
 void LAppLive2DManager::StartRandomMotion(const csmChar* group, csmInt32 priority)
 {
+    std::lock_guard<std::mutex> lock(_managerMutex);
     for (csmUint32 i = 0; i < _models.GetSize(); ++i)
     {
         if (_models[i] != NULL)
@@ -382,6 +394,7 @@ void LAppLive2DManager::StartRandomMotion(const csmChar* group, csmInt32 priorit
 
 void LAppLive2DManager::StartMotionByPath(const csmChar* motionPath, csmInt32 priority)
 {
+    std::lock_guard<std::mutex> lock(_managerMutex);
     for (csmUint32 i = 0; i < _models.GetSize(); ++i)
     {
         if (_models[i] != NULL)
@@ -393,6 +406,7 @@ void LAppLive2DManager::StartMotionByPath(const csmChar* motionPath, csmInt32 pr
 
 void LAppLive2DManager::PreloadMotionByPath(const csmChar* motionPath)
 {
+    std::lock_guard<std::mutex> lock(_managerMutex);
     for (csmUint32 i = 0; i < _models.GetSize(); ++i)
     {
         if (_models[i] != NULL)

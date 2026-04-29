@@ -47,6 +47,12 @@ class AvatarPlaybackManager(
     // 是否收到过 TTS 片段
     private var receivedTtsSegment = false
 
+    // 是否已通知过第一个片段开始（用于与打字机同步）
+    private var notifiedFirstSegment = false
+
+    // 第一个片段开始播放的回调（用于与打字机同步启动）
+    var onFirstSegmentStart: (() -> Unit)? = null
+
     // 流式 TTS 分段播放队列
     private val streamingAudioPlayer = AudioPlayer(context)
     private val streamingTtsQueue = StreamingTtsQueue(
@@ -56,6 +62,11 @@ class AvatarPlaybackManager(
             receivedTtsSegment = true
             isPlaying = true
             cancelWaitingClose()
+            // 通知第一个片段开始播放（用于与打字机同步）
+            if (!notifiedFirstSegment) {
+                notifiedFirstSegment = true
+                onFirstSegmentStart?.invoke()
+            }
             _avatarState.update {
                 it.copy(
                     state = AvatarState.SPEAKING,
@@ -393,6 +404,7 @@ class AvatarPlaybackManager(
         Log.d(TAG, "[STREAMING] 开始流式播放会话")
         stop()
         receivedTtsSegment = false
+        notifiedFirstSegment = false
         currentSegmentEvents.clear()
         currentSegmentId = null
         streamingTtsQueue.start()
