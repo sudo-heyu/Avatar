@@ -59,11 +59,14 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
     // 打字机任务
     private var typewriterJob: Job? = null
 
-    // 基础打字间隔（毫秒）
-    private var baseIntervalMs = 180L
+    // 是否已收到全部文本
+    private var isComplete = false
 
-    // 最小打字间隔（加速时）
-    private var minIntervalMs = 120L
+    // 基础打字间隔（毫秒）- 正常速度
+    private val baseIntervalMs = 180L
+
+    // 最大速度间隔（毫秒）- 消息全部获取后使用
+    private val maxSpeedIntervalMs = 50L
 
     // 当前间隔
     private var currentIntervalMs = baseIntervalMs
@@ -71,9 +74,8 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
     // 上次接收新文本的时间
     private var lastReceiveTime = 0L
 
-    // 批量更新间隔：累积文本后统一回调，减少 StateFlow 发射次数
+    // 批量更新：累积字符数后统一回调
     private var batchChars = 0
-    private val batchIntervalMs = 100L
 
     // 文本更新回调
     var onTextUpdate: ((messageId: String, text: String) -> Unit)? = null
@@ -87,42 +89,44 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
         pendingText.clear()
         displayedText.clear()
         batchChars = 0
+        isComplete = false
         currentIntervalMs = baseIntervalMs
         lastReceiveTime = System.currentTimeMillis()
 
         typewriterJob = scope.launch {
             while (true) {
                 if (pendingText.isNotEmpty()) {
-                    // 取出一个字符显示
+                    // 取出字符显示
                     val char = pendingText[0]
                     pendingText.deleteCharAt(0)
                     displayedText.append(char)
                     batchChars++
 
-                    // 动态调整速度
-                    val timeSinceLastReceive = System.currentTimeMillis() - lastReceiveTime
-                    currentIntervalMs = when {
-                        pendingText.length > 30 -> minIntervalMs
-                        pendingText.length > 15 -> baseIntervalMs / 2
-                        timeSinceLastReceive > 500 -> baseIntervalMs * 2
-                        else -> baseIntervalMs
+                    // 根据状态调整速度
+                    currentIntervalMs = if (isComplete) {
+                        // 消息已全部获取，使用最大速度
+                        maxSpeedIntervalMs
+                    } else {
+                        // 消息还在接收中，使用正常速度
+                        baseIntervalMs
                     }
 
-                    // 批量 flush：每累积一定字符数或间隔达到阈值时统一回调
-                    if (batchChars >= 3 || pendingText.isEmpty() || timeSinceLastReceive > batchIntervalMs) {
+                    // 批量 flush：每累积 2 个字符统一回调
+                    if (batchChars >= 2) {
                         currentMessageId?.let { id ->
                             onTextUpdate?.invoke(id, displayedText.toString())
                         }
                         batchChars = 0
                     }
-                } else {
-                    // 无新内容时，flush 残余批量字符
+                } else if (isComplete) {
+                    // 消息完成且已显示完毕
                     if (batchChars > 0) {
                         currentMessageId?.let { id ->
                             onTextUpdate?.invoke(id, displayedText.toString())
                         }
                         batchChars = 0
                     }
+                    return@launch
                 }
 
                 delay(currentIntervalMs)
@@ -139,7 +143,14 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
     }
 
     /**
-     * 立即显示所有剩余文本
+     * 标记消息已全部获取，切换到最大速度完成剩余显示
+     */
+    fun finish() {
+        isComplete = true
+    }
+
+    /**
+     * 立即显示所有剩余文本（用于取消等场景）
      */
     fun flush() {
         currentMessageId?.let { id ->
@@ -162,6 +173,7 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
         pendingText.clear()
         displayedText.clear()
         batchChars = 0
+        isComplete = false
     }
 }
 
@@ -478,8 +490,8 @@ class MainViewModel @Inject constructor(
                         ChatStreamEvent.Done -> {
                             Log.d(TAG, "Done")
                             _isLoading.value = false
-                            // 立即显示所有剩余文本
-                            typewriterController.flush()
+                            // 标记消息完成，以最大速度显示剩余文本
+                            typewriterController.finish()
                             updateAssistantMessage(assistantMessageId, isLoading = false)
                             playbackManager.finishStreamingInput()
                         }
@@ -512,7 +524,7 @@ class MainViewModel @Inject constructor(
                 }
                 if (_isLoading.value) {
                     _isLoading.value = false
-                    typewriterController.flush()
+                    typewriterController.finish()
                     updateAssistantMessage(assistantMessageId, isLoading = false)
                     playbackManager.finishStreamingInput()
                 }
