@@ -96,7 +96,11 @@ data class ChatOptions(
     @SerialName("need_avatar")
     val needAvatar: Boolean = true,
     @SerialName("need_sources")
-    val needSources: Boolean = true
+    val needSources: Boolean = true,
+    /**
+     * TTS 发音人 ID（如 zh-CN-XiaoxiaoNeural）
+     */
+    val voice: String? = null
 )
 
 @Serializable

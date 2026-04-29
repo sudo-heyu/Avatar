@@ -20,6 +20,17 @@ class Live2DGLSurfaceView @JvmOverloads constructor(
     private var isRendererSet = false
 
     /**
+     * Surface 是否已创建（C++ CubismFramework 已初始化）
+     */
+    var isSurfaceCreated = false
+        private set
+
+    /**
+     * Surface 创建完成后的回调（用于延迟预加载等操作）
+     */
+    var onSurfaceCreatedListener: (() -> Unit)? = null
+
+    /**
      * 初始化渲染器
      */
     fun initialize() {
@@ -74,6 +85,8 @@ class Live2DGLSurfaceView @JvmOverloads constructor(
 
         override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
             JniBridgeJava.nativeOnSurfaceCreated()
+            isSurfaceCreated = true
+            onSurfaceCreatedListener?.invoke()
         }
 
         override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {

@@ -29,13 +29,13 @@ object Live2DParams {
     // 肩膀
     const val SHOULDER = "ParamShoulder"
 
-    // 手臂
+    // 手臂（当前未使用：手在画面外不可见，抬臂无意义）
     const val ARM_LA = "ParamArmLA"
     const val ARM_RA = "ParamArmRA"
     const val ARM_LB = "ParamArmLB"
     const val ARM_RB = "ParamArmRB"
 
-    // 手部
+    // 手部（当前未使用：手在画面外不可见）
     const val HAND_L = "ParamHandL"
     const val HAND_R = "ParamHandR"
     const val HAND_LB = "ParamHandLB"

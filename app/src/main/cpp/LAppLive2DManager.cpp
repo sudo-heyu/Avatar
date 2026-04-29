@@ -209,11 +209,6 @@ void LAppLive2DManager::OnUpdate() const
             // 向下平移，使画布中心（腰部附近）靠近视口底部
             // 裁剪空间 Y 范围 [-1, 1]，底部为 -1
             projection.TranslateRelative(0.0f, -0.9f);
-
-            if (DebugLogEnable)
-            {
-                LAppPal::PrintLogLn("[APP]upperBodyMode: aspectRatio=%.2f", aspectRatio);
-            }
         }
         else if (canvasRatio < displayRatio)
         {
@@ -344,4 +339,64 @@ void LAppLive2DManager::SetViewMatrix(CubismMatrix44* m)
 void LAppLive2DManager::SetUpperBodyMode(bool enabled)
 {
     _upperBodyMode = enabled;
+}
+
+bool LAppLive2DManager::IsMotionFinished() const
+{
+    if (_models.GetSize() == 0)
+    {
+        return true;
+    }
+
+    LAppModel* model = GetModel(0);
+    if (model == NULL)
+    {
+        return true;
+    }
+
+    return model->IsMotionFinished();
+}
+
+void LAppLive2DManager::StartMotion(const csmChar* group, csmInt32 index, csmInt32 priority)
+{
+    for (csmUint32 i = 0; i < _models.GetSize(); ++i)
+    {
+        if (_models[i] != NULL)
+        {
+            _models[i]->StartMotion(group, index, priority, FinishedMotion, BeganMotion);
+        }
+    }
+}
+
+void LAppLive2DManager::StartRandomMotion(const csmChar* group, csmInt32 priority)
+{
+    for (csmUint32 i = 0; i < _models.GetSize(); ++i)
+    {
+        if (_models[i] != NULL)
+        {
+            _models[i]->StartRandomMotion(group, priority, FinishedMotion, BeganMotion);
+        }
+    }
+}
+
+void LAppLive2DManager::StartMotionByPath(const csmChar* motionPath, csmInt32 priority)
+{
+    for (csmUint32 i = 0; i < _models.GetSize(); ++i)
+    {
+        if (_models[i] != NULL)
+        {
+            _models[i]->StartMotionByPath(motionPath, priority, FinishedMotion, BeganMotion);
+        }
+    }
+}
+
+void LAppLive2DManager::PreloadMotionByPath(const csmChar* motionPath)
+{
+    for (csmUint32 i = 0; i < _models.GetSize(); ++i)
+    {
+        if (_models[i] != NULL)
+        {
+            _models[i]->PreloadMotionByPath(motionPath);
+        }
+    }
 }

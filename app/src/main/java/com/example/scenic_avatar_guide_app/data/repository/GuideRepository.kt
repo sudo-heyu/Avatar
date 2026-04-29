@@ -1,11 +1,15 @@
 package com.example.scenic_avatar_guide_app.data.repository
 
+import android.util.Log
 import android.content.Context
 import android.net.Uri
 import com.example.scenic_avatar_guide_app.core.common.NetworkResult
 import com.example.scenic_avatar_guide_app.data.local.SettingsDataStore
 import com.example.scenic_avatar_guide_app.data.remote.ApiService
+import com.example.scenic_avatar_guide_app.data.remote.StreamingChatClient
 import com.example.scenic_avatar_guide_app.domain.model.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
@@ -17,6 +21,7 @@ import javax.inject.Singleton
 @Singleton
 class GuideRepository @Inject constructor(
     private val apiService: ApiService,
+    private val streamingChatClient: StreamingChatClient,
     private val settingsDataStore: SettingsDataStore
 ) {
     /**
@@ -87,6 +92,7 @@ class GuideRepository @Inject constructor(
 
             val scenicId = settingsDataStore.scenicId.first() ?: "lingshan"
             val spotId = settingsDataStore.spotId.first()
+            val voiceId = settingsDataStore.voiceId.first()
 
             val request = ChatTextRequest(
                 sessionId = sessionId,
@@ -96,7 +102,11 @@ class GuideRepository @Inject constructor(
                 spotId = spotId,
                 mode = mode,
                 imageUrl = imageUrl,
-                options = null
+                options = ChatOptions(
+                    needAvatar = true,
+                    needSources = true,
+                    voice = voiceId
+                )
             )
 
             val response = apiService.chatText(request)
@@ -108,6 +118,44 @@ class GuideRepository @Inject constructor(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    /**
+     * 发送文本消息（流式）
+     */
+    suspend fun sendTextMessageStream(
+        sessionId: String,
+        message: String,
+        mode: String = "chat",
+        imageUrl: String? = null
+    ): Flow<ChatStreamEvent> {
+        Log.d("GuideRepository", "sendTextMessageStream: sessionId=$sessionId, message=$message")
+        val userId = settingsDataStore.userId.first()
+            ?: return flowOf(ChatStreamEvent.Error(message = "用户 ID 不存在"))
+
+        val scenicId = settingsDataStore.scenicId.first() ?: "lingshan"
+        val spotId = settingsDataStore.spotId.first()
+        val voiceId = settingsDataStore.voiceId.first()
+
+        Log.d("GuideRepository", "用户选择的发音人: $voiceId")
+
+        val request = ChatTextRequest(
+            sessionId = sessionId,
+            userId = userId,
+            scenicId = scenicId,
+            question = message,
+            spotId = spotId,
+            mode = mode,
+            imageUrl = imageUrl,
+            options = ChatOptions(
+                needAvatar = true,
+                needSources = true,
+                voice = voiceId
+            )
+        )
+
+        Log.d("GuideRepository", "调用 streamingChatClient.streamChat, voice=$voiceId")
+        return streamingChatClient.streamChat(request)
     }
 
     /**

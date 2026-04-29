@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Environment
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
@@ -44,6 +45,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -372,51 +374,240 @@ private fun CompactTestPanel(
     val expressionButtons = remember { TestAvatarActions.getExpressionButtons() }
     val gestureButtons = remember { TestAvatarActions.getGestureButtons() }
     val scenarioButtons = remember { TestAvatarActions.getScenarioButtons() }
+    val lipSyncButtons = remember { TestAvatarActions.getLipSyncTestButtons() }
     var selectedPanel by remember { mutableStateOf<TestPanelType?>(null) }
 
     Card(
-        modifier = modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+        modifier = modifier.padding(horizontal = 12.dp, vertical = 0.dp),
         colors = CardDefaults.cardColors(containerColor = SurfaceVariant),
-        shape = RoundedCornerShape(12.dp)
+        shape = RoundedCornerShape(10.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-        ) {
+        Column {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 TextButton(
                     onClick = { selectedPanel = toggle(selectedPanel, TestPanelType.EXPRESSION) },
-                    colors = ButtonDefaults.textButtonColors(contentColor = Primary)
+                    colors = ButtonDefaults.textButtonColors(contentColor = Primary),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                    modifier = Modifier.heightIn(max = 28.dp)
                 ) {
-                    Text("表情", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text("表情", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
                 TextButton(
                     onClick = { selectedPanel = toggle(selectedPanel, TestPanelType.GESTURE) },
-                    colors = ButtonDefaults.textButtonColors(contentColor = Primary)
+                    colors = ButtonDefaults.textButtonColors(contentColor = Primary),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                    modifier = Modifier.heightIn(max = 28.dp)
                 ) {
-                    Text("动作", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text("动作", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
                 TextButton(
                     onClick = { selectedPanel = toggle(selectedPanel, TestPanelType.SCENARIO) },
-                    colors = ButtonDefaults.textButtonColors(contentColor = Primary)
+                    colors = ButtonDefaults.textButtonColors(contentColor = Primary),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                    modifier = Modifier.heightIn(max = 28.dp)
                 ) {
-                    Text("场景", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text("场景", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+                TextButton(
+                    onClick = { selectedPanel = toggle(selectedPanel, TestPanelType.LIPSYNC) },
+                    colors = ButtonDefaults.textButtonColors(contentColor = Primary),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                    modifier = Modifier.heightIn(max = 28.dp)
+                ) {
+                    Text("口型", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
 
             if (selectedPanel != null) {
-                val buttons: List<Pair<String, AvatarPlayAction>> = when (selectedPanel) {
-                    TestPanelType.EXPRESSION -> expressionButtons.map { it.label to it.toPlayAction() }
-                    TestPanelType.GESTURE -> gestureButtons.map { it.label to it.toPlayAction() }
-                    TestPanelType.SCENARIO -> scenarioButtons.map { it.label to it.action }
-                    null -> emptyList()
+                Spacer(Modifier.height(1.dp))
+                when (selectedPanel) {
+                    TestPanelType.EXPRESSION -> {
+                        TestButtonGrid(
+                            buttons = expressionButtons.map { it.label to it.toPlayAction() },
+                            onActionClick = onActionClick
+                        )
+                    }
+                    TestPanelType.GESTURE -> {
+                        TestButtonGrid(
+                            buttons = gestureButtons.map { it.label to it.toPlayAction() },
+                            onActionClick = onActionClick
+                        )
+                    }
+                    TestPanelType.SCENARIO -> {
+                        ScenarioScrollList(
+                            scenarios = scenarioButtons,
+                            onActionClick = onActionClick
+                        )
+                    }
+                    TestPanelType.LIPSYNC -> {
+                        LipSyncTestScrollList(
+                            tests = lipSyncButtons,
+                            onActionClick = onActionClick
+                        )
+                    }
+                    null -> {}
                 }
-                Spacer(Modifier.height(4.dp))
-                TestButtonGrid(buttons, onActionClick)
             }
         }
+    }
+}
+
+/**
+ * 场景紧凑滚动列表
+ */
+@Composable
+private fun ScenarioScrollList(
+    scenarios: List<TestAvatarActions.ScenarioButton>,
+    onActionClick: (AvatarPlayAction) -> Unit
+) {
+    val listState = rememberLazyListState()
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.height(120.dp),
+        verticalArrangement = Arrangement.spacedBy(1.dp)
+    ) {
+        items(scenarios, key = { it.id }) { scenario ->
+            ScenarioCompactItem(
+                scenario = scenario,
+                onClick = { onActionClick(scenario.action) }
+            )
+        }
+    }
+}
+
+/**
+ * 紧凑场景卡片项
+ */
+@Composable
+private fun ScenarioCompactItem(
+    scenario: TestAvatarActions.ScenarioButton,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(18.dp)
+            .clip(RoundedCornerShape(3.dp))
+            .background(Color.White.copy(alpha = 0.6f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 类别标签
+        Text(
+            text = scenario.category,
+            fontSize = 7.sp,
+            color = Primary,
+            modifier = Modifier
+                .background(Primary.copy(alpha = 0.1f), RoundedCornerShape(2.dp))
+                .padding(horizontal = 2.dp, vertical = 0.5.dp)
+        )
+        Spacer(Modifier.width(3.dp))
+        // 场景名称
+        Text(
+            text = scenario.label,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Medium,
+            color = TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        // 表情和动作标签
+        Text(
+            text = scenario.expression.value,
+            fontSize = 7.sp,
+            color = TextSecondary,
+            modifier = Modifier
+                .background(SurfaceVariant, RoundedCornerShape(2.dp))
+                .padding(horizontal = 2.dp, vertical = 0.5.dp)
+        )
+        Spacer(Modifier.width(3.dp))
+        Text(
+            text = scenario.gesture.value,
+            fontSize = 7.sp,
+            color = TextSecondary,
+            modifier = Modifier
+                .background(SurfaceVariant, RoundedCornerShape(2.dp))
+                .padding(horizontal = 2.dp, vertical = 0.5.dp)
+        )
+    }
+}
+
+/**
+ * 口型测试滚动列表
+ */
+@Composable
+private fun LipSyncTestScrollList(
+    tests: List<TestAvatarActions.LipSyncTestButton>,
+    onActionClick: (AvatarPlayAction) -> Unit
+) {
+    val listState = rememberLazyListState()
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.height(120.dp),
+        verticalArrangement = Arrangement.spacedBy(1.dp)
+    ) {
+        items(tests, key = { it.id }) { test ->
+            LipSyncTestItem(
+                test = test,
+                onClick = { onActionClick(test.action) }
+            )
+        }
+    }
+}
+
+/**
+ * 口型测试卡片项
+ */
+@Composable
+private fun LipSyncTestItem(
+    test: TestAvatarActions.LipSyncTestButton,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(18.dp)
+            .clip(RoundedCornerShape(3.dp))
+            .background(Color.White.copy(alpha = 0.6f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 类别标签
+        Text(
+            text = test.category,
+            fontSize = 7.sp,
+            color = Accent,
+            modifier = Modifier
+                .background(Accent.copy(alpha = 0.1f), RoundedCornerShape(2.dp))
+                .padding(horizontal = 2.dp, vertical = 0.5.dp)
+        )
+        Spacer(Modifier.width(3.dp))
+        // 测试名称
+        Text(
+            text = test.label,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Medium,
+            color = TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        // 播放图标
+        Icon(
+            Icons.Default.PlayArrow,
+            contentDescription = "播放",
+            modifier = Modifier.size(12.dp),
+            tint = Primary
+        )
     }
 }
 
@@ -438,13 +629,13 @@ private fun TestButtonGrid(
                 row.forEach { (label, action) ->
                     OutlinedButton(
                         onClick = { onActionClick(action) },
-                        modifier = Modifier.weight(1f).height(32.dp),
-                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f).height(24.dp),
+                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp),
+                        shape = RoundedCornerShape(6.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Primary),
                         border = null
                     ) {
-                        Text(label, fontSize = 11.sp, maxLines = 1)
+                        Text(label, fontSize = 9.sp, maxLines = 1)
                     }
                 }
                 // 补足空位保持对齐
@@ -459,7 +650,8 @@ private fun TestButtonGrid(
 private enum class TestPanelType {
     EXPRESSION,
     GESTURE,
-    SCENARIO
+    SCENARIO,
+    LIPSYNC
 }
 
 @Composable
@@ -502,8 +694,8 @@ private fun ModeSelector(currentMode: InteractionMode, onModeChange: (Interactio
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         modes.forEach { (mode, label) ->
             val isSelected = currentMode == mode
-            Box(Modifier.weight(1f).height(32.dp).clip(RoundedCornerShape(16.dp)).background(if (isSelected) Primary else SurfaceVariant).clickable { onModeChange(mode) }, contentAlignment = Alignment.Center) {
-                Text(label, fontSize = 13.sp, color = if (isSelected) Color.White else TextPrimary, fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal)
+            Box(Modifier.weight(1f).height(24.dp).clip(RoundedCornerShape(12.dp)).background(if (isSelected) Primary else SurfaceVariant).clickable { onModeChange(mode) }, contentAlignment = Alignment.Center) {
+                Text(label, fontSize = 11.sp, color = if (isSelected) Color.White else TextPrimary, fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal)
             }
         }
     }
@@ -523,11 +715,8 @@ private fun MessageList(
         contentPadding = PaddingValues(top = 8.dp, bottom = bottomPaddingDp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(messages, key = { it.id }) { MessageBubble(it) }
-        if (isLoading) item {
-            Row(Modifier.fillMaxWidth(), Arrangement.Start) {
-                Surface(shape = RoundedCornerShape(16.dp), color = SurfaceVariant) { Text("思考中...", Modifier.padding(12.dp), fontSize = 14.sp, color = TextSecondary) }
-            }
+        items(messages, key = { it.id }) { message ->
+            MessageBubble(message = message)
         }
     }
 }
@@ -536,9 +725,14 @@ private fun MessageList(
 private fun MessageBubble(message: ChatMessage) {
     val isUser = message.isUser
     val imageUri = message.pendingImageUri ?: message.imageUrl
+
+    // 判断是否需要显示思考动画
+    val shouldShowThinkingAnimation = !isUser && message.isLoading
+    val hasContent = message.content.isNotBlank()
+
     Row(Modifier.fillMaxWidth(), if (isUser) Arrangement.End else Arrangement.Start) {
         Surface(
-            modifier = Modifier.widthIn(max = 260.dp),
+            modifier = Modifier.widthIn(max = 280.dp),
             shape = RoundedCornerShape(16.dp, 16.dp, if (isUser) 16.dp else 4.dp, if (isUser) 4.dp else 16.dp),
             color = if (isUser) UserBubbleBg else AssistantBubbleBg
         ) {
@@ -554,16 +748,58 @@ private fun MessageBubble(message: ChatMessage) {
                         contentScale = androidx.compose.ui.layout.ContentScale.Crop
                     )
                 }
-                if (message.content.isNotBlank()) {
-                    Text(
-                        message.content,
-                        Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp,
-                        color = if (isUser) UserBubbleText else AssistantBubbleText
-                    )
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (hasContent) {
+                        Text(
+                            message.content,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                            color = if (isUser) UserBubbleText else AssistantBubbleText
+                        )
+                    }
+
+                    // 思考中/流式输出动画（在消息气泡尾部显示）
+                    if (shouldShowThinkingAnimation) {
+                        ThinkingDotsAnimation()
+                    }
                 }
             }
+        }
+    }
+}
+
+/**
+ * 思考中点阵动画
+ */
+@Composable
+private fun ThinkingDotsAnimation() {
+    val infiniteTransition = rememberInfiniteTransition(label = "thinking")
+    val dotCount = 3
+    val dotColor = AssistantBubbleText
+
+    Row(
+        modifier = Modifier.padding(start = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        repeat(dotCount) { index ->
+            val alpha by infiniteTransition.animateFloat(
+                initialValue = 0.2f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 400, delayMillis = index * 150),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "dot_$index"
+            )
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .background(dotColor.copy(alpha = alpha), CircleShape)
+            )
         }
     }
 }

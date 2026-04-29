@@ -42,6 +42,41 @@ public class JniBridgeJava {
 
     public static native void nativeSetUpperBodyMode(boolean enabled);
 
+    /**
+     * 播放指定动作
+     * @param group 动作组名（如 "Idle", "TapBody"）
+     * @param index 动作索引
+     * @param priority 优先级（1=Idle, 2=Normal, 3=Force）
+     */
+    public static native void nativeStartMotion(String group, int index, int priority);
+
+    /**
+     * 播放随机动作
+     * @param group 动作组名
+     * @param priority 优先级
+     */
+    public static native void nativeStartRandomMotion(String group, int priority);
+
+    /**
+     * 播放指定路径的动作文件
+     * @param motionPath 动作文件路径（相对于 assets，如 "live2d/hiyori/motions/Hiyori_nod.motion3.json"）
+     * @param priority 优先级
+     */
+    public static native void nativeStartMotionByPath(String motionPath, int priority);
+
+    /**
+     * 预加载动作文件到缓存
+     * 在模型初始化后调用，避免首次播放时的延迟
+     * @param motionPath 动作文件路径（相对于 assets）
+     */
+    public static native void nativePreloadMotionByPath(String motionPath);
+
+    /**
+     * 查询当前动作是否已播放完毕
+     * @return true = 无动作在播放（已结束），false = 动作播放中
+     */
+    public static native boolean nativeIsMotionFinished();
+
     // Java -----------------------------------------------------------------
 
     public static void SetContext(Context context) {

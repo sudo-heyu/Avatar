@@ -98,6 +98,35 @@ public:
     void SetExpression(const Csm::csmChar* expressionId);
 
     /**
+     * @brief   播放指定动作
+     * @param group 动作组名
+     * @param index 动作索引
+     * @param priority 优先级
+     */
+    void StartMotion(const Csm::csmChar* group, Csm::csmInt32 index, Csm::csmInt32 priority);
+
+    /**
+     * @brief   播放随机动作
+     * @param group 动作组名
+     * @param priority 优先级
+     */
+    void StartRandomMotion(const Csm::csmChar* group, Csm::csmInt32 priority);
+
+    /**
+     * @brief   按文件路径播放动作（动态加载）
+     * @param motionPath 动作文件路径（相对于 assets）
+     * @param priority 优先级
+     */
+    void StartMotionByPath(const Csm::csmChar* motionPath, Csm::csmInt32 priority);
+
+    /**
+     * @brief   预加载动作文件
+     *          在模型初始化后调用，避免首次播放时的延迟
+     * @param motionPath 动作文件路径（相对于 assets）
+     */
+    void PreloadMotionByPath(const Csm::csmChar* motionPath);
+
+    /**
      * @brief   次のシーンに切り替える<br>
     *           サンプルアプリケーションではモデルセットの切り替えを行う。
     */
@@ -124,6 +153,12 @@ public:
      * @brief   上半身のみ表示モードを設定
      */
     void SetUpperBodyMode(bool enabled);
+
+    /**
+     * @brief   現在のモーション再生が終了しているかを判定
+     * @return  終了していれば true、再生中なら false
+     */
+    bool IsMotionFinished() const;
 
 private:
     /**

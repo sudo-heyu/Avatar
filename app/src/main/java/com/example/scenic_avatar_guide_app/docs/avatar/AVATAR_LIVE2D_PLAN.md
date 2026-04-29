@@ -111,8 +111,80 @@ app/src/main/assets/live2d/hiyori/
 2. `RemoteTTSController` 当前调用后端 Edge-TTS 服务获取音频 URL，并通过字符持续时间估算口型事件；若后端返回 `marks`，可切换为精确时间戳驱动。流式方案将新增分段 TTS 队列，每段使用自己的 `marks` 时间轴。
 3. `Live2DRendererImpl` 当前已经完成 JNI 初始化和参数入口封装，但真实参数细节仍依赖 JNI / C++ 层逐步补全。
 4. 下文保留的阶段性规划仅作历史参考；若与本节冲突，以本节和 API 契约为准。
+5. **动作播放延迟优化（方案A）已完成**：修复了预加载时机错误导致的首次动作播放 cache miss 问题，消除了 50-200ms+ 的文件 IO 阻塞延迟。详见第五节。
 
-## 五、历史模块职责图（保留归档）
+---
+
+## 五、已完成的渲染层优化
+
+### 优化项：动作播放延迟优化（方案A）
+
+**日期**：2026-04-30  
+**状态**：✅ 已完成  
+**相关文件**：
+- `core/avatar/Live2DGLSurfaceView.kt`
+- `core/avatar/Live2DRendererImpl.kt`
+- `ui/components/AvatarView.kt`
+
+#### 问题描述
+
+从调用动作到动作开始执行存在显著延迟（50-200ms+）。根因是 `Live2DRendererImpl.attachSurfaceView()` 中无条件调用 `preloadCommonMotions()`，而此刻 C++ 层 `CubismFramework` 往往尚未初始化完成（`nativeOnSurfaceCreated` 未执行）。`nativePreloadMotionByPath` 内部有 `!CubismFramework::IsInitialized()` 保护，预加载被静默跳过。首次动作播放时变成 **cache miss**，`LAppModel::StartMotionByPath` 必须从 assets 读取 motion3.json、跨 JNI 传输 bytes、解析动画数据，全部在**渲染线程同步执行**，阻塞一帧甚至多帧。
+
+#### 解决方案
+
+将预加载从 **无条件立即执行** 改为 **延迟到 Surface 创建完成后执行**，并避免重组时重复 `attachSurfaceView`：
+
+1. **`Live2DGLSurfaceView`**：新增 `isSurfaceCreated` 标志和 `onSurfaceCreatedListener` 回调。在 `onSurfaceCreated`（即 `nativeOnSurfaceCreated()` 之后）将标志置为 `true` 并触发监听器。
+
+2. **`Live2DRendererImpl.attachSurfaceView`**：根据 `surfaceView.isSurfaceCreated` 状态分支处理：
+   - 若 `true` → 立即调用 `preloadCommonMotions()`
+   - 若 `false` → 注册 `onSurfaceCreatedListener`，待 C++ `CubismFramework::Initialize()` 完成后再预加载
+
+3. **`AvatarView`**：移除 `AndroidView update` lambda 中的 `renderer?.attachSurfaceView(it)`，仅在 `factory` 中调用一次，避免 Compose 重组时的多余 JNI 调用。
+
+#### 关键代码
+
+```kotlin
+// Live2DGLSurfaceView.kt
+class Live2DGLSurfaceView(...) : GLSurfaceView(...) {
+    var isSurfaceCreated = false
+        private set
+    var onSurfaceCreatedListener: (() -> Unit)? = null
+
+    private inner class Live2DInternalRenderer : Renderer {
+        override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+            JniBridgeJava.nativeOnSurfaceCreated()
+            isSurfaceCreated = true
+            onSurfaceCreatedListener?.invoke()
+        }
+    }
+}
+
+// Live2DRendererImpl.kt
+fun attachSurfaceView(surfaceView: Live2DGLSurfaceView) {
+    surfaceViewRef = WeakReference(surfaceView)
+    hasSurfaceAttached = true
+
+    if (surfaceView.isSurfaceCreated) {
+        preloadCommonMotions()  // 已初始化，立即预加载
+    } else {
+        surfaceView.onSurfaceCreatedListener = {
+            preloadCommonMotions()  // 延迟到 C++ 初始化完成后
+            surfaceView.onSurfaceCreatedListener = null
+        }
+    }
+}
+```
+
+#### 验证方式
+
+- logcat 应看到 `Preloaded motion: live2d/hiyori/motions/Hiyori_nod.motion3.json`
+- 首次播放动作时，`LAppModel.cpp` 应输出 `Motion cache hit`，而非 `Motion cache miss, loading`
+- 动作播放时延从 50-200ms+ 降到一帧以内（<16ms）
+
+---
+
+## 六、历史模块职责图（保留归档）
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -143,7 +215,7 @@ app/src/main/assets/live2d/hiyori/
 
 ---
 
-## 六、历史开发阶段划分
+## 七、历史开发阶段划分
 
 ### Phase 1: SDK 集成与基础渲染（2天）
 
@@ -286,7 +358,7 @@ renderer.switchAccessory("glasses_01.png")
 
 ---
 
-## 七、历史关键代码设计
+## 八、历史关键代码设计
 
 ### 5.1 Live2DRenderer 核心接口
 
@@ -375,7 +447,7 @@ object PhonemeToLive2D {
 
 ---
 
-## 八、历史依赖配置
+## 九、历史依赖配置
 
 ### 6.1 build.gradle.kts
 
@@ -412,7 +484,7 @@ app/src/main/assets/
 
 ---
 
-## 九、历史风险与对策
+## 十、历史风险与对策
 
 | 风险 | 影响 | 对策 |
 |------|------|------|
@@ -423,7 +495,7 @@ app/src/main/assets/
 
 ---
 
-## 十、历史时间规划
+## 十一、历史时间规划
 
 | 阶段 | 工作日 | 完成标志 |
 |------|--------|---------|
@@ -438,7 +510,7 @@ app/src/main/assets/
 
 ---
 
-## 十一、历史下一步行动
+## 十二、历史下一步行动
 
 1. **立即**：下载 Live2D Cubism SDK for Native
 2. **立即**：获取官方示例模型（Hiyori）

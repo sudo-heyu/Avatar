@@ -207,4 +207,62 @@ extern "C"
             LAppLive2DManager::GetInstance()->SetUpperBodyMode(s_upperBodyModePending);
         }
     }
+
+    JNIEXPORT void JNICALL
+    Java_com_example_scenic_1avatar_1guide_1app_core_avatar_JniBridgeJava_nativeStartMotion(JNIEnv *env, jclass type, jstring group, jint index, jint priority)
+    {
+        if (group == NULL || !CubismFramework::IsInitialized())
+        {
+            return;
+        }
+        const char* rawGroup = env->GetStringUTFChars(group, nullptr);
+        LAppLive2DManager::GetInstance()->StartMotion(rawGroup, static_cast<Csm::csmInt32>(index), static_cast<Csm::csmInt32>(priority));
+        env->ReleaseStringUTFChars(group, rawGroup);
+    }
+
+    JNIEXPORT void JNICALL
+    Java_com_example_scenic_1avatar_1guide_1app_core_avatar_JniBridgeJava_nativeStartRandomMotion(JNIEnv *env, jclass type, jstring group, jint priority)
+    {
+        if (group == NULL || !CubismFramework::IsInitialized())
+        {
+            return;
+        }
+        const char* rawGroup = env->GetStringUTFChars(group, nullptr);
+        LAppLive2DManager::GetInstance()->StartRandomMotion(rawGroup, static_cast<Csm::csmInt32>(priority));
+        env->ReleaseStringUTFChars(group, rawGroup);
+    }
+
+    JNIEXPORT void JNICALL
+    Java_com_example_scenic_1avatar_1guide_1app_core_avatar_JniBridgeJava_nativeStartMotionByPath(JNIEnv *env, jclass type, jstring motionPath, jint priority)
+    {
+        if (motionPath == NULL || !CubismFramework::IsInitialized())
+        {
+            return;
+        }
+        const char* rawPath = env->GetStringUTFChars(motionPath, nullptr);
+        LAppLive2DManager::GetInstance()->StartMotionByPath(rawPath, static_cast<Csm::csmInt32>(priority));
+        env->ReleaseStringUTFChars(motionPath, rawPath);
+    }
+
+    JNIEXPORT void JNICALL
+    Java_com_example_scenic_1avatar_1guide_1app_core_avatar_JniBridgeJava_nativePreloadMotionByPath(JNIEnv *env, jclass type, jstring motionPath)
+    {
+        if (motionPath == NULL || !CubismFramework::IsInitialized())
+        {
+            return;
+        }
+        const char* rawPath = env->GetStringUTFChars(motionPath, nullptr);
+        LAppLive2DManager::GetInstance()->PreloadMotionByPath(rawPath);
+        env->ReleaseStringUTFChars(motionPath, rawPath);
+    }
+
+    JNIEXPORT jboolean JNICALL
+    Java_com_example_scenic_1avatar_1guide_1app_core_avatar_JniBridgeJava_nativeIsMotionFinished(JNIEnv *env, jclass type)
+    {
+        if (!CubismFramework::IsInitialized())
+        {
+            return JNI_TRUE;
+        }
+        return LAppLive2DManager::GetInstance()->IsMotionFinished() ? JNI_TRUE : JNI_FALSE;
+    }
 }

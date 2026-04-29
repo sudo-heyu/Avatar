@@ -1,5 +1,6 @@
 package com.example.scenic_avatar_guide_app.core.avatar
 
+import android.util.LruCache
 import com.example.scenic_avatar_guide_app.core.tts.PhonemeEvent
 import com.example.scenic_avatar_guide_app.domain.model.TtsMarkItem
 import com.example.scenic_avatar_guide_app.domain.model.VisemeType
@@ -10,12 +11,35 @@ import net.sourceforge.pinyin4j.format.HanyuPinyinToneType
 /**
  * 中文音素引擎
  * 负责 汉字 -> 拼音 -> 音素 -> 口型 的完整转换
+ *
+ * 优化特性：
+ * - LRU缓存：避免重复的pinyin4j转换
+ * - 多音字覆盖：景区专用词库
+ * - 情绪/语速影响：可调节口型幅度
  */
 object ChinesePhonemeEngine {
 
     private val format = HanyuPinyinOutputFormat().apply {
         toneType = HanyuPinyinToneType.WITHOUT_TONE
     }
+
+    /**
+     * 拼音缓存（P1优化）
+     * 缓存汉字到拼音的转换结果，避免重复调用pinyin4j
+     */
+    private val pinyinCache = LruCache<Char, String>(512)
+
+    /**
+     * 情绪强度配置（P2优化）
+     */
+    var emotionMultiplier: Float = 1.0f
+        private set
+
+    /**
+     * 语速因子配置（P2优化）
+     */
+    var speedFactor: Float = 1.0f
+        private set
 
     /**
      * 景区专用多音字覆盖表
@@ -35,24 +59,47 @@ object ChinesePhonemeEngine {
     )
 
     /**
+     * 设置情绪强度
+     * @param multiplier 口型幅度乘数（LOW=0.6, NORMAL=1.0, HIGH=1.3, VERY_HIGH=1.5）
+     */
+    fun setEmotionMultiplier(multiplier: Float) {
+        emotionMultiplier = multiplier.coerceIn(0.5f, 2.0f)
+    }
+
+    /**
+     * 设置语速因子
+     * @param factor 语速因子（影响音素时长估算）
+     */
+    fun setSpeedFactor(factor: Float) {
+        speedFactor = factor.coerceIn(0.5f, 2.0f)
+    }
+
+    /**
      * 单个汉字 -> 拼音（小写，无调）
+     * 使用LRU缓存优化性能
      */
     fun charToPinyin(char: Char): String {
-        // 1. 查景区专用词库
-        scenicPolyphone[char]?.let { return it }
+        // 1. 查缓存
+        pinyinCache.get(char)?.let { return it }
 
-        // 2. 已经是拉丁字母，直接返回小写
+        // 2. 查景区专用词库
+        scenicPolyphone[char]?.let {
+            pinyinCache.put(char, it)
+            return it
+        }
+
+        // 3. 已经是拉丁字母，直接返回小写
         if (char in 'a'..'z' || char in 'A'..'Z') {
             return char.lowercaseChar().toString()
         }
 
-        // 3. 非汉字（数字、标点等）
+        // 4. 非汉字（数字、标点等）
         if (char !in '一'..'鿿') {
             return char.lowercase()
         }
 
-        // 4. pinyin4j 转换
-        return try {
+        // 5. pinyin4j 转换
+        val result = try {
             PinyinHelper.toHanyuPinyinStringArray(char, format)
                 ?.firstOrNull()
                 ?.lowercase()
@@ -60,6 +107,10 @@ object ChinesePhonemeEngine {
         } catch (_: Exception) {
             char.lowercase()
         }
+
+        // 6. 存入缓存
+        pinyinCache.put(char, result)
+        return result
     }
 
     /**

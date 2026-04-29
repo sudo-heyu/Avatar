@@ -376,9 +376,23 @@ void LAppModel::Update()
 
     //-----------------------------------------------------------------
     _model->LoadParameters(); // 前回セーブされた状態をロード
+
+    // Debug: Log motion state
+    static int frameCount = 0;
+    if (frameCount % 60 == 0) { // Log every 60 frames
+        LAppPal::PrintLogLn("[APP]Update: IsFinished=%d, PendingParams=%d",
+            _motionManager->IsFinished(), _pendingParameters.GetSize());
+    }
+    frameCount++;
+
     if (!_motionManager->IsFinished())
     {
         _motionUpdated = _motionManager->UpdateMotion(_model, deltaTimeSeconds); // モーションを更新
+        if (_motionUpdated) {
+            // Debug: Log ParamAngleY value after motion update
+            csmFloat32 angleY = _model->GetParameterValue(_idParamAngleY);
+            LAppPal::PrintLogLn("[APP]Motion updated! ParamAngleY=%.2f", angleY);
+        }
     }
     else
     {
@@ -386,6 +400,16 @@ void LAppModel::Update()
         // 保留：不自动播放 Idle motion，由上层显式控制
         // StartRandomMotion(MotionGroupIdle, PriorityIdle);
     }
+
+    // Debug: Log pending parameters count
+    if (_pendingParameters.GetSize() > 0) {
+        LAppPal::PrintLogLn("[APP]FlushPendingParameters: count=%d", _pendingParameters.GetSize());
+    }
+
+    // 执行 Java 层待设置的参数（在 SaveParameters 之前）
+    // 这样 Java 层的参数会被保存，而 Breath 叠加不会被保存
+    FlushPendingParameters();
+
     _model->SaveParameters(); // 状態を保存
     //-----------------------------------------------------------------
 
@@ -471,6 +495,110 @@ CubismMotionQueueEntryHandle LAppModel::StartRandomMotion(const csmChar* group, 
     return StartMotion(group, no, priority, onFinishedMotionHandler, onBeganMotionHandler);
 }
 
+CubismMotionQueueEntryHandle LAppModel::StartMotionByPath(const csmChar* motionPath, csmInt32 priority, ACubismMotion::FinishedMotionCallback onFinishedMotionHandler, ACubismMotion::BeganMotionCallback onBeganMotionHandler)
+{
+    LAppPal::PrintLogLn("[APP]StartMotionByPath: [%s], priority=%d", motionPath, priority);
+
+    if (priority == PriorityForce)
+    {
+        _motionManager->SetReservePriority(priority);
+    }
+    else if (!_motionManager->ReserveMotion(priority))
+    {
+        LAppPal::PrintLogLn("[APP]can't start motion (reserve failed)");
+        return InvalidMotionQueueEntryHandleValue;
+    }
+
+    // Check cache first - use motion path as cache key
+    csmString cacheKey = csmString(motionPath);
+    CubismMotion* motion = static_cast<CubismMotion*>(_motions[cacheKey.GetRawString()]);
+    csmBool autoDelete = false;
+
+    if (motion != NULL)
+    {
+        // Cache hit - reuse cached motion
+        LAppPal::PrintLogLn("[APP]Motion cache hit: [%s]", motionPath);
+        motion->SetBeganMotionHandler(onBeganMotionHandler);
+        motion->SetFinishedMotionHandler(onFinishedMotionHandler);
+    }
+    else
+    {
+        // Cache miss - load motion file
+        LAppPal::PrintLogLn("[APP]Motion cache miss, loading: [%s]", motionPath);
+
+        csmByte* buffer;
+        csmSizeInt size;
+        buffer = CreateBuffer(motionPath, &size);
+
+        if (buffer == NULL || size == 0)
+        {
+            LAppPal::PrintLogLn("[APP]failed to load motion file: [%s], size=%d", motionPath, size);
+            return InvalidMotionQueueEntryHandleValue;
+        }
+
+        motion = static_cast<CubismMotion*>(LoadMotion(buffer, size, cacheKey.GetRawString(), onFinishedMotionHandler, onBeganMotionHandler, NULL, NULL, -1, false));
+
+        DeleteBuffer(buffer, motionPath);
+
+        if (motion == NULL)
+        {
+            LAppPal::PrintLogLn("[APP]failed to parse motion: [%s]", motionPath);
+            return InvalidMotionQueueEntryHandleValue;
+        }
+
+        // Cache the motion for future use
+        motion->SetEffectIds(_eyeBlinkIds, _lipSyncIds);
+        _motions[cacheKey] = motion;
+        LAppPal::PrintLogLn("[APP]Motion cached: [%s]", motionPath);
+    }
+
+    CubismMotionQueueEntryHandle handle = _motionManager->StartMotionPriority(motion, autoDelete, priority);
+    LAppPal::PrintLogLn("[APP]Motion started, IsFinished=%d", _motionManager->IsFinished());
+    return handle;
+}
+
+void LAppModel::PreloadMotionByPath(const csmChar* motionPath)
+{
+    LAppPal::PrintLogLn("[APP]PreloadMotionByPath: [%s]", motionPath);
+
+    // Use motion path as cache key
+    csmString cacheKey = csmString(motionPath);
+
+    // Check if already cached
+    if (_motions[cacheKey.GetRawString()] != NULL)
+    {
+        LAppPal::PrintLogLn("[APP]Motion already cached: [%s]", motionPath);
+        return;
+    }
+
+    // Load motion file
+    csmByte* buffer;
+    csmSizeInt size;
+    buffer = CreateBuffer(motionPath, &size);
+
+    if (buffer == NULL || size == 0)
+    {
+        LAppPal::PrintLogLn("[APP]Preload failed: [%s], size=%d", motionPath, size);
+        return;
+    }
+
+    // Parse motion (no callbacks for preload)
+    CubismMotion* motion = static_cast<CubismMotion*>(LoadMotion(buffer, size, cacheKey.GetRawString(), NULL, NULL, NULL, NULL, -1, false));
+
+    DeleteBuffer(buffer, motionPath);
+
+    if (motion == NULL)
+    {
+        LAppPal::PrintLogLn("[APP]Preload parse failed: [%s]", motionPath);
+        return;
+    }
+
+    // Cache the motion
+    motion->SetEffectIds(_eyeBlinkIds, _lipSyncIds);
+    _motions[cacheKey] = motion;
+    LAppPal::PrintLogLn("[APP]Motion preloaded and cached: [%s]", motionPath);
+}
+
 void LAppModel::DoDraw()
 {
     if (_model == NULL)
@@ -540,8 +668,34 @@ void LAppModel::SetParameterValue(const csmChar* parameterId, csmFloat32 value, 
     }
 
     const CubismIdHandle id = CubismFramework::GetIdManager()->GetId(parameterId);
-    _model->SetParameterValue(id, value, weight);
-    _model->SaveParameters();
+
+    // 将参数添加到待设置队列，而不是直接设置
+    // 这样可以确保在 Update() 流程中的正确时机执行
+    // 参数会在 SaveParameters() 之前、LoadParameters() 之后执行
+    // 避免被 LoadParameters() 覆盖，也不会污染 Breath 叠加后的值
+    PendingParameterData data;
+    data.ParameterId = id;
+    data.Value = value;
+    data.Weight = weight;
+    _pendingParameters.PushBack(data);
+}
+
+void LAppModel::FlushPendingParameters()
+{
+    // 执行所有待设置的参数
+    for (csmUint32 i = 0; i < _pendingParameters.GetSize(); ++i)
+    {
+        PendingParameterData* data = &_pendingParameters[i];
+        _model->SetParameterValue(data->ParameterId, data->Value, data->Weight);
+    }
+
+    // 清空队列
+    _pendingParameters.Clear();
+}
+
+Csm::csmBool LAppModel::IsMotionFinished() const
+{
+    return _motionManager->IsFinished();
 }
 
 void LAppModel::SetRandomExpression()

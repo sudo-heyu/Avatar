@@ -8,6 +8,7 @@ import com.example.scenic_avatar_guide_app.data.local.SettingsDataStore
 import com.example.scenic_avatar_guide_app.domain.model.AvatarAction
 import com.example.scenic_avatar_guide_app.domain.model.AvatarExpression
 import com.example.scenic_avatar_guide_app.domain.model.AvatarGesture
+import com.example.scenic_avatar_guide_app.domain.model.ChatStreamEvent
 import com.example.scenic_avatar_guide_app.domain.model.ChatResponseData
 import com.example.scenic_avatar_guide_app.domain.model.ChatMessage
 import com.example.scenic_avatar_guide_app.domain.model.EmotionToExpression
@@ -15,6 +16,7 @@ import com.example.scenic_avatar_guide_app.domain.model.IntentToGesture
 import com.example.scenic_avatar_guide_app.domain.model.RouteData
 import com.example.scenic_avatar_guide_app.domain.model.AvatarState
 import com.example.scenic_avatar_guide_app.domain.model.AvatarFullState
+import com.example.scenic_avatar_guide_app.domain.model.ResponseMetadata
 import com.example.scenic_avatar_guide_app.domain.model.SourceInfo
 import com.example.scenic_avatar_guide_app.core.avatar.AvatarPlaybackManager
 import com.example.scenic_avatar_guide_app.core.avatar.AvatarPlayAction
@@ -22,13 +24,126 @@ import com.example.scenic_avatar_guide_app.core.tts.VoiceInfo
 import com.example.scenic_avatar_guide_app.core.tts.VoiceStyle
 import com.example.scenic_avatar_guide_app.data.local.ScenicDataSource
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
+
+import android.util.Log
+
+private const val TAG = "MainViewModel"
+
+/**
+ * 打字机效果控制器
+ * 负责平滑地逐字显示文本
+ */
+class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope) {
+    // 待显示的文本缓冲区
+    private val pendingText = StringBuilder()
+
+    // 当前消息 ID
+    private var currentMessageId: String? = null
+
+    // 已显示的文本
+    private var displayedText = StringBuilder()
+
+    // 打字机任务
+    private var typewriterJob: Job? = null
+
+    // 基础打字间隔（毫秒）
+    private var baseIntervalMs = 90L
+
+    // 最小打字间隔（加速时）
+    private var minIntervalMs = 50L
+
+    // 当前间隔
+    private var currentIntervalMs = baseIntervalMs
+
+    // 上次接收新文本的时间
+    private var lastReceiveTime = 0L
+
+    // 文本更新回调
+    var onTextUpdate: ((messageId: String, text: String) -> Unit)? = null
+
+    /**
+     * 开始新的打字机会话
+     */
+    fun start(messageId: String) {
+        stop()
+        currentMessageId = messageId
+        pendingText.clear()
+        displayedText.clear()
+        currentIntervalMs = baseIntervalMs
+        lastReceiveTime = System.currentTimeMillis()
+
+        typewriterJob = scope.launch {
+            while (true) {
+                if (pendingText.isNotEmpty()) {
+                    // 取出一个字符显示
+                    val char = pendingText[0]
+                    pendingText.deleteCharAt(0)
+                    displayedText.append(char)
+
+                    currentMessageId?.let { id ->
+                        onTextUpdate?.invoke(id, displayedText.toString())
+                    }
+
+                    // 动态调整速度
+                    val timeSinceLastReceive = System.currentTimeMillis() - lastReceiveTime
+                    currentIntervalMs = when {
+                        pendingText.length > 20 -> minIntervalMs // 缓冲区很多内容时加速
+                        pendingText.length > 10 -> baseIntervalMs / 2
+                        timeSinceLastReceive > 500 -> baseIntervalMs * 2 // 长时间没新内容时减速
+                        else -> baseIntervalMs
+                    }
+                }
+
+                delay(currentIntervalMs)
+            }
+        }
+    }
+
+    /**
+     * 添加待显示文本
+     */
+    fun append(text: String) {
+        pendingText.append(text)
+        lastReceiveTime = System.currentTimeMillis()
+    }
+
+    /**
+     * 立即显示所有剩余文本
+     */
+    fun flush() {
+        currentMessageId?.let { id ->
+            val allText = displayedText.toString() + pendingText.toString()
+            onTextUpdate?.invoke(id, allText)
+            displayedText.clear()
+            displayedText.append(allText)
+            pendingText.clear()
+        }
+    }
+
+    /**
+     * 停止打字机
+     */
+    fun stop() {
+        typewriterJob?.cancel()
+        typewriterJob = null
+        currentMessageId = null
+        pendingText.clear()
+        displayedText.clear()
+    }
+}
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
@@ -104,6 +219,15 @@ class MainViewModel @Inject constructor(
     // 会话ID
     private var sessionId: String? = null
 
+    private var currentStreamJob: Job? = null
+
+    // 打字机效果控制器
+    private val typewriterController = TypewriterController(viewModelScope).apply {
+        onTextUpdate = { messageId, text ->
+            updateAssistantMessageContent(messageId, text)
+        }
+    }
+
     init {
         viewModelScope.launch {
             val scenicId = settingsDataStore.scenicId.first()
@@ -138,7 +262,14 @@ class MainViewModel @Inject constructor(
      */
     private fun observeAvatarState() {
         viewModelScope.launch {
+            var lastGesture = _avatarFullState.value.gesture
+            var lastExpression = _avatarFullState.value.expression
             playbackManager.avatarState.collect { state ->
+                if (state.gesture != lastGesture || state.expression != lastExpression) {
+                    Log.d(TAG, "observeAvatarState: gesture=${state.gesture}, expression=${state.expression}")
+                    lastGesture = state.gesture
+                    lastExpression = state.expression
+                }
                 _avatarFullState.value = state
                 _avatarState.value = state.state
             }
@@ -215,9 +346,13 @@ class MainViewModel @Inject constructor(
     }
 
     private fun sendMessageToBackend(text: String, pendingImageUri: String? = null) {
-        viewModelScope.launch {
+        Log.d(TAG, "sendMessageToBackend: text=$text, pendingImageUri=$pendingImageUri")
+        cancelCurrentStream()
+        currentStreamJob = viewModelScope.launch {
+            Log.d(TAG, "开始流式请求流程")
             _isLoading.value = true
             _avatarState.value = AvatarState.THINKING
+            playbackManager.startStreaming()
 
             if (sessionId.isNullOrBlank()) {
                 createNewSession()
@@ -231,57 +366,192 @@ class MainViewModel @Inject constructor(
                     onFailure = {
                         _isLoading.value = false
                         _avatarState.value = AvatarState.IDLE
+                        playbackManager.stop()
                         addMessage("图片上传失败，请重试", isUser = false)
                         return@launch
                     }
                 )
             }
 
-            repository.sendTextMessage(
-                sessionId = sessionId ?: "",
-                message = text,
-                mode = when (_currentMode.value) {
-                    InteractionMode.Chat -> "chat"
-                    InteractionMode.Route -> "route"
-                },
-                imageUrl = imageUrl
-            ).fold(
-                onSuccess = { response ->
-                    _avatarState.value = AvatarState.SPEAKING
-                    addMessage(
-                        content = response.replyText,
-                        isUser = false,
-                        sources = response.sources,
-                        avatarAction = response.avatarAction,
-                        routeData = response.routeData
-                    )
+            val assistantMessageId = addMessage(content = "", isUser = false, isLoading = true)
 
-                    playbackManager.play(buildAvatarPlayAction(response))
-                },
-                onFailure = {
-                    _avatarState.value = AvatarState.IDLE
-                    addMessage("抱歉，服务暂时不可用，请稍后再试。", isUser = false)
+            // 启动打字机效果
+            typewriterController.start(assistantMessageId)
+
+            val mode = when (_currentMode.value) {
+                InteractionMode.Chat -> "chat"
+                InteractionMode.Route -> "route"
+            }
+
+            var receivedAnyEvent = false
+            var receivedText = false
+            var latestAvatarAction: AvatarAction? = null
+            var latestMetadata: ResponseMetadata? = null
+
+            try {
+                repository.sendTextMessageStream(
+                    sessionId = sessionId ?: "",
+                    message = text,
+                    mode = mode,
+                    imageUrl = imageUrl
+                ).collect { event ->
+                    val hadAnyEvent = receivedAnyEvent
+                    receivedAnyEvent = true
+                    Log.d(TAG, "收到流式事件: ${event::class.simpleName}")
+                    when (event) {
+                        is ChatStreamEvent.MessageStart -> {
+                            Log.d(TAG, "MessageStart: messageId=${event.messageId}, sessionId=${event.sessionId}")
+                            event.sessionId?.let { sessionId = it }
+                        }
+                        is ChatStreamEvent.TextDelta -> {
+                            Log.v(TAG, "TextDelta: ${event.delta.take(20)}...")
+                            receivedText = true
+                            // 使用打字机效果，添加到缓冲区
+                            typewriterController.append(event.delta)
+                            // 累计文本用于 TTS 降级
+                            playbackManager.appendStreamingText(event.delta)
+                        }
+                        is ChatStreamEvent.TtsSegment -> {
+                            Log.d(TAG, "TtsSegment: segmentId=${event.segment.segmentId}, audioUrl=${event.segment.audioUrl}, durationMs=${event.segment.durationMs}")
+                            playbackManager.enqueueSpeechSegment(event.segment)
+                        }
+                        is ChatStreamEvent.AvatarActionDelta -> {
+                            Log.d(TAG, "AvatarActionDelta: expression=${event.action.expression?.type}")
+                            latestAvatarAction = event.action
+                            updateAssistantMessage(
+                                id = assistantMessageId,
+                                avatarAction = event.action
+                            )
+                            val gestureData = event.action.gesture
+                            playbackManager.updateStreamingAction(
+                                expression = resolveExpression(event.action, latestMetadata),
+                                expressionIntensity = event.action.expression?.intensity ?: 0.7f,
+                                gesture = resolveGesture(event.action, latestMetadata),
+                                gesturePriority = com.example.scenic_avatar_guide_app.domain.model.GesturePriority.fromValue(gestureData?.priority),
+                                gestureLoop = gestureData?.loop ?: false,
+                                gestureSpeed = gestureData?.speed ?: 1.0f,
+                                motionQueue = event.action.motionQueue ?: emptyList()
+                            )
+                        }
+                        is ChatStreamEvent.SourcesDelta -> {
+                            Log.d(TAG, "SourcesDelta: ${event.sources.size} sources")
+                            updateAssistantMessage(assistantMessageId, sources = event.sources)
+                        }
+                        is ChatStreamEvent.RouteDataDelta -> {
+                            Log.d(TAG, "RouteDataDelta: ${event.routeData.title}")
+                            updateAssistantMessage(assistantMessageId, routeData = event.routeData)
+                        }
+                        is ChatStreamEvent.MetadataDelta -> {
+                            Log.d(TAG, "MetadataDelta: intent=${event.metadata.intent}")
+                            latestMetadata = event.metadata
+                            latestAvatarAction?.let { action ->
+                                val gestureData = action.gesture
+                                playbackManager.updateStreamingAction(
+                                    expression = resolveExpression(action, event.metadata),
+                                    expressionIntensity = action.expression?.intensity ?: 0.7f,
+                                    gesture = resolveGesture(action, event.metadata),
+                                    gesturePriority = com.example.scenic_avatar_guide_app.domain.model.GesturePriority.fromValue(gestureData?.priority),
+                                    gestureLoop = gestureData?.loop ?: false,
+                                    gestureSpeed = gestureData?.speed ?: 1.0f,
+                                    motionQueue = action.motionQueue ?: emptyList()
+                                )
+                            }
+                        }
+                        ChatStreamEvent.Done -> {
+                            Log.d(TAG, "Done")
+                            _isLoading.value = false
+                            // 立即显示所有剩余文本
+                            typewriterController.flush()
+                            updateAssistantMessage(assistantMessageId, isLoading = false)
+                            playbackManager.finishStreamingInput()
+                        }
+                        is ChatStreamEvent.Error -> {
+                            Log.e(TAG, "Error: code=${event.code}, message=${event.message}")
+                            if (!receivedText && !hadAnyEvent) {
+                                Log.d(TAG, "首事件前错误，降级到非流式接口")
+                                typewriterController.stop()
+                                sendMessageFallback(
+                                    assistantMessageId = assistantMessageId,
+                                    sessionId = sessionId ?: "",
+                                    message = text,
+                                    mode = mode,
+                                    imageUrl = imageUrl
+                                )
+                            } else {
+                                _isLoading.value = false
+                                typewriterController.flush()
+                                playbackManager.stop()
+                                updateAssistantMessage(
+                                    id = assistantMessageId,
+                                    content = currentMessageContent(assistantMessageId)
+                                        .ifBlank { "抱歉，回答中断了，请稍后再试。" },
+                                    isLoading = false,
+                                    isError = true
+                                )
+                            }
+                        }
+                    }
                 }
-            )
-            _isLoading.value = false
+                if (_isLoading.value) {
+                    _isLoading.value = false
+                    typewriterController.flush()
+                    updateAssistantMessage(assistantMessageId, isLoading = false)
+                    playbackManager.finishStreamingInput()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (!receivedText) {
+                    typewriterController.stop()
+                    sendMessageFallback(
+                        assistantMessageId = assistantMessageId,
+                        sessionId = sessionId ?: "",
+                        message = text,
+                        mode = mode,
+                        imageUrl = imageUrl
+                    )
+                } else {
+                    _isLoading.value = false
+                    typewriterController.flush()
+                    playbackManager.stop()
+                    updateAssistantMessage(
+                        id = assistantMessageId,
+                        isLoading = false,
+                        isError = true
+                    )
+                }
+            }
         }
+    }
+
+    private fun cancelCurrentStream() {
+        currentStreamJob?.cancel()
+        currentStreamJob = null
+        _isLoading.value = false
+        typewriterController.stop()
+        playbackManager.stop()
     }
 
     private fun addMessage(
         content: String,
         isUser: Boolean,
+        isLoading: Boolean = false,
+        isError: Boolean = false,
         sources: List<SourceInfo> = emptyList(),
         avatarAction: AvatarAction? = null,
         routeData: RouteData? = null,
         pendingImageUri: String? = null,
         imageUrl: String? = null
-    ) {
+    ): String {
+        val id = UUID.randomUUID().toString()
         val currentList = _messages.value.toMutableList()
         currentList.add(ChatMessage(
-            id = UUID.randomUUID().toString(),
+            id = id,
             content = content,
             isUser = isUser,
             timestamp = System.currentTimeMillis(),
+            isLoading = isLoading,
+            isError = isError,
             sources = sources,
             avatarAction = avatarAction,
             routeData = routeData,
@@ -289,6 +559,105 @@ class MainViewModel @Inject constructor(
             imageUrl = imageUrl
         ))
         _messages.value = currentList
+        return id
+    }
+
+    private fun appendAssistantDelta(id: String, delta: String) {
+        val currentList = _messages.value.toMutableList()
+        val index = currentList.indexOfFirst { it.id == id }
+        if (index == -1) return
+
+        val current = currentList[index]
+        currentList[index] = current.copy(
+            content = current.content + delta,
+            isLoading = true,
+            isError = false
+        )
+        _messages.value = currentList
+    }
+
+    /**
+     * 更新助手消息内容（由打字机效果调用）
+     */
+    private fun updateAssistantMessageContent(id: String, content: String) {
+        val currentList = _messages.value.toMutableList()
+        val index = currentList.indexOfFirst { it.id == id }
+        if (index == -1) return
+
+        val current = currentList[index]
+        currentList[index] = current.copy(
+            content = content,
+            isLoading = true
+        )
+        _messages.value = currentList
+    }
+
+    private fun updateAssistantMessage(
+        id: String,
+        content: String? = null,
+        isLoading: Boolean? = null,
+        isError: Boolean? = null,
+        sources: List<SourceInfo>? = null,
+        avatarAction: AvatarAction? = null,
+        routeData: RouteData? = null
+    ) {
+        val currentList = _messages.value.toMutableList()
+        val index = currentList.indexOfFirst { it.id == id }
+        if (index == -1) return
+
+        val current = currentList[index]
+        currentList[index] = current.copy(
+            content = content ?: current.content,
+            isLoading = isLoading ?: current.isLoading,
+            isError = isError ?: current.isError,
+            sources = sources ?: current.sources,
+            avatarAction = avatarAction ?: current.avatarAction,
+            routeData = routeData ?: current.routeData
+        )
+        _messages.value = currentList
+    }
+
+    private fun currentMessageContent(id: String): String {
+        return _messages.value.firstOrNull { it.id == id }?.content.orEmpty()
+    }
+
+    private suspend fun sendMessageFallback(
+        assistantMessageId: String,
+        sessionId: String,
+        message: String,
+        mode: String,
+        imageUrl: String?
+    ) {
+        repository.sendTextMessage(
+            sessionId = sessionId,
+            message = message,
+            mode = mode,
+            imageUrl = imageUrl
+        ).fold(
+            onSuccess = { response ->
+                _isLoading.value = false
+                updateAssistantMessage(
+                    id = assistantMessageId,
+                    content = response.replyText,
+                    isLoading = false,
+                    isError = false,
+                    sources = response.sources,
+                    avatarAction = response.avatarAction,
+                    routeData = response.routeData
+                )
+                playbackManager.play(buildAvatarPlayAction(response))
+            },
+            onFailure = {
+                _isLoading.value = false
+                playbackManager.stop()
+                updateAssistantMessage(
+                    id = assistantMessageId,
+                    content = "抱歉，服务暂时不可用，请稍后再试。",
+                    isLoading = false,
+                    isError = true
+                )
+            }
+        )
     }
 
     fun setPendingImage(uri: String) {
@@ -303,12 +672,16 @@ class MainViewModel @Inject constructor(
         val action = response.avatarAction
         val expression = resolveExpression(response)
         val gesture = resolveGesture(response)
+        val gestureData = action?.gesture
 
         return AvatarPlayAction(
             text = response.replyText,
             expression = expression,
             expressionIntensity = action?.expression?.intensity ?: 0.7f,
             gesture = gesture,
+            gesturePriority = com.example.scenic_avatar_guide_app.domain.model.GesturePriority.fromValue(gestureData?.priority),
+            gestureLoop = gestureData?.loop ?: false,
+            gestureSpeed = gestureData?.speed ?: 1.0f,
             motionQueue = action?.motionQueue ?: emptyList()
         )
     }
@@ -321,12 +694,34 @@ class MainViewModel @Inject constructor(
         return EmotionToExpression.map(response.effectiveEmotion)
     }
 
+    private fun resolveExpression(
+        action: AvatarAction?,
+        metadata: ResponseMetadata?
+    ): AvatarExpression {
+        val explicit = action?.expression?.type
+        if (!explicit.isNullOrBlank()) {
+            return AvatarExpression.fromValue(explicit)
+        }
+        return EmotionToExpression.map(metadata?.emotion)
+    }
+
     private fun resolveGesture(response: ChatResponseData): AvatarGesture {
         val explicit = response.avatarAction?.gesture?.type
         if (!explicit.isNullOrBlank()) {
             return AvatarGesture.fromValue(explicit)
         }
         return IntentToGesture.map(response.effectiveIntent)
+    }
+
+    private fun resolveGesture(
+        action: AvatarAction?,
+        metadata: ResponseMetadata?
+    ): AvatarGesture {
+        val explicit = action?.gesture?.type
+        if (!explicit.isNullOrBlank()) {
+            return AvatarGesture.fromValue(explicit)
+        }
+        return IntentToGesture.map(metadata?.intent)
     }
 
     // ==================== 数字人测试功能 ====================
@@ -342,7 +737,7 @@ class MainViewModel @Inject constructor(
      * 停止播放
      */
     fun stopPlayback() {
-        playbackManager.stop()
+        cancelCurrentStream()
     }
 
     /**
@@ -442,6 +837,7 @@ class MainViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        currentStreamJob?.cancel()
         playbackManager.release()
     }
 }

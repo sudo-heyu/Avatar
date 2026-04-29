@@ -213,12 +213,21 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
 **分段约束**：
 
 1. 不按 token 或单字合成 TTS，应按可朗读短句切分。
-2. 推荐遇到 `，。！？；：` 切分；首段超过 800ms 未遇到标点时可强制切分。
-3. `tts_segment.marks` 的时间戳为片段内相对时间。
-4. `done` 表示后端事件发送完成，不表示移动端音频播放完成。
-5. 旧接口 `POST /api/v1/chat/text` 继续保留，作为非流式降级路径。
+2. 推荐遇到 `，。！？；：` 切分；当前缓冲超过 12–25 个中文字符时允许切分。
+3. 首段超过 800ms 仍未遇到标点时，强制切分一个短片段以提升首响。
+4. 英文、数字、景点名、专有名词尽量不要从中间切断。
+5. markdown、表格、链接等内容需在 TTS 合成前清洗为纯朗读文本。
+6. `tts_segment.marks` 的时间戳为片段内相对时间。
+7. `done` 表示后端事件发送完成，不表示移动端音频播放完成。
+8. 旧接口 `POST /api/v1/chat/text` 继续保留，作为非流式降级路径。
 
-详细重构方案见：`STREAMING_REFACTOR_PLAN.md`。
+**文本一致性要求**：
+
+后端需维护两份文本：
+- `display_text`：用于 `text_delta`，尽量保留适合展示的格式。
+- `speech_text`：用于 `tts_segment.text`，清洗 markdown、HTML、URL 等不适合朗读的内容。
+
+若两者不完全一致，`tts_segment.text` 应是用户可理解的朗读文本，不要求 UI 再次展示。
 
 ---
 
@@ -536,6 +545,31 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
 
 ---
 
+### 5.5 拒答与降级策略
+
+后端在以下场景返回降级响应，移动端应正确识别并展示：
+
+**场景 1：检索无命中**
+- `reply_text` 返回安全兜底文案
+- `sources = []`
+- `is_fallback = true`
+- `confidence = 0.2`（或类似低置信度）
+
+**场景 2：有检索结果但 LLM 调用异常**
+- `LlmClient` 启用本地拼接回答
+- `is_fallback = false`（可回答但质量下降）
+- `confidence` 适度下调
+
+**场景 3：无检索结果且 LLM 不可用**
+- 保持拒答兜底输出，避免幻觉
+- `is_fallback = true`
+
+移动端处理建议：
+- 当 `is_fallback = true` 时，可在 UI 上给出轻微提示（如"以下回答基于通用知识"），但不强制。
+- 无论是否降级，`reply_text` 都应向用户展示。
+
+---
+
 ## 六、AvatarAction 结构
 
 ### 6.1 数据模型
@@ -676,6 +710,70 @@ data class AvatarMarkData(
 
 ---
 
+### 6.6 场景设计规范
+
+以下内容作为后端生成 `avatar_action` 时的参考标准，确保数字人表现与文本语义、时长节奏高度匹配。
+
+#### 动作密度
+
+| 文本时长 | 推荐动作数 |
+|----------|-----------|
+| 10 秒 | 5–6 个 |
+| 12 秒 | 6–8 个 |
+| 15 秒 | 7–9 个 |
+
+#### 表情变化节奏
+
+- **开场**：匹配初始语气（`welcoming` / `happy` / `excited`）
+- **中段**：跟随语义转折（`thinking` / `surprised` / `concerned`）
+- **结束**：回归适当状态（`happy` / `neutral`）
+
+#### 动作语义匹配
+
+| 文本内容 | 推荐动作 |
+|----------|---------|
+| "请看左/右前方" | `point_left` / `point_right` |
+| "抬头看" | `point_forward`（或扩展 `look_up`） |
+| "建议您" | `guide` |
+| "明白/确认" | `nod` |
+| "抱歉/无法" | `bow` + `shake` |
+| "千年历史" | `thinking_pose` |
+| "世界最高" | `surprised`（表情）+ `point_forward` |
+| "祈福/神圣" | `reverent`（表情）+ `guide` |
+
+#### 场景分类参考
+
+| 分类 | 平均文本时长 | 平均动作数 | 平均表情数 |
+|------|-------------|-----------|-----------|
+| A. 入园阶段 | 13.2 秒 | 7.5 | 5.5 |
+| B. 景点讲解 | 12.8 秒 | 7.7 | 5.5 |
+| C. 特色体验 | 11.3 秒 | 6.7 | 5.0 |
+| D. 路线推荐 | 11.8 秒 | 7.0 | 5.2 |
+| E. 导航指引 | 9.5 秒 | 5.5 | 4.5 |
+| F. 餐饮购物 | 9.8 秒 | 5.5 | 4.5 |
+| G. 安全应急 | 11.0 秒 | 6.5 | 5.0 |
+| H. 互动响应 | 6.0 秒 | 3.5 | 3.0 |
+| I. 离园兜底 | 8.0 秒 | 5.2 | 4.2 |
+
+#### 典型场景示例
+
+**热情欢迎**
+- 文本约 14 秒，包含欢迎、介绍、建议
+- 动作：`wave` → `nod` → `guide` → `point_forward` ×2 → `thinking_pose` → `guide` → `nod`
+- 表情：`welcoming` → `happy` → `excited`
+
+**景点介绍**
+- 文本约 13 秒，以"请抬头看！"引发震撼感
+- 动作：`point_forward` → `nod` → `point_forward` → `guide` → `nod` → `thinking_pose` → `nod`
+- 表情：`surprised` → `excited` → `happy`
+
+**兜底致歉**
+- 文本约 9 秒，致歉→说明→询问
+- 动作：`bow` → `shake` → `bow` → `guide` → `nod` → `guide`
+- 表情：`apologetic` → `concerned` → `neutral`
+
+---
+
 ## 七、来源引用结构
 
 ```kotlin
@@ -712,7 +810,7 @@ data class SourceInfo(
 
 其中：
 
-- `document_id / chunk_id / source_path / score / snippet` 来自同事新增的 `stage1-api.md`
+- `document_id / chunk_id / source_path / score / snippet` 来自第一阶段接口文档
 - `title / content / url / relevance_score` 保留为兼容旧版文档与前端展示需求
 
 ---
@@ -1078,7 +1176,7 @@ enum class VisemeType(val mouthOpen: Float, val mouthForm: Float = 0f) {
 |---|------|------|
 | 1 | TTS 是否由移动端完成？ | **否**（v5.0 起改为后端 Edge-TTS） |
 | 2 | 问答主链路最小返回 | `reply_text + sources + latency_ms + confidence + is_fallback` |
-| 3 | `sources` 是否按 `stage1-api.md` 扩展？ | **是** |
+| 3 | `sources` 是否按第一阶段接口文档扩展？ | **是** |
 | 4 | `scenic_id` 是否属于问答主请求必填？ | **是** |
 | 5 | `avatar_action` 是否必返？ | 否，属于增强字段 |
 | 6 | TTS 接口是否独立于 chat 接口？ | **是**，`POST /api/v1/tts/synthesize` |
@@ -1095,6 +1193,8 @@ enum class VisemeType(val mouthOpen: Float, val mouthForm: Float = 0f) {
 | 12 | 是否返回 `emotion` 字段 | 可用于表情降级，推荐保留 |
 | 13 | 是否返回 `intent` 字段 | 可用于动作降级，推荐保留 |
 | 14 | 流式传输是否兼容 NDJSON | 推荐兼容，便于后端实现与调试 |
+| 15 | 流式首段最短长度 | 建议 8–12 个中文字符或 800ms 超时强制切分 |
+| 16 | `tts_segment.text` 与展示文本不一致时如何处理 | 允许不完全一致，但必须语义一致 |
 
 ---
 
@@ -1106,7 +1206,7 @@ enum class VisemeType(val mouthOpen: Float, val mouthForm: Float = 0f) {
 | v2.0 | 2026-04-28 | 完善数字人系统 |
 | v2.1 | 2026-04-28 | 修正：TTS 由后端完成 |
 | v3.0 | 2026-04-28 | **修正：TTS 由移动端完成，移除 audio 字段** |
-| v4.0 | 2026-04-28 | **同步 `stage1-api.md`：补充 `scenic_id`、`sources` 新结构、`latency_ms/confidence/is_fallback` 兼容说明** |
+| v4.0 | 2026-04-28 | **同步第一阶段接口文档：补充 `scenic_id`、`sources` 新结构、`latency_ms/confidence/is_fallback` 兼容说明** |
 | v5.0 | 2026-04-28 | **TTS 方案切换为后端 Edge-TTS：新增 `/api/v1/tts/*` 接口，更新职责划分与播放流程，marks 驱动口型同步** |
 | v5.1 | 2026-04-29 | **Edge-TTS 接口已完成 Android 端联调；修正 `duration_ms` 可空类型；确认系统 TTS 降级兜底正常** |
 | v6.0 | 2026-04-29 | **交互模式重构：三种模式缩减为两种（聊天问答 + 路线规划），统一 `POST /api/v1/chat/text` 接口，通过 `mode` 字段区分；新增 `route_data` 响应结构；新增图片上传接口** |

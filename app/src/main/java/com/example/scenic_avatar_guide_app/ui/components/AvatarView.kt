@@ -1,5 +1,6 @@
 package com.example.scenic_avatar_guide_app.ui.components
 
+import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -116,17 +117,21 @@ fun AvatarView(
                 val result = newRenderer.loadModel("live2d/hiyori/Hiyori.model3.json")
                 isLive2DReady = result.isSuccess
                 renderer = newRenderer
+                Log.d("AvatarView", "Live2D init success=$isLive2DReady")
+                fullState?.let { state -> newRenderer.updateState(state) }
             } catch (e: Exception) {
+                Log.e("AvatarView", "Live2D init failed", e)
                 isLive2DReady = false
                 live2dError = e.message
             }
         }
     }
 
-    // 更新 Live2D 状态
-    SideEffect {
+    // 当 fullState 变化时更新渲染器
+    LaunchedEffect(fullState) {
         fullState?.let { state ->
             renderer?.updateState(state)
+                ?: Log.w("AvatarView", "updateState skipped: renderer is null")
         }
     }
 
@@ -191,7 +196,6 @@ fun AvatarView(
                 },
                 modifier = Modifier.fillMaxSize(),
                 update = {
-                    renderer?.attachSurfaceView(it)
                     renderer?.setUpperBodyMode(showUpperBodyOnly)
                     fullState?.let { state -> renderer?.updateState(state) }
                 }
@@ -356,11 +360,13 @@ private fun PlaceholderAvatar(
             val expressionEmoji = when (expression) {
                 AvatarExpression.HAPPY -> "😊"
                 AvatarExpression.THINKING -> "🤔"
-                AvatarExpression.SURPRISED -> "😲"
                 AvatarExpression.EXCITED -> "😃"
                 AvatarExpression.CONCERNED -> "😟"
                 AvatarExpression.APologetic -> "🙇"
                 AvatarExpression.WELCOMING -> "👋"
+                AvatarExpression.APPROVING -> "👍"
+                AvatarExpression.PLAYFUL -> "😉"
+                AvatarExpression.REVERENT -> "🙏"
                 else -> ""
             }
 
@@ -490,12 +496,15 @@ private fun gestureToText(gesture: AvatarGesture): String {
         AvatarGesture.IDLE -> ""
         AvatarGesture.NOD -> "点头"
         AvatarGesture.SHAKE -> "摇头"
-        AvatarGesture.WAVE -> "挥手"
-        AvatarGesture.POINT_LEFT -> "指左"
-        AvatarGesture.POINT_RIGHT -> "指右"
-        AvatarGesture.POINT_FORWARD -> "指前"
-        AvatarGesture.BOW -> "鞠躬"
-        AvatarGesture.THINKING_POSE -> "思考"
+        AvatarGesture.WAVE -> "致意"
+        AvatarGesture.POINT_LEFT -> "看左"
+        AvatarGesture.POINT_RIGHT -> "看右"
+        AvatarGesture.POINT_FORWARD -> "示意"
+        AvatarGesture.BOW -> "欠身"
+        AvatarGesture.THINKING_POSE -> "沉思"
         AvatarGesture.GUIDE -> "引导"
+        AvatarGesture.LOOK_UP -> "仰望"
+        AvatarGesture.LISTEN -> "聆听"
+        AvatarGesture.WELCOME_GESTURE -> "欢迎"
     }
 }

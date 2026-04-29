@@ -4,23 +4,52 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.net.Uri
-import androidx.media3.exoplayer.ExoPlayer
+import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 
+private const val TAG = "AudioPlayer"
+
 /**
  * 音频播放器
- * 支持本地文件和网络URL播放
+ * 支持本地文件和网络URL播放，带缓存预加载
  */
 class AudioPlayer(private val context: Context) {
 
-    private val player: ExoPlayer = ExoPlayer.Builder(context).build()
+    companion object {
+        private var simpleCache: SimpleCache? = null
+
+        private fun getCache(context: Context): SimpleCache {
+            if (simpleCache == null) {
+                val cacheDir = File(context.cacheDir, "audio_cache")
+                val evictor = LeastRecentlyUsedCacheEvictor(50 * 1024 * 1024L) // 50MB
+                simpleCache = SimpleCache(cacheDir, evictor)
+            }
+            return simpleCache!!
+        }
+    }
+
+    private val cache = getCache(context)
+    private val cacheDataSourceFactory = CacheDataSource.Factory()
+        .setCache(cache)
+        .setUpstreamDataSourceFactory(DefaultDataSource.Factory(context))
+
+    private val player: ExoPlayer = ExoPlayer.Builder(context)
+        .setMediaSourceFactory(DefaultMediaSourceFactory(cacheDataSourceFactory))
+        .build()
     private var playJob: Job? = null
+    private var currentUrl: String? = null
 
     // 播放进度
     private val _progress = MutableStateFlow(0f)
@@ -35,9 +64,11 @@ class AudioPlayer(private val context: Context) {
     var onPlayComplete: (() -> Unit)? = null
     var onPlayError: ((String) -> Unit)? = null
     var onProgressUpdate: ((Float) -> Unit)? = null
+    var onMediaItemTransition: ((reason: Int, mediaItem: MediaItem?) -> Unit)? = null
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            Log.d(TAG, "onIsPlayingChanged: $isPlaying, currentUrl=$currentUrl")
             when {
                 isPlaying -> {
                     _isPlaying.value = true
@@ -53,8 +84,20 @@ class AudioPlayer(private val context: Context) {
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
+            val stateName = when (playbackState) {
+                Player.STATE_IDLE -> "IDLE"
+                Player.STATE_BUFFERING -> "BUFFERING"
+                Player.STATE_READY -> "READY"
+                Player.STATE_ENDED -> "ENDED"
+                else -> "UNKNOWN"
+            }
+            Log.d(TAG, "state=$stateName, items=${player.mediaItemCount}, idx=${player.currentMediaItemIndex}, pos=${player.currentPosition}ms")
             when (playbackState) {
+                Player.STATE_READY -> {
+                    Log.d(TAG, "音频准备就绪, duration=${player.duration}ms")
+                }
                 Player.STATE_ENDED -> {
+                    Log.d(TAG, "音频播放完成")
                     _isPlaying.value = false
                     _progress.value = 0f
                     onPlayComplete?.invoke()
@@ -67,8 +110,14 @@ class AudioPlayer(private val context: Context) {
         }
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            Log.e(TAG, "播放错误: ${error.message}", error)
             _isPlaying.value = false
             onPlayError?.invoke(error.message ?: "播放错误")
+        }
+
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            Log.d(TAG, "onMediaItemTransition: reason=$reason, mediaItem=$mediaItem")
+            onMediaItemTransition?.invoke(reason, mediaItem)
         }
     }
 
@@ -84,15 +133,56 @@ class AudioPlayer(private val context: Context) {
     }
 
     /**
-     * 播放网络音频
+     * 立即播放网络音频，清空当前队列
      */
     fun play(url: String) {
-        stop()
-        val mediaItem = MediaItem.fromUri(url)
+        Log.d(TAG, "play: $url")
+        currentUrl = url
+        player.stop()
+        player.clearMediaItems()
+        val mediaItem = MediaItem.Builder()
+            .setUri(url)
+            .setMediaId(url)
+            .build()
         player.setMediaItem(mediaItem)
         player.prepare()
         player.playWhenReady = true
     }
+
+    /**
+     * 添加到播放队列末尾（无缝衔接）
+     */
+    fun enqueue(url: String) {
+        Log.d(TAG, "enqueue: $url, state=${player.playbackState}, items=${player.mediaItemCount}, idx=${player.currentMediaItemIndex}")
+        val mediaItem = MediaItem.Builder()
+            .setUri(url)
+            .setMediaId(url)
+            .build()
+        player.addMediaItem(mediaItem)
+        when (player.playbackState) {
+            Player.STATE_IDLE -> {
+                player.prepare()
+                player.playWhenReady = true
+            }
+            Player.STATE_ENDED -> {
+                // 前一个已播放结束，seek 到新加入的 item 并恢复播放
+                // playWhenReady 在 ENDED 后通常仍为 true，只需 seek 即可触发缓冲
+                val targetIdx = (player.currentMediaItemIndex + 1).coerceAtMost(player.mediaItemCount - 1)
+                Log.d(TAG, "从 ENDED 恢复，seekTo $targetIdx")
+                player.seekToDefaultPosition(targetIdx)
+            }
+            else -> {
+                if (!player.playWhenReady) {
+                    player.playWhenReady = true
+                }
+            }
+        }
+    }
+
+    /**
+     * 是否有待播放的媒体项
+     */
+    fun hasMediaItems(): Boolean = player.mediaItemCount > 0
 
     /**
      * 播放本地文件
@@ -129,8 +219,10 @@ class AudioPlayer(private val context: Context) {
     fun stop() {
         stopProgressTracking()
         player.stop()
+        player.clearMediaItems()
         _isPlaying.value = false
         _progress.value = 0f
+        currentUrl = null
     }
 
     /**

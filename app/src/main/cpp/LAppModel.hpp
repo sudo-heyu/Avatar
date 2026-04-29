@@ -82,6 +82,25 @@ public:
     Csm::CubismMotionQueueEntryHandle StartRandomMotion(const Csm::csmChar* group, Csm::csmInt32 priority, Csm::ACubismMotion::FinishedMotionCallback onFinishedMotionHandler = NULL, Csm::ACubismMotion::BeganMotionCallback onBeganMotionHandler = NULL);
 
     /**
+     * @brief   指定したパスのモーションファイルをロードして再生する
+     *
+     * @param[in]   motionPath                  モーションファイルのパス（assets相対）
+     * @param[in]   priority                    優先度
+     * @param[in]   onFinishedMotionHandler     モーション再生終了時に呼び出されるコールバック関数
+     * @param[in]   onBeganMotionHandler        モーション再生開始時に呼び出されるコールバック関数
+     * @return                                  開始したモーションの識別番号を返す
+     */
+    Csm::CubismMotionQueueEntryHandle StartMotionByPath(const Csm::csmChar* motionPath, Csm::csmInt32 priority, Csm::ACubismMotion::FinishedMotionCallback onFinishedMotionHandler = NULL, Csm::ACubismMotion::BeganMotionCallback onBeganMotionHandler = NULL);
+
+    /**
+     * @brief   指定したパスのモーションファイルをプリロードする
+     *          初回再生時の遅延を防ぐため、モデル初期化後に呼び出す
+     *
+     * @param[in]   motionPath                  モーションファイルのパス（assets相対）
+     */
+    void PreloadMotionByPath(const Csm::csmChar* motionPath);
+
+    /**
      * @brief   引数で指定した表情モーションをセットする
      *
      * @param   expressionID    表情モーションのID
@@ -98,6 +117,12 @@ public:
      *
      */
     void SetRandomExpression();
+
+    /**
+     * @brief   モーション再生中かどうかを判定する
+     * @return  モーションが再生中の場合は false、停止中は true
+     */
+    Csm::csmBool IsMotionFinished() const;
 
     /**
     * @brief   イベントの発火を受け取る
@@ -173,6 +198,21 @@ private:
     */
     void ReleaseExpressions();
 
+    /**
+     * @brief 待设置的参数数据
+     */
+    struct PendingParameterData
+    {
+        const Csm::CubismId* ParameterId;
+        Csm::csmFloat32 Value;
+        Csm::csmFloat32 Weight;
+    };
+
+    /**
+     * @brief 执行所有待设置的参数
+     */
+    void FlushPendingParameters();
+
     Csm::ICubismModelSetting* _modelSetting; ///< モデルセッティング情報
     Csm::csmString _modelHomeDir; ///< モデルセッティングが置かれたディレクトリ
     Csm::csmFloat32 _userTimeSeconds; ///< デルタ時間の積算値[秒]
@@ -189,6 +229,8 @@ private:
     const Csm::CubismId* _idParamEyeBallX; ///< パラメータID: ParamEyeBallX
     const Csm::CubismId* _idParamEyeBallY; ///< パラメータID: ParamEyeBallXY
     Csm::csmBool _motionUpdated; ///< モーション更新フラグ
+
+    Csm::csmVector<PendingParameterData> _pendingParameters; ///< 待设置的参数队列（Java 层通过 JNI 添加）
 
     Csm::Rendering::CubismRenderTarget_OpenGLES2  _renderBuffer;   ///< フレームバッファ以外の描画先
 };

@@ -14,11 +14,16 @@
 			{ "Name": "neutral", "File": "expressions/neutral.exp3.json" },
 			{ "Name": "happy", "File": "expressions/happy.exp3.json" },
 			{ "Name": "thinking", "File": "expressions/thinking.exp3.json" },
-			{ "Name": "surprised", "File": "expressions/surprised.exp3.json" },
 			{ "Name": "excited", "File": "expressions/excited.exp3.json" },
 			{ "Name": "concerned", "File": "expressions/concerned.exp3.json" },
 			{ "Name": "apologetic", "File": "expressions/apologetic.exp3.json" },
-			{ "Name": "welcoming", "File": "expressions/welcoming.exp3.json" }
+			{ "Name": "welcoming", "File": "expressions/welcoming.exp3.json" },
+			{ "Name": "approving", "File": "expressions/approving.exp3.json" },
+			{ "Name": "playful", "File": "expressions/playful.exp3.json" },
+			{ "Name": "reverent", "File": "expressions/reverent.exp3.json" },
+			{ "Name": "surprised", "File": "expressions/surprised.exp3.json" },
+			{ "Name": "grateful", "File": "expressions/grateful.exp3.json" },
+			{ "Name": "focused", "File": "expressions/focused.exp3.json" }
 		],
 		"Motions": {
 			"Idle": [

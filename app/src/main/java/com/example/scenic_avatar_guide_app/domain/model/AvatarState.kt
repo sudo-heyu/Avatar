@@ -15,16 +15,28 @@ enum class AvatarState {
 
 /**
  * 数字人表情类型
+ *
+ * 表情体系（13个）：
+ * - 基础态：neutral
+ * - 积极层：happy（温和愉悦）、excited（热情兴奋）、welcoming（热情欢迎）、approving（认同赞许）
+ * - 交互层：thinking（思考中）、playful（俏皮调侃）、focused（专注聆听）
+ * - 特殊层：concerned（关切担心）、apologetic（歉意致歉）、reverent（庄重敬畏）
+ * - 情感层：surprised（惊叹惊喜）、grateful（感恩欣慰）
  */
 enum class AvatarExpression(val value: String) {
     NEUTRAL("neutral"),
     HAPPY("happy"),
     THINKING("thinking"),
-    SURPRISED("surprised"),
     EXCITED("excited"),
     CONCERNED("concerned"),
     APologetic("apologetic"),
-    WELCOMING("welcoming");
+    WELCOMING("welcoming"),
+    APPROVING("approving"),
+    PLAYFUL("playful"),
+    REVERENT("reverent"),
+    SURPRISED("surprised"),
+    GRATEFUL("grateful"),
+    FOCUSED("focused");
 
     companion object {
         fun fromValue(value: String?): AvatarExpression {
@@ -34,7 +46,21 @@ enum class AvatarExpression(val value: String) {
 }
 
 /**
- * 数字人动作类型
+ * 数字人动作类型（无手可见模式）
+ *
+ * 设计约束：当前仅展示上半身，且手在画面外不可见。
+ * 因此所有动作均通过头部角度 + 身体旋转 + 肩膀来表达语义，
+ * 不涉及手臂/手部参数（ARM_* / HAND_*）。
+ *
+ * 语义映射：
+ * - NOD/SHAKE/BOW：头部/肩膀动作，本身不依赖手
+ * - WAVE/WELCOME_GESTURE：侧首致意（头部微侧 + 身体微倾）
+ * - POINT_LEFT/RIGHT：侧首向左/右（用视线引导）
+ * - POINT_FORWARD：颔首示意（头部微前倾）
+ * - THINKING_POSE：仰首思考（头部微仰 + 侧偏）
+ * - GUIDE：侧身引导（身体侧转 + 头部跟随）
+ * - LOOK_UP：抬头仰望（头部后仰，引导看上方）
+ * - LISTEN：侧耳倾听（头部微侧前倾，表达聆听姿态）
  */
 enum class AvatarGesture(val value: String) {
     IDLE("idle"),
@@ -46,7 +72,10 @@ enum class AvatarGesture(val value: String) {
     POINT_FORWARD("point_forward"),
     BOW("bow"),
     THINKING_POSE("thinking_pose"),
-    GUIDE("guide");
+    GUIDE("guide"),
+    LOOK_UP("look_up"),
+    LISTEN("listen"),
+    WELCOME_GESTURE("welcome_gesture");
 
     companion object {
         fun fromValue(value: String?): AvatarGesture {
@@ -86,31 +115,39 @@ enum class VisemeType(
 ) {
     // ==================== 原有口型（向后兼容）====================
     CLOSED(0.0f, 0f),      // b, p, m (闭唇)
-    SLIGHT(0.25f, 0f),     // d, t, n, l
-    HALF(0.5f, 0f),        // e, g, k, h
-    OPEN(0.9f, 0f),        // a (大开口)
-    WIDE(0.6f, -0.3f),     // i, ü (扁嘴)
-    ROUND(0.5f, 0.6f),     // o, u (圆唇)
-    NEUTRAL(0.1f, 0f),     // 默认/静音
+    SLIGHT(0.35f, 0f),     // d, t, n, l
+    HALF(0.65f, 0f),       // e, g, k, h
+    OPEN(1.0f, 0f),        // a (大开口)
+    WIDE(0.75f, -0.3f),    // i, ü (扁嘴)
+    ROUND(0.7f, 0.6f),     // o, u (圆唇)
+    NEUTRAL(0.15f, 0f),    // 默认/静音
 
     // ==================== 新增高精度口型 ====================
     SIL(0.0f, 0.0f),       // 静音/停顿
-    BP(0.0f, 0.0f),        // 双唇音 b,p,m
-    F(0.1f, -0.2f),        // 唇齿音 f
-    DT(0.15f, 0.0f),       // 舌尖中音 d,t,n,l
-    GK(0.35f, 0.0f),       // 舌根音 g,k,h
-    JQ(0.25f, -0.4f),      // 舌面音 j,q,x
-    ZC(0.2f, 0.0f),        // 舌尖前音 z,c,s
-    ZH(0.25f, 0.0f),       // 舌尖后音 zh,ch,sh,r
-    A(0.9f, 0.0f),         // 开口呼 a,ai,an,ang,ao
-    O(0.6f, 0.6f),         // 合口呼圆唇 o,ou,ong
-    E(0.5f, 0.0f),         // 半开口 e,ei,en,eng,er
-    I(0.3f, -0.5f),        // 齐齿呼扁嘴 i,ie,iu,in,ing
-    U(0.4f, 0.4f),         // 合口呼收圆 u,ui,un
-    V(0.35f, -0.3f),       // 撮口呼 ü,üe,ün
-    UA(0.7f, 0.2f);        // 复合元音过渡 ua,uai,uan,uang,iao,ian
+    BP(0.05f, 0.0f),       // 双唇音 b,p,m（微张更自然）
+    F(0.2f, -0.2f),        // 唇齿音 f
+    DT(0.3f, 0.0f),        // 舌尖中音 d,t,n,l
+    GK(0.55f, 0.0f),       // 舌根音 g,k,h
+    JQ(0.4f, -0.4f),       // 舌面音 j,q,x
+    ZC(0.35f, 0.0f),       // 舌尖前音 z,c,s
+    ZH(0.4f, 0.0f),        // 舌尖后音 zh,ch,sh,r
+    A(1.0f, 0.0f),         // 开口呼 a,ai,an,ang,ao
+    O(0.85f, 0.6f),        // 合口呼圆唇 o,ou,ong
+    E(0.7f, 0.0f),         // 半开口 e,ei,en,eng,er
+    I(0.55f, -0.5f),       // 齐齿呼扁嘴 i,ie,iu,in,ing
+    U(0.65f, 0.4f),        // 合口呼收圆 u,ui,un
+    V(0.55f, -0.3f),       // 撮口呼 ü,üe,ün
+    UA(0.9f, 0.2f);        // 复合元音过渡 ua,uai,uan,uang,iao,ian
 
     companion object {
+        // 预编译正则，避免高频调用时重复创建 Regex 对象
+        private val REGEX_BPMLW = Regex("[bpmlw].*")
+        private val REGEX_DTNL = Regex("[dtnl].*")
+        private val REGEX_AE = Regex("[ae].*")
+        private val REGEX_OU = Regex("[ou].*")
+        private val REGEX_IUY = Regex("[iüy].*")
+        private val REGEX_GKH = Regex("[gkh].*")
+
         /**
          * 根据音素映射口型（讯飞 TTS 回调）
          */
@@ -118,17 +155,17 @@ enum class VisemeType(
             val p = phoneme.lowercase()
             return when {
                 // 闭唇音
-                p.matches(Regex("[bpmlw].*")) -> CLOSED
+                p.matches(REGEX_BPMLW) -> CLOSED
                 // 舌尖音
-                p.matches(Regex("[dtnl].*")) -> SLIGHT
+                p.matches(REGEX_DTNL) -> SLIGHT
                 // 开口元音
-                p.matches(Regex("[ae].*")) -> OPEN
+                p.matches(REGEX_AE) -> OPEN
                 // 圆唇元音
-                p.matches(Regex("[ou].*")) -> ROUND
+                p.matches(REGEX_OU) -> ROUND
                 // 扁唇元音
-                p.matches(Regex("[iüy].*")) -> WIDE
+                p.matches(REGEX_IUY) -> WIDE
                 // 舌根音
-                p.matches(Regex("[gkh].*")) -> HALF
+                p.matches(REGEX_GKH) -> HALF
                 // 其他
                 else -> NEUTRAL
             }
@@ -188,7 +225,10 @@ data class AvatarFullState(
 
     // 播放状态
     val speakProgress: Float = 0f,
-    val currentText: String = ""
+    val currentText: String = "",
+
+    // 表情过渡时长（毫秒）
+    val expressionTransitionMs: Long = 200
 )
 
 // ==================== TTS 配置（含端侧与远程）====================
@@ -239,7 +279,7 @@ sealed class TTSState {
 object IntentToGesture {
     private val mapping = mapOf(
         "greeting" to AvatarGesture.WAVE,
-        "farewell" to AvatarGesture.WAVE,
+        "farewell" to AvatarGesture.BOW,
         "introduction" to AvatarGesture.POINT_FORWARD,
         "direction_left" to AvatarGesture.POINT_LEFT,
         "direction_right" to AvatarGesture.POINT_RIGHT,
@@ -247,7 +287,19 @@ object IntentToGesture {
         "disagreement" to AvatarGesture.SHAKE,
         "thinking" to AvatarGesture.THINKING_POSE,
         "apology" to AvatarGesture.BOW,
-        "route_recommendation" to AvatarGesture.GUIDE
+        "route_recommendation" to AvatarGesture.GUIDE,
+        "photo_recommendation" to AvatarGesture.POINT_FORWARD,
+        "facilities" to AvatarGesture.POINT_FORWARD,
+        "food_recommendation" to AvatarGesture.POINT_FORWARD,
+        "shopping" to AvatarGesture.POINT_FORWARD,
+        "weather_warning" to AvatarGesture.NOD,
+        "crowd_warning" to AvatarGesture.POINT_FORWARD,
+        "storytelling" to AvatarGesture.THINKING_POSE,
+        "photo_pose" to AvatarGesture.WAVE,
+        "transport" to AvatarGesture.POINT_FORWARD,
+        "listening" to AvatarGesture.LISTEN,
+        "look_up" to AvatarGesture.LOOK_UP,
+        "welcome" to AvatarGesture.WELCOME_GESTURE
     )
 
     fun map(intent: String?): AvatarGesture {
@@ -262,12 +314,42 @@ object IntentToGesture {
  */
 object EmotionToExpression {
     private val mapping = mapOf(
+        // 积极情感
         "joy" to AvatarExpression.HAPPY,
         "happiness" to AvatarExpression.HAPPY,
-        "sadness" to AvatarExpression.CONCERNED,
-        "surprise" to AvatarExpression.SURPRISED,
+        "excitement" to AvatarExpression.EXCITED,
+        "anticipation" to AvatarExpression.EXCITED,
+
+        // 认同与信任
         "trust" to AvatarExpression.WELCOMING,
-        "anticipation" to AvatarExpression.EXCITED
+        "approval" to AvatarExpression.APPROVING,
+        "agreement" to AvatarExpression.APPROVING,
+
+        // 中性/交互
+        "neutral" to AvatarExpression.NEUTRAL,
+        "curiosity" to AvatarExpression.THINKING,
+
+        // 俏皮/轻松
+        "playfulness" to AvatarExpression.PLAYFUL,
+
+        // 关切与歉意
+        "sadness" to AvatarExpression.CONCERNED,
+        "worry" to AvatarExpression.CONCERNED,
+        "guilt" to AvatarExpression.APologetic,
+
+        // 庄重/敬畏
+        "awe" to AvatarExpression.REVERENT,
+        "reverence" to AvatarExpression.REVERENT,
+
+        // 惊叹与感恩
+        "surprise" to AvatarExpression.SURPRISED,
+        "amazement" to AvatarExpression.SURPRISED,
+        "gratitude" to AvatarExpression.GRATEFUL,
+        "thankfulness" to AvatarExpression.GRATEFUL,
+
+        // 专注
+        "focus" to AvatarExpression.FOCUSED,
+        "attention" to AvatarExpression.FOCUSED
     )
 
     fun map(emotion: String?): AvatarExpression {

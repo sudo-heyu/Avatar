@@ -17,7 +17,12 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.util.concurrent.TimeUnit
+import javax.inject.Qualifier
 import javax.inject.Singleton
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class StreamingOkHttp
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -48,6 +53,18 @@ object NetworkModule {
             )
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    @StreamingOkHttp
+    fun provideStreamingOkHttpClient(settingsDataStore: SettingsDataStore): OkHttpClient {
+        return OkHttpClient.Builder()
+            .addInterceptor(DynamicBaseUrlInterceptor(settingsDataStore))
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(0, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .build()
     }
@@ -89,6 +106,8 @@ object NetworkModule {
                 .host(configuredBaseUrl.host)
                 .port(configuredBaseUrl.port)
                 .build()
+
+            android.util.Log.d("DynamicBaseUrl", "URL替换: ${request.url} -> $newUrl")
 
             return chain.proceed(
                 request.newBuilder()
