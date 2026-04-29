@@ -1,12 +1,15 @@
 # 景灵智导 Android 端需求基线
 
-版本：v2.4  
-日期：2026-04-29  
+版本：v2.5  
+日期：2026-04-30  
 适用仓库：`scenic_avatar_guide_app`  
 变更：
 1. TTS 方案由端侧讯飞切换为后端 Edge-TTS
 2. 交互模式由三种缩减为两种：聊天问答 + 路线规划
 3. 新增流式问答与分段 TTS 方案
+4. 口型同步升级为 15 种高精度 Viseme，支持音频进度同步
+5. 新增表情时间轴与动作队列播放
+6. Live2D 动作过渡 v2.1（眼球方向、速度自适应过渡）
 
 ---
 
@@ -143,6 +146,7 @@ App 启动
 
 ### 4.3 当前数字人播放流程
 
+**非流式模式**：
 ```text
 收到响应
 → 解析 reply_text / sources / latency_ms / confidence / is_fallback
@@ -153,9 +157,19 @@ App 启动
 → 数字人动作完成后恢复待机
 ```
 
+**流式模式**：
+```text
+收到 SSE/NDJSON 事件流
+→ text_delta 增量展示到消息气泡
+→ tts_segment 入 StreamingTtsQueue 排队播放
+→ 每段 segment 使用独立 marks 驱动口型（音频进度同步）
+→ avatar_action 提前更新表情/动作
+→ done 后等待队列自然播完
+```
+
 Edge-TTS 音频由后端生成，Android 端通过 `audio_url` 播放。
 
-流式模式下，Edge-TTS 音频由后端按短句生成，Android 端通过 `tts_segment.audio_url` 逐段播放。完整方案见 [STREAMING_REFACTOR_PLAN.md](../api/STREAMING_REFACTOR_PLAN.md)。
+流式模式下，每段 `tts_segment` 的 marks 时间为**片段内相对时间**（从 0 开始），口型同步基于 `AudioPlayer.getCurrentPosition()` 实时驱动，配合 30ms 超前补偿。
 
 ---
 
@@ -183,12 +197,17 @@ Edge-TTS 音频由后端生成，Android 端通过 `audio_url` 播放。
 ```text
 app/src/main/java/com/example/scenic_avatar_guide_app/
 ├── core/avatar/         # 数字人状态、播放管理、Live2D 渲染封装
+│   ├── AvatarPlaybackManager.kt    # 数字人播放协调（TTS/口型/表情/动作/流式队列）
+│   ├── ChinesePhonemeEngine.kt     # 汉字→拼音→音素分解
+│   ├── LipSyncAnimator.kt          # 口型动画驱动（协同发音、音频同步）
+│   ├── Live2DRenderer.kt / Impl    # Live2D 渲染封装
+│   └── animation/                  # 动画辅助（缓动、表情过渡、动作过渡、手势动画）
 ├── core/network/        # Retrofit / OkHttp / Base URL 配置
 ├── core/speech/         # 讯飞 ASR 封装
 ├── core/tts/            # TTS 抽象与实现
-│   ├── TTSProvider.kt              # TTS 统一接口
 │   ├── RemoteTTSController.kt      # 后端 Edge-TTS 调用（主链路）
-│   └── SystemTTSController.kt      # Android 系统 TTS（降级兜底）
+│   ├── SystemTTSController.kt      # Android 系统 TTS（降级兜底）
+│   └── StreamingTtsQueue.kt        # 流式分段 TTS 播放队列
 ├── core/audio/          # ExoPlayer 音频播放封装
 ├── data/local/          # DataStore
 ├── data/remote/         # ApiService（聊天、TTS、图片上传接口）
@@ -279,8 +298,12 @@ app/src/main/jniLibs/
 - [x] 网络超时和错误可恢复
 - [x] Edge-TTS 音频合成与播放正常
 - [x] 系统 TTS 降级兜底正常
-- [ ] 流式 `chat/text/stream` 联调完成
-- [ ] `tts_segment` 分段播放和等待续播体验验证完成
+- [x] 流式 `chat/text/stream` 联调完成
+- [x] `tts_segment` 分段播放和等待续播体验验证完成
+- [x] 高精度口型同步（15 种 Viseme）
+- [x] 流式音频进度同步口型
+- [x] 表情时间轴与动作队列播放
+- [x] 动作过渡 v2.1（眼球方向、速度自适应）
 
 ---
 

@@ -1,8 +1,8 @@
 # Live2D 数字人实现说明
 
-版本：v2.0  
-日期：2026-04-28  
-定位：按当前 Android 客户端源码和 API 契约整理
+版本：v2.1  
+日期：2026-04-30  
+定位：按当前 Android 客户端源码和 API 契约整理（含流式播放与动作过渡 v2.1）
 
 ---
 
@@ -184,7 +184,93 @@ fun attachSurfaceView(surfaceView: Live2DGLSurfaceView) {
 
 ---
 
-## 六、历史模块职责图（保留归档）
+## 六、已完成的流式播放支持
+
+### 6.1 背景
+
+流式问答接口 `POST /api/v1/chat/text/stream` 返回 `tts_segment` 事件，每个 segment 包含独立音频和 marks。Android 端需要：
+1. 将多个 segment 排队顺序播放
+2. 每段使用自己的 marks 驱动口型（时间戳为片段内相对时间）
+3. segment 之间的短 gap 内不闭合嘴巴，避免顿挫
+4. 队列为空但流未结束时等待，流结束后自然播完
+
+### 6.2 实现架构
+
+```text
+StreamingTtsQueue
+├── pendingQueue    # 待入队 segment
+├── submittedSegments  # 已提交给 ExoPlayer 的 segment
+└── 定时器轮询：检测上一段播放完成 → 回调 onSegmentComplete → 播下一段
+
+AvatarPlaybackManager
+├── streamingTtsQueue    # 分段队列实例
+├── streamingAudioPlayer # ExoPlayer 实例
+├── currentSegmentEvents # 当前 segment 的口型事件（从 0 开始）
+└── audioPositionSyncJob # 60fps 口型同步协程
+```
+
+### 6.3 口型同步机制
+
+```kotlin
+// 每段 segment 独立处理
+private fun updateCurrentSegmentLipSync(segment: TtsSegmentData) {
+    val events = if (!marks.isNullOrEmpty()) {
+        ChinesePhonemeEngine.marksToPhonemeEvents(marks)
+    } else {
+        ChinesePhonemeEngine.textToPhonemeEvents(text, duration)
+    }
+    // 按字合并，消除字内抖动
+    currentSegmentEvents = LipSyncAnimator.mergeEventsByChar(events).toMutableList()
+    // 启动基于音频进度的口型同步
+    startAudioSyncedLipSync()
+}
+```
+
+**关键设计**：
+- 每段口型事件时间从 0 开始，不跨 segment 累计
+- 使用 `streamingAudioPlayer.getCurrentPosition()` 直接驱动口型
+- 超前补偿 30ms（`lipSyncLeadMs`）
+- 字间动态保持（快语速 gap < 150ms 时不完全闭合）
+- 音频结束/进度停滞时强制闭合
+
+### 6.4 降级策略
+
+若流式接口未返回 TTS segment（如后端 TTS 服务异常），在 `finishStreamingInput()` 后检测到 `receivedTtsSegment == false`：
+1. 使用系统 TTS 播放累计文本
+2. 通过 `ChinesePhonemeEngine.textToPhonemeEvents()` 本地生成口型事件
+3. 走非流式口型动画流程
+
+### 6.5 动作过渡 v2.1
+
+`GestureTransitionController` 已支持：
+- 眼球方向参数（`eyeBallX`、`eyeBallY`）：`POINT_LEFT` 眼球向左，`POINT_RIGHT` 眼球向右，`LOOK_UP` 眼球向上
+- 速度自适应过渡时间：`calculateTransitionMs(speed)` — 速度越快，过渡时间越短
+- `MotionTransitionManager` 管理动作层混合，支持交叉淡入淡出
+
+### 6.6 表情时间轴与动作队列
+
+`AvatarPlaybackManager` 新增：
+- **表情时间轴**：`playExpressionTimeline()` 按 `startOffsetMs` 定时切换表情
+- **动作队列**：`playMotionQueue()` 按 `startOffsetMs` 定时切换动作，支持 `durationMs` 自动恢复 IDLE
+
+```kotlin
+data class ExpressionTimelineItem(
+    val expression: AvatarExpression,
+    val startOffsetMs: Long,
+    val intensity: Float = 0.7f,
+    val transitionMs: Long = 200
+)
+
+data class MotionQueueItem(
+    val type: String,
+    val startOffsetMs: Long,
+    val durationMs: Long = 0
+)
+```
+
+---
+
+## 七、历史模块职责图（保留归档）
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -217,16 +303,16 @@ fun attachSurfaceView(surfaceView: Live2DGLSurfaceView) {
 
 ## 七、历史开发阶段划分
 
-### Phase 1: SDK 集成与基础渲染（2天）
+### Phase 1: SDK 集成与基础渲染 ✅
 
 **目标**：在 App 中显示 Live2D 模型
 
 **任务清单**：
-- [ ] 添加 Live2D Cubism SDK 依赖
-- [ ] 创建 Live2DRenderer 基础框架
-- [ ] 实现模型加载（.moc3 + textures）
-- [ ] 在 AvatarView 中显示模型
-- [ ] 验证官方示例模型正常显示
+- [x] 添加 Live2D Cubism SDK 依赖
+- [x] 创建 Live2DRenderer 基础框架
+- [x] 实现模型加载（.moc3 + textures）
+- [x] 在 AvatarView 中显示模型
+- [x] 验证官方示例模型正常显示
 
 **验收标准**：
 - App 能显示 Live2D 角色
@@ -234,17 +320,17 @@ fun attachSurfaceView(surfaceView: Live2DGLSurfaceView) {
 
 ---
 
-### Phase 2: 参数控制与口型同步（2天）
+### Phase 2: 参数控制与口型同步 ✅
 
 **目标**：实现口型与 TTS 同步
 
 **任务清单**：
-- [ ] 实现 TTSController 接口
-- [ ] 集成讯飞 TTS（已有 SDK）
-- [ ] 实现音素回调监听
-- [ ] 实现 PhonemeToVisemeMapper
-- [ ] Live2DRenderer 实现口型参数映射
-- [ ] 联调测试：说话时口型同步
+- [x] 实现 TTSController 接口
+- [x] 集成后端 Edge-TTS
+- [x] 实现音素回调监听
+- [x] 实现 ChinesePhonemeEngine + ChineseVisemeMapper
+- [x] Live2DRenderer 实现口型参数映射
+- [x] 联调测试：说话时口型同步
 
 **Live2D 参数映射**：
 ```kotlin
@@ -259,17 +345,17 @@ ParamMouthForm   → mouthForm (-1.0 - 1.0)
 
 ---
 
-### Phase 3: 表情与动作系统（2天）
+### Phase 3: 表情与动作系统 ✅
 
 **目标**：实现表情切换和动作播放
 
 **任务清单**：
-- [ ] 定义表情与 Live2D 参数映射
-- [ ] 实现表情切换方法
-- [ ] 加载动作文件（.motion3.json）
-- [ ] 实现动作播放（play, stop, loop）
-- [ ] 集成 AvatarActionData 解析
-- [ ] 测试各表情和动作
+- [x] 定义表情与 Live2D 参数映射（13 种表情）
+- [x] 实现表情切换方法
+- [x] 加载动作文件（.motion3.json）
+- [x] 实现动作播放（play, stop, loop）
+- [x] 集成 AvatarActionData 解析
+- [x] 测试各表情和动作
 
 **表情映射表**：
 | ExpressionType | Live2D 动作/参数 |
@@ -287,15 +373,17 @@ ParamMouthForm   → mouthForm (-1.0 - 1.0)
 
 ---
 
-### Phase 4: 与后端数据对接（1天）
+### Phase 4: 与后端数据对接 ✅
 
 **目标**：接收后端指令驱动数字人
 
 **任务清单**：
-- [ ] 实现 AvatarPlaybackManager
-- [ ] 解析 AvatarActionData
-- [ ] 实现完整播放流程
-- [ ] 测试端到端流程
+- [x] 实现 AvatarPlaybackManager
+- [x] 解析 AvatarActionData
+- [x] 实现完整播放流程
+- [x] 测试端到端流程
+- [x] 流式分段 TTS 队列播放
+- [x] 表情时间轴与动作队列
 
 **播放流程**：
 ```
@@ -306,12 +394,15 @@ ParamMouthForm   → mouthForm (-1.0 - 1.0)
 - 收到后端数据后自动播放
 - 表情、动作、口型协调工作
 - 播放完成后恢复 IDLE
+- 流式模式下 segment 间切换自然
 
 ---
 
-### Phase 5: 换装系统（1天）
+### Phase 5: 换装系统（待定）
 
 **目标**：支持切换外观
+
+**状态**：当前阶段未启动，优先级低于口型同步与流式播放。
 
 **任务清单**：
 - [ ] 定义 AvatarConfig 数据模型
@@ -320,18 +411,6 @@ ParamMouthForm   → mouthForm (-1.0 - 1.0)
 - [ ] 创建形象配置 UI
 - [ ] 测试换装功能
 
-**换装能力**：
-```kotlin
-// 切换服装
-renderer.switchCostume("costume_summer.png")
-
-// 切换发型
-renderer.switchHair("hair_ponytail.png")
-
-// 切换配饰
-renderer.switchAccessory("glasses_01.png")
-```
-
 **验收标准**：
 - 能切换服装
 - 能切换发型
@@ -339,14 +418,15 @@ renderer.switchAccessory("glasses_01.png")
 
 ---
 
-### Phase 6: 优化与打磨（1天）
+### Phase 6: 优化与打磨（进行中）
 
 **目标**：提升用户体验
 
 **任务清单**：
-- [ ] 添加自动眨眼
-- [ ] 添加呼吸动画
-- [ ] 优化口型过渡
+- [x] 添加自动眨眼
+- [x] 添加呼吸动画
+- [x] 优化口型过渡（缓动曲线、协同发音、按字合并）
+- [x] 流式口型同步（音频进度驱动）
 - [ ] 添加头部微动
 - [ ] 性能优化
 - [ ] 异常处理完善

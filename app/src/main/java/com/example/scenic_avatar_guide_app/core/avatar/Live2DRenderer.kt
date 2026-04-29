@@ -12,6 +12,9 @@ object Live2DParams {
 
     // ==================== 表情参数（Expression 独占）====================
     // 面部：眉毛、眼睛、眼珠、脸颊
+    const val EYE_L_OPEN = "ParamEyeLOpen"
+    const val EYE_R_OPEN = "ParamEyeROpen"
+
     // 嘴部变形（Expression 管嘴形，LipSync 管开合）
     const val MOUTH_FORM = "ParamMouthForm"
 
@@ -28,6 +31,10 @@ object Live2DParams {
 
     // 肩膀
     const val SHOULDER = "ParamShoulder"
+
+    // 眼球方向
+    const val EYE_BALL_X = "ParamEyeBallX"
+    const val EYE_BALL_Y = "ParamEyeBallY"
 
     // 手臂（当前未使用：手在画面外不可见，抬臂无意义）
     const val ARM_LA = "ParamArmLA"

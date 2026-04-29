@@ -11,6 +11,7 @@
 #include <ICubismModelSetting.hpp>
 #include <Type/csmRectF.hpp>
 #include <Rendering/OpenGL/CubismRenderTarget_OpenGLES2.hpp>
+#include <mutex>
 
 #include "LAppModel_Common.hpp"
 
@@ -231,6 +232,7 @@ private:
     Csm::csmBool _motionUpdated; ///< モーション更新フラグ
 
     Csm::csmVector<PendingParameterData> _pendingParameters; ///< 待设置的参数队列（Java 层通过 JNI 添加）
+    std::mutex _pendingParametersMutex; ///< 保护 _pendingParameters 的互斥锁
 
     Csm::Rendering::CubismRenderTarget_OpenGLES2  _renderBuffer;   ///< フレームバッファ以外の描画先
 };

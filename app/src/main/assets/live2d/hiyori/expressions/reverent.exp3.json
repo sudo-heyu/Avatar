@@ -3,8 +3,6 @@
   "FadeInTime": 0.5,
   "FadeOutTime": 0.6,
   "Parameters": [
-    {"Id": "ParamAngleY", "Value": -4, "Blend": "Add"},
-    {"Id": "ParamAngleX", "Value": -2, "Blend": "Add"},
     {"Id": "ParamBrowLY", "Value": 0.2, "Blend": "Add"},
     {"Id": "ParamBrowRY", "Value": 0.2, "Blend": "Add"},
     {"Id": "ParamBrowLX", "Value": -0.1, "Blend": "Add"},

@@ -94,7 +94,16 @@
       "Bash(./gradlew buildCMakeDebug)",
       "Bash(./gradlew buildCMakeDebug compileDebugKotlin)",
       "Bash(./gradlew :app:buildCMakeDebug)",
-      "Bash(./gradlew :app:compileDebugKotlin --console=plain)"
+      "Bash(./gradlew :app:compileDebugKotlin --console=plain)",
+      "WebFetch(domain:docs.live2d.com)",
+      "WebFetch(domain:vrm.dev)",
+      "WebFetch(domain:en.wikipedia.org)",
+      "WebFetch(domain:developer.oculus.com)",
+      "WebFetch(domain:developers.meta.com)",
+      "WebFetch(domain:www.researchgate.net)",
+      "Bash(git reset *)",
+      "Bash(./gradlew compileDebugKotlin --info)",
+      "Bash(timeout 10 head -100)"
     ]
   }
 }

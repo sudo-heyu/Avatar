@@ -195,7 +195,8 @@ public:
      */
     T& Back()
     {
-        return _size > 0 ? _ptr[_size - 1] : _ptr[0];
+        CSM_ASSERT(_size > 0);
+        return _ptr[_size - 1];
     }
 
     /**

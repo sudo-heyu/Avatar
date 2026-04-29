@@ -168,7 +168,7 @@ object ChinesePhonemeEngine {
                 it.length <= 2 && it !in listOf("a", "o", "e", "i", "u", "v")
             }
             val initialRatio = ChineseVisemeMapper.getInitialDurationRatio(initial)
-            val initialDuration = (charDuration * initialRatio).toLong()
+            val initialDuration = (charDuration * initialRatio).toLong().coerceAtLeast(50L)
             val finalDuration = charDuration - initialDuration
 
             val finalPhonemes = if (initial != null) phonemes.drop(1) else phonemes
@@ -302,7 +302,7 @@ object ChinesePhonemeEngine {
                 it.length <= 2 && it !in listOf("a", "o", "e", "i", "u", "v")
             }
             val initialRatio = ChineseVisemeMapper.getInitialDurationRatio(initial)
-            val initialDuration = (markDuration * initialRatio).toLong()
+            val initialDuration = (markDuration * initialRatio).toLong().coerceAtLeast(50L)
             val finalDuration = markDuration - initialDuration
 
             val finalPhonemes = if (initial != null) correctedPhonemes.drop(1) else correctedPhonemes

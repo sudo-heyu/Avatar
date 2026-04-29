@@ -380,8 +380,13 @@ void LAppModel::Update()
     // Debug: Log motion state
     static int frameCount = 0;
     if (frameCount % 60 == 0) { // Log every 60 frames
+        csmUint32 pendingCount = 0;
+        {
+            std::lock_guard<std::mutex> lock(_pendingParametersMutex);
+            pendingCount = _pendingParameters.GetSize();
+        }
         LAppPal::PrintLogLn("[APP]Update: IsFinished=%d, PendingParams=%d",
-            _motionManager->IsFinished(), _pendingParameters.GetSize());
+            _motionManager->IsFinished(), pendingCount);
     }
     frameCount++;
 
@@ -402,8 +407,11 @@ void LAppModel::Update()
     }
 
     // Debug: Log pending parameters count
-    if (_pendingParameters.GetSize() > 0) {
-        LAppPal::PrintLogLn("[APP]FlushPendingParameters: count=%d", _pendingParameters.GetSize());
+    {
+        std::lock_guard<std::mutex> lock(_pendingParametersMutex);
+        if (_pendingParameters.GetSize() > 0) {
+            LAppPal::PrintLogLn("[APP]FlushPendingParameters: count=%d", _pendingParameters.GetSize());
+        }
     }
 
     // 执行 Java 层待设置的参数（在 SaveParameters 之前）
@@ -677,11 +685,15 @@ void LAppModel::SetParameterValue(const csmChar* parameterId, csmFloat32 value, 
     data.ParameterId = id;
     data.Value = value;
     data.Weight = weight;
+
+    std::lock_guard<std::mutex> lock(_pendingParametersMutex);
     _pendingParameters.PushBack(data);
 }
 
 void LAppModel::FlushPendingParameters()
 {
+    std::lock_guard<std::mutex> lock(_pendingParametersMutex);
+
     // 执行所有待设置的参数
     for (csmUint32 i = 0; i < _pendingParameters.GetSize(); ++i)
     {

@@ -161,15 +161,20 @@ fun MainScreen(
     DisposableEffect(Unit) { onDispose { speechHelper.destroy() } }
 
     LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) coroutineScope.launch { listState.animateScrollToItem(messages.size - 1) }
+        if (messages.isNotEmpty()) {
+            // 使用 scrollToItem 替代 animateScrollToItem，避免滚动动画期间
+            // 与文本高频更新/输入法收起叠加触发字体渲染竞态（Vivo Android 15）
+            coroutineScope.launch { listState.scrollToItem(messages.size - 1) }
+        }
     }
 
     // 输入法弹出/收起时滚动到底部，确保最新消息不被遮挡
     val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
     LaunchedEffect(imeBottom) {
         if (messages.isNotEmpty()) {
-            delay(150)
-            coroutineScope.launch { listState.animateScrollToItem(messages.size - 1) }
+            // 延迟滚动，让重组和输入法动画先完成，减少与文本绘制的竞争
+            delay(200)
+            coroutineScope.launch { listState.scrollToItem(messages.size - 1) }
         }
     }
 
@@ -396,7 +401,7 @@ private fun CompactTestPanel(
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
                     modifier = Modifier.heightIn(max = 28.dp)
                 ) {
-                    Text("表情", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text("表情", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
                 TextButton(
                     onClick = { selectedPanel = toggle(selectedPanel, TestPanelType.GESTURE) },
@@ -404,7 +409,7 @@ private fun CompactTestPanel(
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
                     modifier = Modifier.heightIn(max = 28.dp)
                 ) {
-                    Text("动作", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text("动作", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
                 TextButton(
                     onClick = { selectedPanel = toggle(selectedPanel, TestPanelType.SCENARIO) },
@@ -412,7 +417,7 @@ private fun CompactTestPanel(
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
                     modifier = Modifier.heightIn(max = 28.dp)
                 ) {
-                    Text("场景", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text("场景", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
                 TextButton(
                     onClick = { selectedPanel = toggle(selectedPanel, TestPanelType.LIPSYNC) },
@@ -420,7 +425,7 @@ private fun CompactTestPanel(
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
                     modifier = Modifier.heightIn(max = 28.dp)
                 ) {
-                    Text("口型", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text("口型", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
 
@@ -502,7 +507,7 @@ private fun ScenarioCompactItem(
         // 类别标签
         Text(
             text = scenario.category,
-            fontSize = 7.sp,
+            fontSize = 12.sp,
             color = Primary,
             modifier = Modifier
                 .background(Primary.copy(alpha = 0.1f), RoundedCornerShape(2.dp))
@@ -512,7 +517,7 @@ private fun ScenarioCompactItem(
         // 场景名称
         Text(
             text = scenario.label,
-            fontSize = 9.sp,
+            fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
             color = TextPrimary,
             maxLines = 1,
@@ -522,7 +527,7 @@ private fun ScenarioCompactItem(
         // 表情和动作标签
         Text(
             text = scenario.expression.value,
-            fontSize = 7.sp,
+            fontSize = 12.sp,
             color = TextSecondary,
             modifier = Modifier
                 .background(SurfaceVariant, RoundedCornerShape(2.dp))
@@ -531,7 +536,7 @@ private fun ScenarioCompactItem(
         Spacer(Modifier.width(3.dp))
         Text(
             text = scenario.gesture.value,
-            fontSize = 7.sp,
+            fontSize = 12.sp,
             color = TextSecondary,
             modifier = Modifier
                 .background(SurfaceVariant, RoundedCornerShape(2.dp))
@@ -584,7 +589,7 @@ private fun LipSyncTestItem(
         // 类别标签
         Text(
             text = test.category,
-            fontSize = 7.sp,
+            fontSize = 12.sp,
             color = Accent,
             modifier = Modifier
                 .background(Accent.copy(alpha = 0.1f), RoundedCornerShape(2.dp))
@@ -594,7 +599,7 @@ private fun LipSyncTestItem(
         // 测试名称
         Text(
             text = test.label,
-            fontSize = 9.sp,
+            fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
             color = TextPrimary,
             maxLines = 1,
@@ -635,7 +640,7 @@ private fun TestButtonGrid(
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Primary),
                         border = null
                     ) {
-                        Text(label, fontSize = 9.sp, maxLines = 1)
+                        Text(label, fontSize = 13.sp, maxLines = 1)
                     }
                 }
                 // 补足空位保持对齐
@@ -715,7 +720,11 @@ private fun MessageList(
         contentPadding = PaddingValues(top = 8.dp, bottom = bottomPaddingDp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(messages, key = { it.id }) { message ->
+        items(
+            messages,
+            key = { it.id },
+            contentType = { if (it.isUser) "user" else "assistant" }
+        ) { message ->
             MessageBubble(message = message)
         }
     }
@@ -754,10 +763,12 @@ private fun MessageBubble(message: ChatMessage) {
                 ) {
                     if (hasContent) {
                         Text(
-                            message.content,
+                            text = message.content,
                             fontSize = 14.sp,
                             lineHeight = 20.sp,
-                            color = if (isUser) UserBubbleText else AssistantBubbleText
+                            color = if (isUser) UserBubbleText else AssistantBubbleText,
+                            maxLines = 100,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 

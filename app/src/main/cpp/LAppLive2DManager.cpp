@@ -8,6 +8,7 @@
 #include "LAppLive2DManager.hpp"
 #include <string.h>
 #include <stdlib.h>
+#include <mutex>
 #include <GLES2/gl2.h>
 #include <Rendering/CubismRenderer.hpp>
 #include <Rendering/OpenGL/CubismOffscreenManager_OpenGLES2.hpp>
@@ -23,6 +24,7 @@ using namespace LAppDefine;
 
 namespace {
     LAppLive2DManager* s_instance = NULL;
+    std::once_flag s_onceFlag;
     const char DefaultModelDir[] = "live2d/hiyori";
     const char DefaultModelJson[] = "Hiyori.model3.json";
     const char DefaultSceneKey[] = "hiyori";
@@ -46,10 +48,9 @@ namespace {
 
 LAppLive2DManager* LAppLive2DManager::GetInstance()
 {
-    if (s_instance == NULL)
-    {
+    std::call_once(s_onceFlag, []() {
         s_instance = new LAppLive2DManager();
-    }
+    });
 
     return s_instance;
 }

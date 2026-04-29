@@ -7,6 +7,7 @@
 
 #include "LAppDelegate.hpp"
 #include <iostream>
+#include <mutex>
 #include <GLES2/gl2.h>
 #include "LAppView.hpp"
 #include "LAppPal.hpp"
@@ -24,14 +25,14 @@ using namespace LAppDefine;
 
 namespace {
     LAppDelegate* s_instance = NULL;
+    std::once_flag s_onceFlag;
 }
 
 LAppDelegate* LAppDelegate::GetInstance()
 {
-    if (s_instance == NULL)
-    {
+    std::call_once(s_onceFlag, []() {
         s_instance = new LAppDelegate();
-    }
+    });
 
     return s_instance;
 }

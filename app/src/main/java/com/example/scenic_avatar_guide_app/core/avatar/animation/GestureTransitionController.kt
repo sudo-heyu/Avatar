@@ -12,7 +12,10 @@ data class GestureParams(
     val bodyAngleX: Float = 0f,
     val bodyAngleY: Float = 0f,
     val bodyAngleZ: Float = 0f,
-    val shoulder: Float = 0f
+    val shoulder: Float = 0f,
+    // 眼球方向
+    val eyeBallX: Float = 0f,
+    val eyeBallY: Float = 0f
 ) {
     companion object {
         val IDLE = GestureParams()
@@ -32,10 +35,12 @@ data class GestureParams(
                 angleX = -20f, angleY = -10f, angleZ = -15f
             )
             AvatarGesture.POINT_LEFT -> GestureParams(
-                angleX = -28f, angleY = 5f, angleZ = 12f
+                angleX = -28f, angleY = 5f, angleZ = 12f,
+                eyeBallX = -1f  // 眼球向左看
             )
             AvatarGesture.POINT_RIGHT -> GestureParams(
-                angleX = 28f, angleY = 5f, angleZ = -12f
+                angleX = 28f, angleY = 5f, angleZ = -12f,
+                eyeBallX = 1f  // 眼球向右看
             )
             AvatarGesture.POINT_FORWARD -> GestureParams(
                 angleY = 22f, angleX = 8f, angleZ = -8f
@@ -49,8 +54,12 @@ data class GestureParams(
             AvatarGesture.GUIDE -> GestureParams(
                 angleX = 25f, angleY = 12f, angleZ = -10f
             )
+            // 仰望：头向上仰（angleY正值=下巴向上）、眼球向上看（eyeBallY正值）、身体后仰（bodyAngleY负值）
             AvatarGesture.LOOK_UP -> GestureParams(
-                angleY = -28f, angleZ = 12f
+                angleY = 45f,
+                angleZ = 10f,
+                bodyAngleY = -12f,
+                eyeBallY = 1.0f
             )
             AvatarGesture.LISTEN -> GestureParams(
                 angleX = 20f, angleY = 18f, angleZ = -18f
@@ -73,7 +82,9 @@ data class GestureParams(
             bodyAngleX = bodyAngleX + (target.bodyAngleX - bodyAngleX) * clampedT,
             bodyAngleY = bodyAngleY + (target.bodyAngleY - bodyAngleY) * clampedT,
             bodyAngleZ = bodyAngleZ + (target.bodyAngleZ - bodyAngleZ) * clampedT,
-            shoulder = shoulder + (target.shoulder - shoulder) * clampedT
+            shoulder = shoulder + (target.shoulder - shoulder) * clampedT,
+            eyeBallX = eyeBallX + (target.eyeBallX - eyeBallX) * clampedT,
+            eyeBallY = eyeBallY + (target.eyeBallY - eyeBallY) * clampedT
         )
     }
 }
@@ -218,6 +229,18 @@ class GestureTransitionController {
         const val DEFAULT_TRANSITION_MS = 300L
         const val FAST_TRANSITION_MS = 150L
         const val SLOW_TRANSITION_MS = 500L
+
+        /**
+         * 根据速度倍率计算过渡时间
+         * 速度越快，过渡时间越短
+         *
+         * @param speed 速度倍率 (0.5 - 2.0)
+         * @return 过渡时间（毫秒）
+         */
+        fun calculateTransitionMs(speed: Float): Long {
+            val clampedSpeed = speed.coerceIn(0.5f, 2.0f)
+            return (DEFAULT_TRANSITION_MS / clampedSpeed).toLong()
+        }
     }
 }
 

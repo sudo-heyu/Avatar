@@ -1,8 +1,8 @@
 # 移动端 API 接口契约
 
-版本：v7.0  
-日期：2026-04-29  
-状态：**新增流式问答与分段 TTS 事件协议，保留非流式接口作为降级路径**
+版本：v7.1  
+日期：2026-04-30  
+状态：**新增流式问答与分段 TTS 事件协议，保留非流式接口作为降级路径；口型同步升级为15种高精度 Viseme，表情/动作枚举补全**
 
 ---
 
@@ -607,18 +607,23 @@ data class AvatarExpressionData(
 )
 ```
 
-**表情类型**：
+**表情类型**（共 13 种）：
 
-| 类型 | 说明 | 典型场景 |
-|------|------|---------|
-| `neutral` | 中性 | 普通回复 |
-| `happy` | 开心 | 欢迎、推荐 |
-| `thinking` | 思考 | 回答问题 |
-| `surprised` | 惊讶 | 意外信息 |
-| `excited` | 兴奋 | 介绍亮点 |
-| `concerned` | 关切 | 提醒注意 |
-| `apologetic` | 抱歉 | 无法回答 |
-| `welcoming` | 欢迎 | 开场白 |
+| 类型 | 说明 | 典型场景 | 层次 |
+|------|------|---------|------|
+| `neutral` | 中性 | 普通回复 | 基础态 |
+| `happy` | 开心 | 欢迎、推荐 | 积极层 |
+| `excited` | 兴奋 | 介绍亮点 | 积极层 |
+| `welcoming` | 欢迎 | 开场白 | 积极层 |
+| `approving` | 赞许 | 认同肯定 | 积极层 |
+| `thinking` | 思考 | 回答问题 | 交互层 |
+| `playful` | 俏皮 | 轻松调侃 | 交互层 |
+| `focused` | 专注 | 认真聆听 | 交互层 |
+| `concerned` | 关切 | 提醒注意 | 特殊层 |
+| `apologetic` | 抱歉 | 无法回答 | 特殊层 |
+| `reverent` | 庄重 | 宗教场所 | 特殊层 |
+| `surprised` | 惊讶 | 意外信息 | 情感层 |
+| `grateful` | 感恩 | 感谢欣慰 | 情感层 |
 
 ---
 
@@ -641,20 +646,23 @@ data class AvatarGestureData(
 )
 ```
 
-**动作类型**：
+**动作类型**（共 13 种）：
 
 | 类型 | 说明 | 典型场景 |
 |------|------|---------|
 | `idle` | 待机 | 默认状态 |
 | `nod` | 点头 | 肯定、同意 |
 | `shake` | 摇头 | 否定 |
-| `wave` | 挥手 | 欢迎、再见 |
-| `point_left` | 指左 | 介绍左侧景点 |
-| `point_right` | 指右 | 介绍右侧景点 |
-| `point_forward` | 指前 | 介绍前方景点 |
-| `bow` | 鞠躬 | 感谢、道歉 |
-| `thinking_pose` | 思考姿势 | 回答问题 |
-| `guide` | 引导姿势 | 路线指引 |
+| `wave` | 挥手/致意 | 日常问候 |
+| `point_left` | 看左 | 介绍左侧景物 |
+| `point_right` | 看右 | 介绍右侧景物 |
+| `point_forward` | 示意 | 介绍前方景物 |
+| `bow` | 欠身 | 感谢、道歉 |
+| `thinking_pose` | 沉思 | 思考问题 |
+| `guide` | 引导 | 路线指引 |
+| `look_up` | 仰望 | 看高处、惊叹 |
+| `listen` | 聆听 | 认真倾听 |
+| `welcome_gesture` | 欢迎 | 隆重欢迎、开场 |
 
 ---
 
@@ -733,13 +741,14 @@ data class AvatarMarkData(
 | 文本内容 | 推荐动作 |
 |----------|---------|
 | "请看左/右前方" | `point_left` / `point_right` |
-| "抬头看" | `point_forward`（或扩展 `look_up`） |
+| "抬头看" | `look_up` |
 | "建议您" | `guide` |
 | "明白/确认" | `nod` |
 | "抱歉/无法" | `bow` + `shake` |
 | "千年历史" | `thinking_pose` |
 | "世界最高" | `surprised`（表情）+ `point_forward` |
 | "祈福/神圣" | `reverent`（表情）+ `guide` |
+| "请听我说" | `listen` |
 
 #### 场景分类参考
 
@@ -1028,14 +1037,19 @@ enum class AvatarExpression(val value: String) {
     NEUTRAL("neutral"),
     HAPPY("happy"),
     THINKING("thinking"),
-    SURPRISED("surprised"),
     EXCITED("excited"),
     CONCERNED("concerned"),
     APologetic("apologetic"),
-    WELCOMING("welcoming");
+    WELCOMING("welcoming"),
+    APPROVING("approving"),
+    PLAYFUL("playful"),
+    REVERENT("reverent"),
+    SURPRISED("surprised"),
+    GRATEFUL("grateful"),
+    FOCUSED("focused");
 
     companion object {
-        fun fromValue(value: String?) = 
+        fun fromValue(value: String?) =
             entries.find { it.value == value } ?: NEUTRAL
     }
 }
@@ -1050,25 +1064,47 @@ enum class AvatarGesture(val value: String) {
     POINT_FORWARD("point_forward"),
     BOW("bow"),
     THINKING_POSE("thinking_pose"),
-    GUIDE("guide");
+    GUIDE("guide"),
+    LOOK_UP("look_up"),
+    LISTEN("listen"),
+    WELCOME_GESTURE("welcome_gesture");
 
     companion object {
-        fun fromValue(value: String?) = 
+        fun fromValue(value: String?) =
             entries.find { it.value == value } ?: IDLE
     }
 }
 
 enum class VisemeType(val mouthOpen: Float, val mouthForm: Float = 0f) {
-    CLOSED(0.0f),
-    SLIGHT(0.25f),
-    HALF(0.5f),
-    OPEN(0.9f),
-    WIDE(0.6f, -0.3f),
-    ROUND(0.5f, 0.6f),
-    NEUTRAL(0.1f);
+    // 向后兼容旧口型
+    CLOSED(0.0f, 0f),
+    SLIGHT(0.35f, 0f),
+    HALF(0.65f, 0f),
+    OPEN(1.0f, 0f),
+    WIDE(0.75f, -0.3f),
+    ROUND(0.7f, 0.6f),
+    NEUTRAL(0.15f, 0f),
+
+    // 高精度中文口型（15种）
+    SIL(0.0f, 0.0f),
+    BP(0.05f, 0.0f),
+    F(0.2f, -0.2f),
+    DT(0.3f, 0.0f),
+    GK(0.55f, 0.0f),
+    JQ(0.4f, -0.4f),
+    ZC(0.35f, 0.0f),
+    ZH(0.4f, 0.0f),
+    A(1.0f, 0.0f),
+    O(0.85f, 0.6f),
+    E(0.7f, 0.0f),
+    I(0.55f, -0.5f),
+    U(0.65f, 0.4f),
+    V(0.55f, -0.3f),
+    UA(0.9f, 0.2f);
 
     companion object {
         fun fromPhoneme(phoneme: String): VisemeType { ... }
+        fun fromChar(char: Char): VisemeType { ... }
     }
 }
 ```
@@ -1211,3 +1247,4 @@ enum class VisemeType(val mouthOpen: Float, val mouthForm: Float = 0f) {
 | v5.1 | 2026-04-29 | **Edge-TTS 接口已完成 Android 端联调；修正 `duration_ms` 可空类型；确认系统 TTS 降级兜底正常** |
 | v6.0 | 2026-04-29 | **交互模式重构：三种模式缩减为两种（聊天问答 + 路线规划），统一 `POST /api/v1/chat/text` 接口，通过 `mode` 字段区分；新增 `route_data` 响应结构；新增图片上传接口** |
 | v7.0 | 2026-04-29 | **新增 `POST /api/v1/chat/text/stream` 流式接口摘要；引入 `text_delta`、`tts_segment`、`done` 等事件；明确分段 TTS 队列播放与非流式降级路径** |
+| v7.1 | 2026-04-30 | **口型同步升级为 15 种高精度 Viseme；AvatarExpression 补全为 13 种；AvatarGesture 补全为 13 种；同步动作语义匹配与场景示例** |

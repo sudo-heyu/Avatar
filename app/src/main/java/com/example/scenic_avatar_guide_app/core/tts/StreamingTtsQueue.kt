@@ -27,7 +27,7 @@ class StreamingTtsQueue(
     private val audioPlayer: AudioPlayer,
     private val buildAudioUrl: suspend (String) -> String,
     private val onSegmentStart: (TtsSegmentData) -> Unit,
-    private val onSegmentComplete: (TtsSegmentData) -> Unit,
+    private val onSegmentComplete: (TtsSegmentData, actualDurationMs: Long) -> Unit,
     private val onWaitingForSegment: () -> Unit,
     private val onAllComplete: () -> Unit,
     private val onError: (Throwable) -> Unit
@@ -59,7 +59,10 @@ class StreamingTtsQueue(
                         if (completed != null) {
                             val elapsed = System.currentTimeMillis() - segmentStartTime
                             Log.d(TAG, "[TIMER] segment=${completed.segmentId} 播放完成，历时=${elapsed}ms，队列剩余=${submittedSegments.size}")
-                            onSegmentComplete(completed)
+                            // 传入实际播放时长
+                            onSegmentComplete(completed, elapsed)
+                            // 清理 ExoPlayer 中已播放的媒体项，避免播放列表无限膨胀
+                            audioPlayer.removeMediaItem(0)
                             currentSegment = submittedSegments.firstOrNull()
                             segmentStartTime = System.currentTimeMillis()
                             currentSegment?.let(onSegmentStart)
@@ -87,10 +90,13 @@ class StreamingTtsQueue(
                 if (completed != null) {
                     val elapsed = System.currentTimeMillis() - segmentStartTime
                     Log.d(TAG, "[TIMER] segment=${completed.segmentId} 播放完成(ENDED)，历时=${elapsed}ms")
-                    onSegmentComplete(completed)
+                    onSegmentComplete(completed, elapsed)
                 }
                 currentSegment = null
                 segmentStarted = false
+
+                // 最后一个 item 播放完成，也清理一下播放列表
+                audioPlayer.removeMediaItem(0)
 
                 if (inputFinished) {
                     active = false
@@ -117,11 +123,12 @@ class StreamingTtsQueue(
         segmentStarted = false
         inputFinished = false
         active = true
-        Log.d(TAG, "队列已启动")
+        Log.d(TAG, "[QUEUE] 队列已启动，等待 segment 入队")
     }
 
     fun enqueue(segment: TtsSegmentData) {
         if (!active) start()
+        Log.d(TAG, "[QUEUE] enqueue: segmentId=${segment.segmentId}, text=${segment.text.take(15)}, audioUrl=${segment.audioUrl}, durationMs=${segment.durationMs}, marks=${segment.marks?.size}")
         pendingQueue.addLast(segment)
         submittedSegments.addLast(segment)
 
