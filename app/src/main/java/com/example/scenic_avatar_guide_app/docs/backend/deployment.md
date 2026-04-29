@@ -13,17 +13,19 @@
 - 文本转音频合成
 - 音频文件缓存与分发
 - 词级时间标记（marks）生成（用于口型同步）
+- 流式问答中的短句分段音频生成（通过 `tts_segment` 事件下发）
 
 架构简图：
 
 ```text
 Android App
    │ POST /api/v1/tts/synthesize
+   │ 或 POST /api/v1/chat/text/stream 中的 tts_segment
    ▼
 FastAPI + Edge-TTS 服务
    │
    ├── 命中缓存 → 直接返回 audio_url
-   └── 未命中 → 调用 Microsoft Edge TTS → 生成 mp3 → 缓存 → 返回
+   └── 未命中 → 调用 Microsoft Edge TTS → 生成 mp3 → 缓存 → 返回 audio_url / tts_segment
 ```
 
 ---
@@ -428,6 +430,7 @@ find storage/audio -name "*.mp3" -mtime +7 -delete
 | 阶段 | 目标 | 动作 |
 |------|------|------|
 | 第一阶段 | 最小可用 | 上述代码直接运行，Android 播放 `audio_url` |
+| 流式阶段 | 低延迟体验 | 问答流返回 `tts_segment`，Android 分段排队播放 |
 | 第二阶段 | 口型同步 | 后端返回 `marks`，Android 按时间驱动口型 |
 | 第三阶段 | 缓存优化 | 预生成常用讲解词，减少实时请求 |
 | 第四阶段 | 音色管理 | 管理后台动态配置默认音色列表 |
@@ -439,4 +442,5 @@ find storage/audio -name "*.mp3" -mtime +7 -delete
 
 - Edge-TTS GitHub：`https://github.com/rany2/edge-tts`
 - FastAPI 文档：`https://fastapi.tiangolo.com/`
-- Android 端接口契约：`../architecture/API_CONTRACT.md`
+- Android 端接口契约：`../api/API_CONTRACT.md`
+- 流式重构方案：`../api/STREAMING_REFACTOR_PLAN.md`

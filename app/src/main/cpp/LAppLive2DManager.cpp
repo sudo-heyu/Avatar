@@ -261,6 +261,17 @@ void LAppLive2DManager::SetParameter(const csmChar* parameterId, csmFloat32 valu
     }
 }
 
+void LAppLive2DManager::SetExpression(const csmChar* expressionId)
+{
+    for (csmUint32 i = 0; i < _models.GetSize(); ++i)
+    {
+        if (_models[i] != NULL)
+        {
+            _models[i]->SetExpression(expressionId);
+        }
+    }
+}
+
 void LAppLive2DManager::NextScene()
 {
     csmInt32 no = (LAppDelegate::GetInstance()->GetSceneIndex() + 1) % _modelDir.GetSize();

@@ -11,18 +11,27 @@
 当前数字人正式链路应理解为：
 
 ```text
+非流式：
 后端返回 reply_text / avatar_action
 → Android 端请求后端 /api/v1/tts/synthesize 获取 audio_url
 → ExoPlayer 播放音频
 → 音频播放过程中驱动口型
 → 数字人根据状态和动作数据联动
+
+流式：
+后端返回 text_delta / tts_segment / avatar_action
+→ Android 端增量展示 text_delta
+→ tts_segment.audio_url 进入分段播放队列
+→ 每段 marks 驱动该片段口型
+→ 队列为空但流未结束时口型归零并等待
 ```
 
 这意味着：
 
 1. TTS 由后端 Edge-TTS 服务统一提供
-2. 后端返回文本与动作数据，移动端额外调用 TTS 接口获取音频
-3. 当前正式接口仍是 `POST /api/v1/chat/text`，TTS 接口为 `POST /api/v1/tts/synthesize`
+2. 非流式下，后端返回文本与动作数据，移动端额外调用 TTS 接口获取音频
+3. 流式下，后端通过 `POST /api/v1/chat/text/stream` 返回 `tts_segment`，移动端不再对每段文本单独调用 TTS 接口
+4. 当前正式接口包括 `POST /api/v1/chat/text`、`POST /api/v1/chat/text/stream`，TTS 接口为 `POST /api/v1/tts/synthesize`
 
 ---
 
@@ -86,6 +95,9 @@ app/src/main/assets/live2d/hiyori/
 5. `avatar_action.marks`
 6. `metadata.intent`
 7. `metadata.emotion`
+8. 流式模式下的 `text_delta`
+9. 流式模式下的 `tts_segment.audio_url`
+10. 流式模式下的 `tts_segment.marks`
 
 当前 `AvatarState.kt` 已定义与契约一致的表情和动作值，文档不应再使用旧字段如 `audio_url` 或“服务端音频播报”。
 
@@ -96,7 +108,7 @@ app/src/main/assets/live2d/hiyori/
 以下是当前代码状态，需要作为阅读后续历史计划时的前置说明：
 
 1. `MainViewModel` 已优先消费 `response.avatarAction`；若后端只返回 stage1 最小字段，则再按 `intent/emotion` 做动作与表情降级。
-2. `RemoteTTSController` 当前调用后端 Edge-TTS 服务获取音频 URL，并通过字符持续时间估算口型事件；若后端返回 `marks`，可切换为精确时间戳驱动。
+2. `RemoteTTSController` 当前调用后端 Edge-TTS 服务获取音频 URL，并通过字符持续时间估算口型事件；若后端返回 `marks`，可切换为精确时间戳驱动。流式方案将新增分段 TTS 队列，每段使用自己的 `marks` 时间轴。
 3. `Live2DRendererImpl` 当前已经完成 JNI 初始化和参数入口封装，但真实参数细节仍依赖 JNI / C++ 层逐步补全。
 4. 下文保留的阶段性规划仅作历史参考；若与本节冲突，以本节和 API 契约为准。
 

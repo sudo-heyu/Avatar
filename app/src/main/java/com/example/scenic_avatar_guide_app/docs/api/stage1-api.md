@@ -21,6 +21,41 @@
 - `confidence`: 置信度，范围 0-1
 - `is_fallback`: 是否走了拒答/降级策略
 
+### 流式输出扩展
+
+阶段一非流式返回仍保持上述出参不变。新增流式接口时，主问答结果拆分为事件流输出：
+
+- `message_start`: 回答开始，返回 `message_id`、`session_id`
+- `text_delta`: 回答文本增量，移动端按顺序追加展示
+- `tts_segment`: 后端已合成的短句音频片段，包含 `audio_url`、`duration_ms`、`marks`
+- `sources`: 命中的知识来源列表
+- `metadata`: `latency_ms`、`confidence`、`is_fallback` 等统计与降级信息
+- `done`: 后端流式输出结束
+- `error`: 流式链路异常
+
+推荐接口：
+
+```http
+POST /api/v1/chat/text/stream
+Accept: text/event-stream
+Content-Type: application/json
+```
+
+示例事件：
+
+```text
+event: text_delta
+data: {"type":"text_delta","delta":"建议您从九龙灌浴开始，"}
+
+event: tts_segment
+data: {"type":"tts_segment","segment_id":"seg_001","text":"建议您从九龙灌浴开始，","audio_url":"/api/v1/tts/file/seg_001.mp3","duration_ms":2100,"marks":[]}
+
+event: done
+data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
+```
+
+流式接口只改变传输方式，不改变问答主链路的业务语义。非流式接口继续作为降级路径保留。
+
 ### `sources` 结构
 ```json
 [
@@ -54,3 +89,9 @@
 - `src/api/dashboard.js`: Dashboard 概览占位
 - `src/api/knowledge.js`: 知识文档列表占位
 - `src/api/records.js`: 问答记录占位
+
+## 3. 相关文档
+
+- `API_CONTRACT.md`: 移动端完整接口契约，包含非流式与流式接口摘要
+- `API_TTS_USAGE.md`: Edge TTS 独立接口与流式分段 TTS 说明
+- `STREAMING_REFACTOR_PLAN.md`: 流式输入输出重构详细方案

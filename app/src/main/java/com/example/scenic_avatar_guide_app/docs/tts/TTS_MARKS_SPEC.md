@@ -8,13 +8,13 @@
 
 ## 1. 概述
 
-`marks` 是 TTS 合成接口返回的**字级时间戳数组**，每个元素包含：
+`marks` 是 TTS 合成接口或流式 `tts_segment` 事件返回的**字级时间戳数组**，每个元素包含：
 
 - 字符文本
 - 开始/结束时间（毫秒）
 - 拼音音素数组（声母 + 韵母拆分）
 
-Android 端 `LipSyncAnimator` 消费 `marks` 驱动口型动画，替代原来的固定 180ms/字估算。
+Android 端 `LipSyncAnimator` 消费 `marks` 驱动口型动画，替代原来的固定 180ms/字估算。非流式场景中，`marks` 对齐整段音频；流式场景中，每个 `tts_segment.marks` 只对齐该分段音频，时间戳从该片段的 0ms 开始。
 
 ---
 
@@ -62,6 +62,31 @@ Android 端 `LipSyncAnimator` 消费 `marks` 驱动口型动画，替代原来�
   }
 }
 ```
+
+---
+
+### 2.3 流式 `tts_segment` 示例
+
+```json
+{
+  "type": "tts_segment",
+  "segment_id": "seg_001",
+  "text": "欢迎来到灵山胜境，",
+  "audio_url": "/api/v1/tts/file/seg_001.mp3",
+  "duration_ms": 1800,
+  "voice": "zh-CN-XiaoxiaoNeural",
+  "marks": [
+    { "text": "欢", "start_ms": 0, "end_ms": 220, "phonemes": ["h", "u", "an"] },
+    { "text": "迎", "start_ms": 220, "end_ms": 450, "phonemes": ["i", "ng"] }
+  ]
+}
+```
+
+约束：
+
+1. `start_ms` / `end_ms` 是片段内相对时间。
+2. 播放下一段 `tts_segment` 前，应重启该段口型时间轴。
+3. 队列为空但后端流未结束时，应停止口型并等待后续片段。
 
 ---
 

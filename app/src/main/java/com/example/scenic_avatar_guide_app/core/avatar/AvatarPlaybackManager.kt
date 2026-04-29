@@ -105,6 +105,7 @@ class AvatarPlaybackManager(
             _avatarState.update {
                 it.copy(
                     state = AvatarState.IDLE,
+                    gesture = AvatarGesture.IDLE,
                     mouthOpen = 0f,
                     mouthForm = 0f
                 )
@@ -129,10 +130,12 @@ class AvatarPlaybackManager(
             stop()
         }
 
+        val hasSpeech = !action.text.isNullOrBlank()
+
         // 设置表情
         _avatarState.update {
             it.copy(
-                state = AvatarState.SPEAKING,
+                state = if (hasSpeech) AvatarState.SPEAKING else AvatarState.IDLE,
                 expression = action.expression,
                 expressionIntensity = action.expressionIntensity,
                 gesture = action.gesture
@@ -146,7 +149,9 @@ class AvatarPlaybackManager(
 
         // 播放 TTS
         action.text?.let { text ->
-            ttsController.speak(text)
+            if (text.isNotBlank()) {
+                ttsController.speak(text)
+            }
         }
     }
 

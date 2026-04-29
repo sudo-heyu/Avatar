@@ -4,12 +4,18 @@
 
 后端已完整实现 Edge TTS 在线语音生成功能，前端可通过以下接口实现文字转语音。
 
+自流式问答方案起，TTS 有两种使用方式：
+
+1. **非流式 / 降级路径**：移动端继续调用 `POST /api/v1/tts/synthesize`，用完整文本生成完整音频。
+2. **流式问答路径**：后端在 `POST /api/v1/chat/text/stream` 的事件流中直接返回 `tts_segment`，移动端只负责分段音频排队播放。
+
 ## 基础信息
 
 - **Base URL**: `http://server_ip:8000/api/v1/tts`
 - **支持格式**: MP3 (音频文件)
 - **最大文本长度**: 500 字符
 - **缓存机制**: 相同文本+音色组合自动复用已生成的音频
+- **流式分段**: 长回答按可朗读短句生成多个音频片段，每段通过 `tts_segment` 事件下发
 
 ---
 
@@ -124,6 +130,50 @@ GET /api/v1/tts/file/tts_dd73dd073dca85db.mp3
 
 ---
 
+## 流式问答中的 TTS 分段
+
+流式问答不建议移动端拿到 `text_delta` 后再自行调用 `/tts/synthesize`，否则会增加额外 HTTP 往返并导致首句播放不稳定。推荐由后端在生成文本时同步维护朗读缓冲区，达到可朗读边界后生成音频片段，并通过 `tts_segment` 事件下发。
+
+### `tts_segment` 事件示例
+
+```json
+{
+  "type": "tts_segment",
+  "segment_id": "seg_001",
+  "text": "欢迎来到灵山胜境，",
+  "audio_url": "/api/v1/tts/file/seg_001.mp3",
+  "duration_ms": 1800,
+  "voice": "zh-CN-XiaoxiaoNeural",
+  "marks": [
+    { "text": "欢迎", "start_ms": 0, "end_ms": 420 },
+    { "text": "来到", "start_ms": 430, "end_ms": 820 },
+    { "text": "灵山胜境", "start_ms": 830, "end_ms": 1600 }
+  ]
+}
+```
+
+### 分段规则
+
+1. 不按 token 或单字合成 TTS，避免接口压力和播放碎片感。
+2. 推荐遇到 `，。！？；：` 等标点切分。
+3. 首段超过 800ms 未遇到标点时，可强制切出 8-12 个中文字符作为首段。
+4. 每个 `marks` 时间戳都是该音频片段内的相对时间。
+5. 移动端播放到队列为空且后端流未结束时，应停止口型并等待后续 `tts_segment`。
+
+### 与独立 TTS 接口的关系
+
+| 场景 | 推荐方式 |
+|------|----------|
+| 普通非流式回答 | 调用 `/api/v1/tts/synthesize` |
+| 流式回答 | 消费 `/api/v1/chat/text/stream` 中的 `tts_segment` |
+| TTS 功能测试 | 调用 `/api/v1/tts/synthesize` |
+| 固定文案缓存预热 | 调用 `/api/v1/tts/synthesize` |
+| 流式接口失败降级 | 可回退非流式回答，再调用 `/api/v1/tts/synthesize` |
+
+详细流式方案见：`STREAMING_REFACTOR_PLAN.md`。
+
+---
+
 ## 前端调用示例 (Kotlin/Android)
 
 ```kotlin
@@ -193,7 +243,7 @@ mediaPlayer.start()
 
 1. **复用音色**: 同一景点讲解推荐固定使用一个语音音色
 2. **文本缓存**: 对于固定文案（如景点介绍），缓存合成结果
-3. **流式播放**: 对于长文本，可分段合成并分段播放
+3. **流式播放**: 对于长文本，由后端分段合成并通过 `tts_segment` 下发，移动端排队播放
 4. **参数简化**: 大多数情况下保持默认参数 (rate/volume/pitch 不需要调整)
 
 ---
@@ -222,3 +272,6 @@ mediaPlayer.start()
 - [x] 服务器有外网访问权限 (调用 Microsoft TTS)
 - [x] `/api/v1/tts/voices` 和 `/api/v1/tts/synthesize` 接口可访问
 - [x] 音频文件能正常生成和下载
+- [ ] 流式问答接口可返回 `tts_segment`
+- [ ] 分段音频的 `audio_url` 可被移动端直接播放
+- [ ] 分段 `marks` 与片段音频时长对齐

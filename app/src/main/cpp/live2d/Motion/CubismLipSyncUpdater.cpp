@@ -39,7 +39,7 @@ void CubismLipSyncUpdater::OnLateUpdate(CubismModel* model, const csmFloat32 del
 
     for (csmUint32 i = 0; i < _lipSyncIds.GetSize(); ++i)
     {
-        model->AddParameterValue(_lipSyncIds[i], value, 0.8f);
+        model->SetParameterValue(_lipSyncIds[i], value);
     }
 }
 

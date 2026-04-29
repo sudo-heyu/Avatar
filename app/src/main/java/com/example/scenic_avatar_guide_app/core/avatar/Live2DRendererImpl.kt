@@ -31,7 +31,6 @@ class Live2DRendererImpl(
 
     // 当前参数缓存
     private var currentMouthOpen = 0f
-    private var currentMouthForm = 0f
     private var currentExpression: String? = null
     private var currentExpressionIntensity = 0.7f
     private var currentGesture: AvatarGesture = AvatarGesture.IDLE
@@ -102,12 +101,8 @@ class Live2DRendererImpl(
         if (!_isModelLoaded) return
 
         currentMouthOpen = mouthOpen.coerceIn(0f, 1f)
-        currentMouthForm = mouthForm.coerceIn(-1f, 1f)
-
-        // 通过参数设置口型
-        // 实际的 Live2D 参数设置由 C++ 层处理
-        setParameter(Live2DParams.MOUTH_OPEN_Y, currentMouthOpen)
-        setParameter(Live2DParams.MOUTH_FORM, currentMouthForm)
+        val amplifiedMouthOpen = (currentMouthOpen * 1.3f).coerceAtMost(1.5f)
+        setParameter(Live2DParams.MOUTH_OPEN_Y, amplifiedMouthOpen)
     }
 
     /**
@@ -117,8 +112,9 @@ class Live2DRendererImpl(
         if (!_isModelLoaded) return
 
         currentExpression = expressionId
-        currentExpressionIntensity = currentExpressionIntensity.coerceIn(0f, 1f)
-        applyExpressionPreset(expressionId, currentExpressionIntensity)
+        runOnRenderThread {
+            JniBridgeJava.nativeSetExpression(expressionId)
+        }
     }
 
     /**
@@ -217,107 +213,104 @@ class Live2DRendererImpl(
         return expression.value
     }
 
-    private fun applyExpressionPreset(expressionId: String, intensity: Float) {
-        val safeIntensity = intensity.coerceIn(0f, 1f)
-
-        // 重置所有可能被表情修改的参数，防止旧表情残留
-        setParameter(Live2DParams.EYE_L_OPEN, 1.0f)
-        setParameter(Live2DParams.EYE_R_OPEN, 1.0f)
-        setParameter(Live2DParams.BROW_L_Y, 0f)
-        setParameter(Live2DParams.BROW_R_Y, 0f)
-        setParameter(Live2DParams.BROW_L_ANGLE, 0f)
-        setParameter(Live2DParams.BROW_R_ANGLE, 0f)
-        setParameter(Live2DParams.EYE_BALL_X, 0f)
-        setParameter(Live2DParams.EYE_BALL_Y, 0f)
-        setParameter(Live2DParams.ANGLE_X, 0f)
-        setParameter(Live2DParams.ANGLE_Y, 0f)
-        setParameter(Live2DParams.ANGLE_Z, 0f)
-        setParameter(Live2DParams.BODY_ANGLE_X, 0f)
-
-        when (AvatarExpression.fromValue(expressionId)) {
-            AvatarExpression.NEUTRAL -> Unit
-            AvatarExpression.HAPPY -> {
-                setParameter(Live2DParams.BROW_L_Y, 0.25f * safeIntensity)
-                setParameter(Live2DParams.BROW_R_Y, 0.25f * safeIntensity)
-                setParameter(Live2DParams.BROW_L_ANGLE, -0.2f * safeIntensity)
-                setParameter(Live2DParams.BROW_R_ANGLE, 0.2f * safeIntensity)
-                setParameter(Live2DParams.EYE_L_OPEN, 0.85f)
-                setParameter(Live2DParams.EYE_R_OPEN, 0.85f)
-            }
-            AvatarExpression.THINKING -> {
-                setParameter(Live2DParams.BROW_L_ANGLE, -0.35f * safeIntensity)
-                setParameter(Live2DParams.BROW_R_ANGLE, 0.15f * safeIntensity)
-                setParameter(Live2DParams.BROW_L_Y, -0.1f * safeIntensity)
-                setParameter(Live2DParams.EYE_BALL_X, -0.25f * safeIntensity)
-            }
-            AvatarExpression.SURPRISED -> {
-                setParameter(Live2DParams.BROW_L_Y, 0.45f * safeIntensity)
-                setParameter(Live2DParams.BROW_R_Y, 0.45f * safeIntensity)
-                setParameter(Live2DParams.EYE_L_OPEN, 1.2f)
-                setParameter(Live2DParams.EYE_R_OPEN, 1.2f)
-            }
-            AvatarExpression.EXCITED -> {
-                setParameter(Live2DParams.BROW_L_Y, 0.35f * safeIntensity)
-                setParameter(Live2DParams.BROW_R_Y, 0.35f * safeIntensity)
-                setParameter(Live2DParams.EYE_L_OPEN, 1.05f)
-                setParameter(Live2DParams.EYE_R_OPEN, 1.05f)
-                setParameter(Live2DParams.ANGLE_Z, -6f * safeIntensity)
-            }
-            AvatarExpression.CONCERNED -> {
-                setParameter(Live2DParams.BROW_L_Y, -0.15f * safeIntensity)
-                setParameter(Live2DParams.BROW_R_Y, -0.15f * safeIntensity)
-                setParameter(Live2DParams.BROW_L_ANGLE, 0.35f * safeIntensity)
-                setParameter(Live2DParams.BROW_R_ANGLE, -0.35f * safeIntensity)
-                setParameter(Live2DParams.EYE_L_OPEN, 0.8f)
-                setParameter(Live2DParams.EYE_R_OPEN, 0.8f)
-            }
-            AvatarExpression.APologetic -> {
-                setParameter(Live2DParams.BROW_L_Y, -0.2f * safeIntensity)
-                setParameter(Live2DParams.BROW_R_Y, -0.2f * safeIntensity)
-                setParameter(Live2DParams.EYE_L_OPEN, 0.75f)
-                setParameter(Live2DParams.EYE_R_OPEN, 0.75f)
-                setParameter(Live2DParams.ANGLE_Y, -8f * safeIntensity)
-            }
-            AvatarExpression.WELCOMING -> {
-                setParameter(Live2DParams.BROW_L_Y, 0.2f * safeIntensity)
-                setParameter(Live2DParams.BROW_R_Y, 0.2f * safeIntensity)
-                setParameter(Live2DParams.ANGLE_Z, -4f * safeIntensity)
-                setParameter(Live2DParams.BODY_ANGLE_X, 4f * safeIntensity)
-            }
-        }
-    }
-
+    /**
+     * 应用动作预设（Gesture 层）
+     *
+     * 参数分层规则（上半身模式）：
+     * - Expression 层：控制眉毛、眼睛、脸颊、嘴形变形（ParamMouthForm）、头部微姿态（AngleX/Y/Z 的 Add 叠加）
+     * - Gesture 层：控制头部功能性动作（AngleX/Y/Z 的覆盖值）、身体角度、肩膀、手臂、手部
+     * - LipSync 层：独占 ParamMouthOpenY（嘴部开合度）
+     *
+     * 叠加机制：Gesture 通过 setParameter 直接覆盖基础状态，Expression 在 C++ LateUpdate 中以 Add 模式叠加。
+     * 因此 Gesture 的头部角度会覆盖 Expression 的基础值，但 Expression 的 Add 偏移仍会生效。
+     */
     private fun applyGesturePreset(gesture: AvatarGesture) {
+        // 先归零所有 Gesture 层参数，避免前一个动作残留
         setParameter(Live2DParams.ANGLE_X, 0f)
         setParameter(Live2DParams.ANGLE_Y, 0f)
         setParameter(Live2DParams.ANGLE_Z, 0f)
         setParameter(Live2DParams.BODY_ANGLE_X, 0f)
+        setParameter(Live2DParams.BODY_ANGLE_Y, 0f)
+        setParameter(Live2DParams.BODY_ANGLE_Z, 0f)
+        setParameter(Live2DParams.SHOULDER, 0f)
+        setParameter(Live2DParams.ARM_LA, 0f)
+        setParameter(Live2DParams.ARM_RA, 0f)
+        setParameter(Live2DParams.ARM_LB, 0f)
+        setParameter(Live2DParams.ARM_RB, 0f)
+        setParameter(Live2DParams.HAND_L, 0f)
+        setParameter(Live2DParams.HAND_R, 0f)
+        setParameter(Live2DParams.HAND_LB, 0f)
+        setParameter(Live2DParams.HAND_RB, 0f)
 
         when (gesture) {
             AvatarGesture.IDLE -> Unit
-            AvatarGesture.NOD -> setParameter(Live2DParams.ANGLE_Y, -18f)
-            AvatarGesture.SHAKE -> setParameter(Live2DParams.ANGLE_X, 18f)
+
+            AvatarGesture.NOD -> {
+                // 小幅点头，避免像磕头；肩膀微抬配合
+                setParameter(Live2DParams.ANGLE_Y, -10f)
+                setParameter(Live2DParams.SHOULDER, 0.1f)
+            }
+
+            AvatarGesture.SHAKE -> {
+                // 轻微偏头表示否定，不做大幅度左右摇
+                setParameter(Live2DParams.ANGLE_X, 10f)
+                setParameter(Live2DParams.SHOULDER, -0.05f)
+            }
+
             AvatarGesture.WAVE -> {
-                setParameter(Live2DParams.ANGLE_Z, -14f)
-                setParameter(Live2DParams.BODY_ANGLE_X, 10f)
+                // 小幅挥手：不歪头（Expression 已负责情绪歪头），身体微侧，单臂抬起不过肩
+                setParameter(Live2DParams.BODY_ANGLE_X, 6f)
+                setParameter(Live2DParams.ARM_LA, 0.35f)
+                setParameter(Live2DParams.HAND_L, 0.3f)
             }
+
             AvatarGesture.POINT_LEFT -> {
-                setParameter(Live2DParams.ANGLE_X, -20f)
-                setParameter(Live2DParams.BODY_ANGLE_X, -12f)
+                // 左侧指引：头部微转，身体配合，手臂平伸不出界
+                setParameter(Live2DParams.ANGLE_X, -12f)
+                setParameter(Live2DParams.BODY_ANGLE_X, -8f)
+                setParameter(Live2DParams.ARM_LA, 0.3f)
+                setParameter(Live2DParams.HAND_L, 0.25f)
             }
+
             AvatarGesture.POINT_RIGHT -> {
-                setParameter(Live2DParams.ANGLE_X, 20f)
-                setParameter(Live2DParams.BODY_ANGLE_X, 12f)
-            }
-            AvatarGesture.POINT_FORWARD -> setParameter(Live2DParams.ANGLE_Z, -8f)
-            AvatarGesture.BOW -> setParameter(Live2DParams.ANGLE_Y, -26f)
-            AvatarGesture.THINKING_POSE -> {
-                setParameter(Live2DParams.ANGLE_X, -10f)
-                setParameter(Live2DParams.ANGLE_Y, 10f)
-            }
-            AvatarGesture.GUIDE -> {
+                // 右侧指引：对称设计
                 setParameter(Live2DParams.ANGLE_X, 12f)
                 setParameter(Live2DParams.BODY_ANGLE_X, 8f)
+                setParameter(Live2DParams.ARM_RA, 0.3f)
+                setParameter(Live2DParams.HAND_R, 0.25f)
+            }
+
+            AvatarGesture.POINT_FORWARD -> {
+                // 前方提示：双手轻微前伸，头部微前倾
+                setParameter(Live2DParams.ANGLE_Z, -5f)
+                setParameter(Live2DParams.ARM_LA, 0.18f)
+                setParameter(Live2DParams.ARM_RA, 0.18f)
+                setParameter(Live2DParams.HAND_L, 0.12f)
+                setParameter(Live2DParams.HAND_R, 0.12f)
+            }
+
+            AvatarGesture.BOW -> {
+                // 上半身模式下的"欠身致意"：不额外低头（Expression 已负责歉意低头），
+                // 用肩膀微怂 + 手臂内收表现收敛姿态
+                setParameter(Live2DParams.SHOULDER, 0.25f)
+                setParameter(Live2DParams.ARM_LB, 0.15f)
+                setParameter(Live2DParams.ARM_RB, 0.15f)
+            }
+
+            AvatarGesture.THINKING_POSE -> {
+                // 手触下巴思考：内敛姿态，手臂幅度适中不出界
+                setParameter(Live2DParams.ANGLE_X, -6f)
+                setParameter(Live2DParams.ANGLE_Y, 6f)
+                setParameter(Live2DParams.ARM_LB, 0.4f)
+                setParameter(Live2DParams.HAND_LB, 0.3f)
+            }
+
+            AvatarGesture.GUIDE -> {
+                // 导览手势：平伸手掌引导，幅度适中
+                setParameter(Live2DParams.ANGLE_X, 8f)
+                setParameter(Live2DParams.BODY_ANGLE_X, 5f)
+                setParameter(Live2DParams.ARM_RA, 0.35f)
+                setParameter(Live2DParams.HAND_R, 0.28f)
             }
         }
     }

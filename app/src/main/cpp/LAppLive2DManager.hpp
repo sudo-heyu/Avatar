@@ -93,6 +93,11 @@ public:
     void SetParameter(const Csm::csmChar* parameterId, Csm::csmFloat32 value, Csm::csmFloat32 weight);
 
     /**
+     * @brief   播放指定表情
+     */
+    void SetExpression(const Csm::csmChar* expressionId);
+
+    /**
      * @brief   次のシーンに切り替える<br>
     *           サンプルアプリケーションではモデルセットの切り替えを行う。
     */

@@ -12,7 +12,7 @@ data class TtsSynthesizeRequest(
     val rate: String = "+0%",
     val volume: String = "+0dB",
     val pitch: String = "+0Hz",
-    val format: String = "audio"
+    val format: String = "audio_with_marks"
 )
 
 // ==================== TTS 合成响应 ====================

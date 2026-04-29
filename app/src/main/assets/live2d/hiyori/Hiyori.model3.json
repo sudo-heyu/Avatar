@@ -1,15 +1,25 @@
 {
 	"Version": 3,
 	"FileReferences": {
-		"Moc": "Hiyori.moc3",
+		"Moc": "hiyori_pro_t11.moc3",
 		"Textures": [
-			"Hiyori.2048/texture_00.png",
-			"Hiyori.2048/texture_01.png"
+			"hiyori_pro_t11.2048/texture_00.png",
+			"hiyori_pro_t11.2048/texture_01.png"
 		],
-		"Physics": "Hiyori.physics3.json",
+		"Physics": "hiyori_pro_t11.physics3.json",
 		"Pose": "Hiyori.pose3.json",
 		"UserData": "Hiyori.userdata3.json",
-		"DisplayInfo": "Hiyori.cdi3.json",
+		"DisplayInfo": "hiyori_pro_t11.cdi3.json",
+		"Expressions": [
+			{ "Name": "neutral", "File": "expressions/neutral.exp3.json" },
+			{ "Name": "happy", "File": "expressions/happy.exp3.json" },
+			{ "Name": "thinking", "File": "expressions/thinking.exp3.json" },
+			{ "Name": "surprised", "File": "expressions/surprised.exp3.json" },
+			{ "Name": "excited", "File": "expressions/excited.exp3.json" },
+			{ "Name": "concerned", "File": "expressions/concerned.exp3.json" },
+			{ "Name": "apologetic", "File": "expressions/apologetic.exp3.json" },
+			{ "Name": "welcoming", "File": "expressions/welcoming.exp3.json" }
+		],
 		"Motions": {
 			"Idle": [
 				{

@@ -20,6 +20,7 @@ class RemoteTTSController(
 
     companion object {
         private const val TAG = "RemoteTTSController"
+        private const val MARKS_MIN_COVERAGE_RATIO = 0.9f
 
         // 预置 Edge-TTS 中文音色（第一阶段写死，避免额外网络请求）
         val AVAILABLE_VOICES = listOf(
@@ -120,19 +121,26 @@ class RemoteTTSController(
         CoroutineScope(Dispatchers.Main).launch {
             try {
                 Log.d(TAG, "TTS 请求文本: $cleanText")
-                val result = repository.synthesizeTTS(
+                var result = repository.synthesizeTTS(
                     text = cleanText,
                     voice = currentVoiceId,
                     rate = formatRate(currentSpeed),
-                    pitch = formatPitch(currentPitch)
+                    pitch = formatPitch(currentPitch),
+                    format = "audio_with_marks"
                 )
+                if (result.isFailure) {
+                    Log.w(TAG, "audio_with_marks 请求失败，重试普通 audio 格式", result.exceptionOrNull())
+                    result = repository.synthesizeTTS(
+                        text = cleanText,
+                        voice = currentVoiceId,
+                        rate = formatRate(currentSpeed),
+                        pitch = formatPitch(currentPitch),
+                        format = "audio"
+                    )
+                }
                 result.fold(
                     onSuccess = { data ->
-                        // 若后端返回 marks，用 marks 替换预计算的估算事件
-                        data.marks?.let { marks ->
-                            Log.d(TAG, "后端返回 ${marks.size} 个 marks，使用高精度口型")
-                            pendingPhonemeEvents = ChinesePhonemeEngine.marksToPhonemeEvents(marks)
-                        }
+                        updatePendingPhonemeEvents(cleanText, data)
 
                         val fullUrl = repository.buildAudioUrl(data.audioUrl)
                         Log.d(TAG, "TTS 合成成功，播放: $fullUrl")
@@ -224,11 +232,57 @@ class RemoteTTSController(
     }
 
     /**
+     * 优先使用后端 marks；若 marks 缺失或明显短于音频时长，则用音频时长重建本地时间轴。
+     */
+    private fun updatePendingPhonemeEvents(
+        text: String,
+        data: com.example.scenic_avatar_guide_app.domain.model.TtsSynthesizeData
+    ) {
+        val durationMs = data.durationMs?.toLong()?.takeIf { it > 0 }
+        val marks = data.marks
+
+        if (!marks.isNullOrEmpty()) {
+            val markEvents = ChinesePhonemeEngine.marksToPhonemeEvents(marks)
+            val markEndMs = markEvents.maxOfOrNull { it.endMs } ?: 0L
+
+            if (isMarksTimelineUsable(markEvents, durationMs)) {
+                Log.d(
+                    TAG,
+                    "后端返回 ${marks.size} 个 marks，使用高精度口型: markEnd=${markEndMs}ms, duration=${durationMs ?: -1}ms"
+                )
+                pendingPhonemeEvents = markEvents
+                return
+            }
+
+            Log.w(
+                TAG,
+                "后端 marks 覆盖不足，改用本地时间轴: markEnd=${markEndMs}ms, duration=${durationMs ?: -1}ms"
+            )
+        } else {
+            Log.w(TAG, "后端未返回 marks，使用本地时间轴")
+        }
+
+        precomputePhonemeEvents(text, durationMs)
+    }
+
+    private fun isMarksTimelineUsable(events: List<PhonemeEvent>, durationMs: Long?): Boolean {
+        if (events.isEmpty()) return false
+        if (durationMs == null) return true
+
+        val markEndMs = events.maxOf { it.endMs }
+        return markEndMs >= durationMs * MARKS_MIN_COVERAGE_RATIO
+    }
+
+    /**
      * 预计算音素事件（字符估算，等音频播放开始时触发）
      */
-    private fun precomputePhonemeEvents(text: String) {
-        val cleanChars = text.filter { it.isLetterOrDigit() || it in '一'..'鿿' }
-        val totalDuration = cleanChars.sumOf { char ->
+    private fun precomputePhonemeEvents(text: String, durationMs: Long? = null) {
+        val totalDuration = durationMs ?: estimateTextDuration(text)
+        pendingPhonemeEvents = ChinesePhonemeEngine.textToPhonemeEvents(text, totalDuration)
+    }
+
+    private fun estimateTextDuration(text: String): Long {
+        return text.sumOf { char ->
             when {
                 char in setOf('，', '。', '！', '？', '、', '；', '：', '"', '"') -> 300L
                 char in setOf(',', '.', '!', '?', ';', ':', '"', '\'') -> 200L
@@ -236,6 +290,5 @@ class RemoteTTSController(
                 else -> 180L
             }
         }
-        pendingPhonemeEvents = ChinesePhonemeEngine.textToPhonemeEvents(cleanChars, totalDuration)
     }
 }

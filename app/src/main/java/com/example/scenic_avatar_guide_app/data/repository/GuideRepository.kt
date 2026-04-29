@@ -149,7 +149,7 @@ class GuideRepository @Inject constructor(
         rate: String = "+0%",
         volume: String = "+0dB",
         pitch: String = "+0Hz",
-        format: String = "audio"
+        format: String = "audio_with_marks"
     ): Result<TtsSynthesizeData> {
         return try {
             val request = TtsSynthesizeRequest(

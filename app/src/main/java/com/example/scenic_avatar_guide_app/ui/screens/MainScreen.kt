@@ -171,96 +171,119 @@ fun MainScreen(
         }
     }
 
+    var bottomBarContentHeight by remember { mutableStateOf(0.dp) }
+
     Scaffold(
         containerColor = Surface,
         contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp)
     ) { paddingValues ->
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .statusBarsPadding()
         ) {
-            TopBar(
-                onSettingsClick = onSettingsClick,
-                onTestToggle = { viewModel.toggleTestPanel() },
-                showTestPanel = showTestPanel
-            )
+            val totalHeight = remember { maxHeight }
 
-            // 数字人区域：占据约40%屏幕高度，只展示上半身
-            AvatarSection(
-                avatarState = avatarState,
-                fullState = avatarFullState,
-                showUpperBodyOnly = true,
-                modifier = Modifier.fillMaxWidth().weight(2f)
-            )
-
-            // 消息列表：底部定位在功能卡片上方，不随输入法变化
-            MessageList(
-                messages = messages,
-                isLoading = isLoading,
-                listState = listState,
-                modifier = Modifier.fillMaxWidth().weight(3f),
-                bottomPaddingDp = 4.dp
-            )
-
-            // 底栏：测试卡片 + 功能卡片，响应输入法上推
+            // 主内容区域：固定为初始屏幕高度减去底栏高度，输入法弹出时位置和大小完全不变
             Column(
                 modifier = Modifier
+                    .fillMaxWidth()
+                    .height(totalHeight - bottomBarContentHeight)
+            ) {
+                TopBar(
+                    onSettingsClick = onSettingsClick,
+                    onTestToggle = { viewModel.toggleTestPanel() },
+                    showTestPanel = showTestPanel
+                )
+
+                // 数字人区域：在主内容区域内按比例分配
+                AvatarSection(
+                    avatarState = avatarState,
+                    fullState = avatarFullState,
+                    showUpperBodyOnly = true,
+                    modifier = Modifier.fillMaxWidth().weight(2f)
+                )
+
+                // 消息列表：在主内容区域内填充剩余空间
+                MessageList(
+                    messages = messages,
+                    isLoading = isLoading,
+                    listState = listState,
+                    modifier = Modifier.fillMaxWidth().weight(3f),
+                    bottomPaddingDp = 4.dp
+                )
+            }
+
+            // 底栏：绝对定位在底部，只让底栏响应输入法上推
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .imePadding()
                     .navigationBarsPadding()
                     .background(Surface)
             ) {
-                // 测试面板：功能卡片正上方，单行左右滑动
-                if (showTestPanel) {
-                    CompactTestPanel(
-                        onActionClick = { action -> viewModel.playTestAction(action) },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
+                // 内层容器单独测量内容高度（不含 imePadding），只测一次
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onGloballyPositioned { coordinates ->
+                            if (bottomBarContentHeight == 0.dp) {
+                                bottomBarContentHeight = with(density) { coordinates.size.height.toDp() }
+                            }
+                        }
+                ) {
+                    // 测试面板：功能卡片正上方，单行左右滑动
+                    if (showTestPanel) {
+                        CompactTestPanel(
+                            onActionClick = { action -> viewModel.playTestAction(action) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
 
-                if (voiceInputMode && isRecording) {
-                    CancelZone(
-                        isCancelZone = isCancelZone,
-                        modifier = Modifier.fillMaxWidth().height(48.dp)
-                    )
-                }
+                    if (voiceInputMode && isRecording) {
+                        CancelZone(
+                            isCancelZone = isCancelZone,
+                            modifier = Modifier.fillMaxWidth().height(48.dp)
+                        )
+                    }
 
-                if (voiceInputMode && isRecording) {
-                    VoiceWaveformSection(
-                        volumeLevel = volumeLevel,
-                        isCancelZone = isCancelZone,
-                        modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp)
-                    )
-                }
+                    if (voiceInputMode && isRecording) {
+                        VoiceWaveformSection(
+                            volumeLevel = volumeLevel,
+                            isCancelZone = isCancelZone,
+                            modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp)
+                        )
+                    }
 
-                ModeSelector(currentMode, { viewModel.switchMode(it) }, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp))
+                    ModeSelector(currentMode, { viewModel.switchMode(it) }, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp))
 
-                if (voiceInputMode) {
-                    VoiceInputButton(
-                        isRecording = isRecording,
-                        isCancelZone = isCancelZone,
-                        onCancelZoneChange = { isCancelZone = it },
-                        onVoiceStart = { speechHelper.startListening() },
-                        onVoiceStop = { speechHelper.stopListening() },
-                        onCancel = { speechHelper.cancel(); viewModel.exitVoiceInputMode() },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
-                    )
-                } else {
-                    InputSection(
-                        mode = currentMode, inputText = inputText, isLoading = isLoading,
-                        pendingImageUri = pendingImageUri,
-                        onInputChange = { viewModel.updateInputText(it) },
-                        onSend = { viewModel.sendMessage() },
-                        onVoiceClick = {
-                            if (hasAudioPermission) viewModel.enterVoiceInputMode()
-                            else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        },
-                        onCameraInput = { showImagePickerDialog = true },
-                        onClearImage = { viewModel.clearPendingImage() },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
-                    )
+                    if (voiceInputMode) {
+                        VoiceInputButton(
+                            isRecording = isRecording,
+                            isCancelZone = isCancelZone,
+                            onCancelZoneChange = { isCancelZone = it },
+                            onVoiceStart = { speechHelper.startListening() },
+                            onVoiceStop = { speechHelper.stopListening() },
+                            onCancel = { speechHelper.cancel(); viewModel.exitVoiceInputMode() },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
+                    } else {
+                        InputSection(
+                            mode = currentMode, inputText = inputText, isLoading = isLoading,
+                            pendingImageUri = pendingImageUri,
+                            onInputChange = { viewModel.updateInputText(it) },
+                            onSend = { viewModel.sendMessage() },
+                            onVoiceClick = {
+                                if (hasAudioPermission) viewModel.enterVoiceInputMode()
+                                else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            },
+                            onCameraInput = { showImagePickerDialog = true },
+                            onClearImage = { viewModel.clearPendingImage() },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+                        )
+                    }
                 }
             }
         }
@@ -339,67 +362,104 @@ private fun AvatarSection(
 }
 
 /**
- * 紧凑测试动作面板：单行左右滑动
+ * 测试面板：纯文字入口 + 内部展开，每行多个按钮
  */
 @Composable
 private fun CompactTestPanel(
     onActionClick: (AvatarPlayAction) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val testButtons = remember { TestAvatarActions.getButtons() }
+    val expressionButtons = remember { TestAvatarActions.getExpressionButtons() }
+    val gestureButtons = remember { TestAvatarActions.getGestureButtons() }
+    val scenarioButtons = remember { TestAvatarActions.getScenarioButtons() }
+    var selectedPanel by remember { mutableStateOf<TestPanelType?>(null) }
 
     Card(
         modifier = modifier.padding(horizontal = 12.dp, vertical = 4.dp),
         colors = CardDefaults.cardColors(containerColor = SurfaceVariant),
         shape = RoundedCornerShape(12.dp)
     ) {
-        LazyRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        Column(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
         ) {
-            items(testButtons) { button ->
-                CompactActionChip(
-                    label = button.label,
-                    icon = button.icon,
-                    onClick = { onActionClick(button.action) }
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                TextButton(
+                    onClick = { selectedPanel = toggle(selectedPanel, TestPanelType.EXPRESSION) },
+                    colors = ButtonDefaults.textButtonColors(contentColor = Primary)
+                ) {
+                    Text("表情", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+                TextButton(
+                    onClick = { selectedPanel = toggle(selectedPanel, TestPanelType.GESTURE) },
+                    colors = ButtonDefaults.textButtonColors(contentColor = Primary)
+                ) {
+                    Text("动作", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+                TextButton(
+                    onClick = { selectedPanel = toggle(selectedPanel, TestPanelType.SCENARIO) },
+                    colors = ButtonDefaults.textButtonColors(contentColor = Primary)
+                ) {
+                    Text("场景", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+
+            if (selectedPanel != null) {
+                val buttons: List<Pair<String, AvatarPlayAction>> = when (selectedPanel) {
+                    TestPanelType.EXPRESSION -> expressionButtons.map { it.label to it.toPlayAction() }
+                    TestPanelType.GESTURE -> gestureButtons.map { it.label to it.toPlayAction() }
+                    TestPanelType.SCENARIO -> scenarioButtons.map { it.label to it.action }
+                    null -> emptyList()
+                }
+                Spacer(Modifier.height(4.dp))
+                TestButtonGrid(buttons, onActionClick)
             }
         }
     }
 }
 
-/**
- * 紧凑动作按钮
- */
+private fun toggle(current: TestPanelType?, target: TestPanelType): TestPanelType? =
+    if (current == target) null else target
+
 @Composable
-private fun CompactActionChip(
-    label: String,
-    icon: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+private fun TestButtonGrid(
+    buttons: List<Pair<String, AvatarPlayAction>>,
+    onActionClick: (AvatarPlayAction) -> Unit
 ) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(10.dp),
-        color = Primary.copy(0.1f),
-        onClick = onClick
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Text(text = icon, fontSize = 14.sp)
-            Text(
-                text = label,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                color = Primary
-            )
+    val chunked = buttons.chunked(4)
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        chunked.forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                row.forEach { (label, action) ->
+                    OutlinedButton(
+                        onClick = { onActionClick(action) },
+                        modifier = Modifier.weight(1f).height(32.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Primary),
+                        border = null
+                    ) {
+                        Text(label, fontSize = 11.sp, maxLines = 1)
+                    }
+                }
+                // 补足空位保持对齐
+                repeat(4 - row.size) {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
         }
     }
+}
+
+private enum class TestPanelType {
+    EXPRESSION,
+    GESTURE,
+    SCENARIO
 }
 
 @Composable

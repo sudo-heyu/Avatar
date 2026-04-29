@@ -66,9 +66,10 @@ Base URL 可配置（存储在 DataStore 中，便于开发/生产环境切换�
 - `GET /api/v1/health` - 健康检查
 - `POST /api/v1/session/create` - 创建会话（返回 session_id）
 - `POST /api/v1/chat/text` - 文本问答（返回 reply_text、sources[]、latency_ms）
+- `POST /api/v1/chat/text/stream` - 流式问答（返回 text_delta、tts_segment、done 等事件）
 
 ### 需要建模的预留字段（第一阶段可能为空）
-- `audio_url`、`avatar_action`、`sources` - 为语音/数字人功能预留
+- `avatar_action`、`sources`、`tts_segment.audio_url` - 为语音/数字人和流式分段 TTS 功能预留
 
 ## 推荐包结构
 
@@ -115,5 +116,7 @@ sealed class UiState<out T> {
 ## 文档参考
 
 架构和需求文档位于：
-- `app/src/main/java/com/example/scenic_avatar_guide_app/docs/android/ANDROID_APP_REQUIREMENTS.md` - 完整需求规格
-- `app/src/main/java/com/example/scenic_avatar_guide_app/docs/architecture/final_backend_architecture.md` - 后端架构设计
+- `app/src/main/java/com/example/scenic_avatar_guide_app/docs/product/APP_REQUIREMENTS.md` - Android 端需求基线
+- `app/src/main/java/com/example/scenic_avatar_guide_app/docs/api/API_CONTRACT.md` - 移动端 API 接口契约
+- `app/src/main/java/com/example/scenic_avatar_guide_app/docs/api/STREAMING_REFACTOR_PLAN.md` - 流式输入输出重构方案
+- `app/src/main/java/com/example/scenic_avatar_guide_app/docs/backend/backend_architecture.md` - 后端对接基线与历史架构设计

@@ -1,18 +1,19 @@
 # 景灵智导 Android 端需求基线
 
-版本：v2.3  
+版本：v2.4  
 日期：2026-04-29  
 适用仓库：`scenic_avatar_guide_app`  
 变更：
 1. TTS 方案由端侧讯飞切换为后端 Edge-TTS
 2. 交互模式由三种缩减为两种：聊天问答 + 路线规划
+3. 新增流式问答与分段 TTS 方案
 
 ---
 
 ## 1. 文档定位
 
 本文件只描述当前 Android 客户端的正式联调基线。  
-字段与接口以 [API_CONTRACT.md](../architecture/API_CONTRACT.md) 为准；若未来规划与当前实现冲突，以 API 契约和源码为准。
+字段与接口以 [API_CONTRACT.md](../api/API_CONTRACT.md) 为准；若未来规划与当前实现冲突，以 API 契约和源码为准。
 
 ---
 
@@ -26,11 +27,12 @@
 1. `GET /api/v1/health`
 2. `POST /api/v1/session/create`
 3. `POST /api/v1/chat/text`
+4. `POST /api/v1/chat/text/stream` — 流式问答，返回 `text_delta`、`tts_segment`、结构化收口事件
 
 **TTS 接口（Edge-TTS 方案新增）**：
-4. `POST /api/v1/tts/synthesize` — 文本合成音频
-5. `GET /api/v1/tts/voices` — 获取可用发音人列表
-6. `GET /api/v1/tts/file/{file_name}` — 读取音频文件
+5. `POST /api/v1/tts/synthesize` — 文本合成音频
+6. `GET /api/v1/tts/voices` — 获取可用发音人列表
+7. `GET /api/v1/tts/file/{file_name}` — 读取音频文件
 
 ### 2.2 当前交互能力
 
@@ -41,6 +43,7 @@
 5. 基于 `avatar_action` 与 `marks` 的数字人状态联动
 6. Base URL、用户 ID、设备 ID、会话 ID 的本地存储
 7. 右上角设置页可配置后端 `IP / 端口 / 协议` 并持久化保存
+8. 流式模式下，消息增量展示，`tts_segment` 分段音频排队播放
 
 ### 2.3 不属于当前正式契约的内容
 
@@ -116,6 +119,17 @@ App 启动
 → 数字人进入 SPEAKING / 恢复 IDLE
 ```
 
+流式模式：
+```text
+输入文本、拍照或本地 ASR 识别成功
+→ 插入用户消息与机器人占位消息
+→ 调用 /api/v1/chat/text/stream (mode=chat)
+→ text_delta 增量展示
+→ tts_segment.audio_url 入队播放
+→ sources / metadata 回填到当前消息
+→ done 后等待 TTS 队列自然播完
+```
+
 **路线规划模式**：
 ```text
 输入路线偏好或本地 ASR 识别成功
@@ -141,6 +155,8 @@ App 启动
 
 Edge-TTS 音频由后端生成，Android 端通过 `audio_url` 播放。
 
+流式模式下，Edge-TTS 音频由后端按短句生成，Android 端通过 `tts_segment.audio_url` 逐段播放。完整方案见 [STREAMING_REFACTOR_PLAN.md](../api/STREAMING_REFACTOR_PLAN.md)。
+
 ---
 
 ## 5. 技术方案
@@ -159,7 +175,7 @@ Edge-TTS 音频由后端生成，Android 端通过 `audio_url` 播放。
 | 本地存储 | DataStore |
 | 数字人 | Live2D Native + JNI |
 | 语音识别 | 讯飞 SparkChain SDK（端侧） |
-| 语音播报 | 后端 Edge-TTS + ExoPlayer 播放（主链路） |
+| 语音播报 | 后端 Edge-TTS + ExoPlayer 播放；流式模式使用分段 TTS 队列 |
 | TTS 兜底 | Android System TTS（无网络时降级） |
 
 ### 5.2 当前关键目录
@@ -263,6 +279,8 @@ app/src/main/jniLibs/
 - [x] 网络超时和错误可恢复
 - [x] Edge-TTS 音频合成与播放正常
 - [x] 系统 TTS 降级兜底正常
+- [ ] 流式 `chat/text/stream` 联调完成
+- [ ] `tts_segment` 分段播放和等待续播体验验证完成
 
 ---
 
@@ -313,6 +331,7 @@ core/speech/
 
 ## 11. 参考文档
 
-- [API 接口契约](../architecture/API_CONTRACT.md)
-- [Live2D 开发计划](../architecture/AVATAR_LIVE2D_PLAN.md)
-- [ASR 实现说明](./ASR_IMPLEMENTATION.md)
+- [API 接口契约](../api/API_CONTRACT.md)
+- [流式重构方案](../api/STREAMING_REFACTOR_PLAN.md)
+- [Live2D 开发计划](../avatar/AVATAR_LIVE2D_PLAN.md)
+- [ASR 实现说明](../asr/ASR_IMPLEMENTATION.md)

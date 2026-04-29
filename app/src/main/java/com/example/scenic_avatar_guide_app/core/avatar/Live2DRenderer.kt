@@ -7,31 +7,39 @@ import com.example.scenic_avatar_guide_app.domain.model.AvatarFullState
  * 基于 Cubism SDK 标准参数命名
  */
 object Live2DParams {
-    // 口型参数
+    // ==================== 口型参数（LipSync 独占）====================
     const val MOUTH_OPEN_Y = "ParamMouthOpenY"
+
+    // ==================== 表情参数（Expression 独占）====================
+    // 面部：眉毛、眼睛、眼珠、脸颊
+    // 嘴部变形（Expression 管嘴形，LipSync 管开合）
     const val MOUTH_FORM = "ParamMouthForm"
 
-    // 眼睛参数
-    const val EYE_L_OPEN = "ParamEyeLOpen"
-    const val EYE_R_OPEN = "ParamEyeROpen"
-    const val EYE_BALL_X = "ParamEyeBallX"
-    const val EYE_BALL_Y = "ParamEyeBallY"
-
-    // 眉毛参数
-    const val BROW_L_Y = "ParamBrowLY"
-    const val BROW_R_Y = "ParamBrowRY"
-    const val BROW_L_ANGLE = "ParamBrowLAngle"
-    const val BROW_R_ANGLE = "ParamBrowRAngle"
-
-    // 头部参数
+    // 头部微姿态（Expression 情绪性偏移 + Gesture 功能性动作叠加）
     const val ANGLE_X = "ParamAngleX"
     const val ANGLE_Y = "ParamAngleY"
     const val ANGLE_Z = "ParamAngleZ"
 
-    // 身体参数
+    // ==================== 动作参数（Gesture 独占）====================
+    // 身体旋转
     const val BODY_ANGLE_X = "ParamBodyAngleX"
     const val BODY_ANGLE_Y = "ParamBodyAngleY"
-    const val BREATH = "ParamBreath"
+    const val BODY_ANGLE_Z = "ParamBodyAngleZ"
+
+    // 肩膀
+    const val SHOULDER = "ParamShoulder"
+
+    // 手臂
+    const val ARM_LA = "ParamArmLA"
+    const val ARM_RA = "ParamArmRA"
+    const val ARM_LB = "ParamArmLB"
+    const val ARM_RB = "ParamArmRB"
+
+    // 手部
+    const val HAND_L = "ParamHandL"
+    const val HAND_R = "ParamHandR"
+    const val HAND_LB = "ParamHandLB"
+    const val HAND_RB = "ParamHandRB"
 }
 
 /**
@@ -72,7 +80,7 @@ interface Live2DRenderer {
     /**
      * 设置口型参数
      * @param mouthOpen 开合度 (0-1)
-     * @param mouthForm 嘴型 (-1=扁嘴, 0=中性, 1=圆嘴)
+     * @param mouthForm 嘴型状态，Live2D 实模由 Expression 层控制 ParamMouthForm
      */
     fun setMouth(mouthOpen: Float, mouthForm: Float)
 

@@ -1,8 +1,8 @@
 # 移动端 API 接口契约
 
-版本：v6.0  
+版本：v7.0  
 日期：2026-04-29  
-状态：**交互模式重构为两模式：聊天问答 + 路线规划，统一接口**
+状态：**新增流式问答与分段 TTS 事件协议，保留非流式接口作为降级路径**
 
 ---
 
@@ -16,6 +16,8 @@
 - **TTS 语音合成**（Edge-TTS 服务）
 - **音频文件生成与缓存**
 - **词级时间标记（marks）生成**
+- 流式问答事件输出（`text_delta` / `tts_segment` / 结构化收口事件）
+- 长回答按可朗读片段切分并生成分段音频
 
 ### 移动端负责
 - UI 展示与交互
@@ -23,6 +25,9 @@
 - 音频播放（ExoPlayer）
 - 数字人渲染（Live2D）
 - 口型动画（根据 marks 或音频进度驱动）
+- 消费流式事件并增量更新消息气泡
+- 将后端返回的 `tts_segment` 分段音频排队播放
+- 在流式文本卡顿时停止口型并等待后续片段
 
 ---
 
@@ -146,9 +151,82 @@
 
 ---
 
+### 3.4 统一交互流式接口（新增）
+
+**接口**：`POST /api/v1/chat/text/stream`
+
+**请求头**：
+```http
+Accept: text/event-stream
+Content-Type: application/json
+```
+
+**请求体**：与 `POST /api/v1/chat/text` 保持一致。
+
+**推荐传输格式**：SSE。若后端实现受限，可使用 NDJSON 作为兼容备选。
+
+**核心事件示例**：
+```text
+event: message_start
+data: {"type":"message_start","message_id":"m_xxx","session_id":"s_xxx"}
+
+event: text_delta
+data: {"type":"text_delta","delta":"欢迎来到灵山胜境，"}
+
+event: tts_segment
+data: {"type":"tts_segment","segment_id":"seg_001","text":"欢迎来到灵山胜境，","audio_url":"/api/v1/tts/file/seg_001.mp3","duration_ms":1800,"marks":[]}
+
+event: done
+data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
+```
+
+**事件类型说明**：
+
+| type | 说明 | 移动端动作 |
+|------|------|------------|
+| `message_start` | 回答开始 | 绑定消息 ID 与会话 ID |
+| `text_delta` | 文本增量 | 追加到当前机器人消息 |
+| `tts_segment` | 可播放的 TTS 分段 | 音频入队播放，marks 驱动该段口型 |
+| `avatar_action` | 数字人表情/动作 | 提前更新 Expression / Gesture |
+| `sources` | 来源引用 | 回填到当前消息 |
+| `route_data` | 路线规划结构化数据 | 回填路线卡片 |
+| `metadata` | 意图、情绪、耗时、置信度等 | 回填统计与降级字段 |
+| `done` | 后端事件流结束 | 关闭 loading，等待 TTS 队列自然播完 |
+| `error` | 流式链路异常 | 停止流和 TTS，显示错误 |
+
+**`tts_segment` 响应结构**：
+```json
+{
+  "type": "tts_segment",
+  "segment_id": "seg_001",
+  "text": "欢迎来到灵山胜境，",
+  "audio_url": "/api/v1/tts/file/seg_001.mp3",
+  "duration_ms": 1800,
+  "voice": "zh-CN-XiaoxiaoNeural",
+  "marks": [
+    { "text": "欢迎", "start_ms": 0, "end_ms": 420 },
+    { "text": "来到", "start_ms": 430, "end_ms": 820 }
+  ]
+}
+```
+
+**分段约束**：
+
+1. 不按 token 或单字合成 TTS，应按可朗读短句切分。
+2. 推荐遇到 `，。！？；：` 切分；首段超过 800ms 未遇到标点时可强制切分。
+3. `tts_segment.marks` 的时间戳为片段内相对时间。
+4. `done` 表示后端事件发送完成，不表示移动端音频播放完成。
+5. 旧接口 `POST /api/v1/chat/text` 继续保留，作为非流式降级路径。
+
+详细重构方案见：`STREAMING_REFACTOR_PLAN.md`。
+
+---
+
 ## 四、TTS 接口（Edge-TTS 方案）
 
 > 自 v5.0 起，TTS 由后端统一提供。Android 端通过以下接口请求音频合成，使用 ExoPlayer 播放返回的音频 URL。
+>
+> 自 v7.0 起，流式问答推荐由后端在 `POST /api/v1/chat/text/stream` 中直接返回 `tts_segment` 事件。独立 TTS 接口仍用于非流式播放、测试、缓存预热和降级。
 
 ### 4.1 获取发音人列表
 
@@ -717,6 +795,34 @@ data class ResponseMetadata(
     IDLE          恢复待机状态
 ```
 
+### 8.1.1 流式播放流程
+
+```
+用户发送问题
+      │
+      ▼
+  THINKING        等待首个文本/音频事件
+      │
+      │ 后端持续返回 SSE/NDJSON 事件
+      ▼
+┌─────────────────────────────────────┐
+│ 事件流处理                            │
+│ ├── text_delta → 消息气泡增量展示      │
+│ ├── tts_segment → 音频片段入队播放     │
+│ ├── avatar_action → 表情/动作提前生效  │
+│ ├── sources/route_data → 回填结构化数据│
+│ └── done → 后端流结束                 │
+└─────────────────────────────────────┘
+      │
+      ▼
+┌─────────────────────────────────────┐
+│ TTS 分段队列                          │
+│ ├── 队列有片段：播放下一段             │
+│ ├── 队列为空且流未结束：停顿等待       │
+│ └── 队列为空且流已结束：恢复 IDLE      │
+└─────────────────────────────────────┘
+```
+
 ### 8.2 口型同步机制
 
 #### 方案 A：基于 marks 的精确同步（推荐）
@@ -979,13 +1085,16 @@ enum class VisemeType(val mouthOpen: Float, val mouthForm: Float = 0f) {
 | 7 | 口型同步优先用什么驱动？ | **marks（词级时间戳）**，无 marks 时字符估算兜底 |
 | 8 | 交互模式是否统一为 `chat/text` 接口？ | **是**，通过 `mode` 字段区分 `chat` / `route` |
 | 9 | `route_data` 是否只在 `mode=route` 时返回？ | **是**，`mode=chat` 时返回 null |
+| 10 | 流式接口是否替代非流式接口？ | **否**，流式接口新增，非流式接口保留为降级路径 |
+| 11 | 流式 TTS 是否由移动端自行按 delta 调用合成？ | **否**，推荐后端随流返回 `tts_segment` |
 
 ### 可选确认
 
 | # | 问题 | 说明 |
 |---|------|------|
-| 10 | 是否返回 `emotion` 字段 | 可用于表情降级，推荐保留 |
-| 11 | 是否返回 `intent` 字段 | 可用于动作降级，推荐保留 |
+| 12 | 是否返回 `emotion` 字段 | 可用于表情降级，推荐保留 |
+| 13 | 是否返回 `intent` 字段 | 可用于动作降级，推荐保留 |
+| 14 | 流式传输是否兼容 NDJSON | 推荐兼容，便于后端实现与调试 |
 
 ---
 
@@ -1001,3 +1110,4 @@ enum class VisemeType(val mouthOpen: Float, val mouthForm: Float = 0f) {
 | v5.0 | 2026-04-28 | **TTS 方案切换为后端 Edge-TTS：新增 `/api/v1/tts/*` 接口，更新职责划分与播放流程，marks 驱动口型同步** |
 | v5.1 | 2026-04-29 | **Edge-TTS 接口已完成 Android 端联调；修正 `duration_ms` 可空类型；确认系统 TTS 降级兜底正常** |
 | v6.0 | 2026-04-29 | **交互模式重构：三种模式缩减为两种（聊天问答 + 路线规划），统一 `POST /api/v1/chat/text` 接口，通过 `mode` 字段区分；新增 `route_data` 响应结构；新增图片上传接口** |
+| v7.0 | 2026-04-29 | **新增 `POST /api/v1/chat/text/stream` 流式接口摘要；引入 `text_delta`、`tts_segment`、`done` 等事件；明确分段 TTS 队列播放与非流式降级路径** |

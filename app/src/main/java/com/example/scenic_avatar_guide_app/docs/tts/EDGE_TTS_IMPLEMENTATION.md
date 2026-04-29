@@ -325,11 +325,16 @@ md5(text + voice + rate + pitch + volume).mp3
 当前项目的 TTS 已由后端 Edge-TTS 服务统一提供。移动端接入方式为：
 
 - Android 不再直接做在线合成
-- Android 只负责请求 TTS 服务、播放音频、驱动口型
+- 非流式下，Android 请求 TTS 服务、播放音频、驱动口型
+- 流式下，后端随 `POST /api/v1/chat/text/stream` 返回 `tts_segment`，Android 只负责分段音频排队播放和口型驱动
 
 即：
 
 `reply_text -> 请求 /tts/synthesize -> 播放 mp3 -> 根据 marks 驱动 mouthOpen`
+
+流式链路为：
+
+`text_delta 展示文本 + tts_segment.audio_url 入队播放 -> 每段 marks 驱动 mouthOpen`
 
 ### 9.2 最小改造
 
@@ -473,6 +478,8 @@ md5(text + voice + rate + pitch + volume).mp3
 
 `AvatarPlaybackManager` 已接入 `RemoteTTSController`，`MainViewModel` 通过 `playbackManager` 统一调用。
 
+流式重构不会直接废弃 `RemoteTTSController`：非流式和降级仍继续使用它；流式模式计划新增 `StreamingTtsQueue`，直接播放后端已经生成的 `tts_segment.audio_url`。
+
 ---
 
 ## 15. 当前实现状态
@@ -489,6 +496,8 @@ md5(text + voice + rate + pitch + volume).mp3
 
 - 服务端返回 `marks`，Android 端用 marks 替换字符估算驱动口型
 - 增加服务端音频缓存
+- 支持 `POST /api/v1/chat/text/stream` 中的 `tts_segment` 分段下发
+- Android 端新增分段 TTS 队列，支持队列为空时停顿等待、后续片段到达后继续播放
 
 ---
 
@@ -506,6 +515,8 @@ md5(text + voice + rate + pitch + volume).mp3
 
 1. 服务端返回 `marks`，Android 端用 marks 替换字符估算驱动口型
 2. 增加更多 Edge-TTS 音色选择
+3. 接入流式问答中的 `tts_segment` 事件
+4. 实现 Android 分段 TTS 队列
 
 ---
 

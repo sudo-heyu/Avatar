@@ -187,6 +187,18 @@ extern "C"
     }
 
     JNIEXPORT void JNICALL
+    Java_com_example_scenic_1avatar_1guide_1app_core_avatar_JniBridgeJava_nativeSetExpression(JNIEnv *env, jclass type, jstring expressionId)
+    {
+        if (expressionId == NULL || !CubismFramework::IsInitialized())
+        {
+            return;
+        }
+        const char* rawExpressionId = env->GetStringUTFChars(expressionId, nullptr);
+        LAppLive2DManager::GetInstance()->SetExpression(rawExpressionId);
+        env->ReleaseStringUTFChars(expressionId, rawExpressionId);
+    }
+
+    JNIEXPORT void JNICALL
     Java_com_example_scenic_1avatar_1guide_1app_core_avatar_JniBridgeJava_nativeSetUpperBodyMode(JNIEnv *env, jclass type, jboolean enabled)
     {
         s_upperBodyModePending = (enabled == JNI_TRUE);

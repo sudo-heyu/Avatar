@@ -70,14 +70,32 @@ object ChinesePhonemeEngine {
      * @return 按时间排序的音素事件列表
      */
     fun textToPhonemeEvents(text: String, totalDurationMs: Long): List<PhonemeEvent> {
-        val cleanText = text.filter { it.isLetterOrDigit() || it in '一'..'鿿' }
-        if (cleanText.isEmpty()) return emptyList()
+        val timelineChars = text.filter { isSpeakableChar(it) || isPauseChar(it) }
+        if (timelineChars.isEmpty()) return emptyList()
 
         val events = mutableListOf<PhonemeEvent>()
         var currentMs = 0L
-        val charDuration = totalDurationMs / cleanText.length.coerceAtLeast(1)
+        val totalWeight = timelineChars.sumOf { estimateCharWeight(it) }.coerceAtLeast(1L)
+        val safeTotalDuration = totalDurationMs.coerceAtLeast(totalWeight)
 
-        cleanText.forEachIndexed { index, char ->
+        timelineChars.forEachIndexed { index, char ->
+            val charDuration = (safeTotalDuration * estimateCharWeight(char) / totalWeight)
+                .coerceAtLeast(40L)
+
+            if (isPauseChar(char)) {
+                events.add(
+                    PhonemeEvent(
+                        phoneme = "SIL",
+                        startMs = currentMs,
+                        endMs = currentMs + charDuration,
+                        viseme = VisemeType.SIL,
+                        charIndex = index
+                    )
+                )
+                currentMs += charDuration
+                return@forEachIndexed
+            }
+
             val pinyin = charToPinyin(char)
             val phonemes = ChineseVisemeMapper.splitPinyin(pinyin)
 
@@ -136,6 +154,25 @@ object ChinesePhonemeEngine {
         }
 
         return events
+    }
+
+    private fun isSpeakableChar(char: Char): Boolean {
+        return char.isLetterOrDigit() || char in '一'..'鿿'
+    }
+
+    private fun isPauseChar(char: Char): Boolean {
+        return char.isWhitespace() ||
+            char in setOf('，', '。', '！', '？', '、', '；', '：', '"', '"') ||
+            char in setOf(',', '.', '!', '?', ';', ':', '"', '\'')
+    }
+
+    private fun estimateCharWeight(char: Char): Long {
+        return when {
+            char in setOf('，', '。', '！', '？', '、', '；', '：', '"', '"') -> 300L
+            char in setOf(',', '.', '!', '?', ';', ':', '"', '\'') -> 200L
+            char.isWhitespace() -> 100L
+            else -> 180L
+        }
     }
 
     /**
