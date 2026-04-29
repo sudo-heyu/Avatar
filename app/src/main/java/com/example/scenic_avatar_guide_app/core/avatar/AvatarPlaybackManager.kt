@@ -251,7 +251,12 @@ class AvatarPlaybackManager(
         lastMouthForm = 0f
 
         audioPositionSyncJob = scope.launch {
+            var lastAudioPosition = -1L
+            var samePositionCount = 0
+            var frameCount = 0
+
             while (isActive && isPlaying) {
+                frameCount++
                 val frameStart = System.currentTimeMillis()
 
                 val isAudioPlaying = ttsController.isAudioPlaying()
@@ -259,14 +264,36 @@ class AvatarPlaybackManager(
                 val audioDur = ttsController.getEstimatedDuration()
                 val eventsEnd = currentSegmentEvents.lastOrNull()?.endMs ?: 0L
 
+                // 每 30 帧输出诊断日志
+                if (frameCount % 30 == 0) {
+                    Log.d(TAG, "[LIPSYNC-NONSTREAM] frame=$frameCount, audioPos=$audioPos, events=${currentSegmentEvents.size}, eventsEnd=$eventsEnd, isPlaying=$isAudioPlaying, mouthOpen=$lastMouthOpen, mouthForm=$lastMouthForm")
+                }
+
+                // 检测停滞
+                if (audioPos == lastAudioPosition && audioPos > 0) {
+                    samePositionCount++
+                } else {
+                    samePositionCount = 0
+                }
+                lastAudioPosition = audioPos
+
                 // 保底：音频已停止
                 if (!isAudioPlaying && audioPos > 0) {
+                    Log.d(TAG, "[LIPSYNC-NONSTREAM] 保底触发：音频停止")
+                    forceCloseMouth()
+                    return@launch
+                }
+
+                // 保底：进度停滞
+                if (samePositionCount >= 3) {
+                    Log.d(TAG, "[LIPSYNC-NONSTREAM] 保底触发：进度停滞")
                     forceCloseMouth()
                     return@launch
                 }
 
                 // 保底：口型时间轴结束
                 if (eventsEnd > 0 && audioPos > eventsEnd + 50) {
+                    Log.d(TAG, "[LIPSYNC-NONSTREAM] 保底触发：时间轴结束")
                     forceCloseMouth()
                     return@launch
                 }
@@ -279,6 +306,7 @@ class AvatarPlaybackManager(
                 val elapsed = System.currentTimeMillis() - frameStart
                 if (elapsed < 16) delay(16 - elapsed)
             }
+            Log.d(TAG, "[LIPSYNC-NONSTREAM] 循环退出")
             forceCloseMouth()
         }
     }
@@ -602,7 +630,11 @@ class AvatarPlaybackManager(
      * 启动基于音频进度的口型同步协程。
      */
     private fun startAudioSyncedLipSync() {
-        if (audioPositionSyncJob?.isActive == true) return
+        // 如果 job 已在运行，取消旧的并重置状态（segment 切换时）
+        if (audioPositionSyncJob?.isActive == true) {
+            Log.d(TAG, "[LIPSYNC] 取消旧 job，启动新 segment 口型同步")
+            audioPositionSyncJob?.cancel()
+        }
 
         lastMouthOpen = 0f
         lastMouthForm = 0f
@@ -610,14 +642,21 @@ class AvatarPlaybackManager(
         audioPositionSyncJob = scope.launch {
             var lastAudioPosition = -1L
             var samePositionCount = 0
+            var frameCount = 0
 
             while (isActive && isPlaying) {
+                frameCount++
                 val frameStart = System.currentTimeMillis()
 
                 val isAudioPlaying = streamingAudioPlayer.isActuallyPlaying()
                 val audioPos = streamingAudioPlayer.getCurrentPosition()
                 val audioDur = streamingAudioPlayer.getDuration()
                 val eventsEnd = currentSegmentEvents.lastOrNull()?.endMs ?: 0L
+
+                // 每 30 帧输出诊断日志
+                if (frameCount % 30 == 0) {
+                    Log.d(TAG, "[LIPSYNC] frame=$frameCount, audioPos=$audioPos, events=${currentSegmentEvents.size}, eventsEnd=$eventsEnd, isPlaying=$isAudioPlaying, mouthOpen=$lastMouthOpen, mouthForm=$lastMouthForm")
+                }
 
                 // 检测停滞
                 if (audioPos == lastAudioPosition && audioPos > 0) {
@@ -629,18 +668,21 @@ class AvatarPlaybackManager(
 
                 // 保底：音频停止或停滞
                 if ((!isAudioPlaying && audioPos > 0) || samePositionCount >= 3) {
+                    Log.d(TAG, "[LIPSYNC] 保底触发：音频停止/停滞")
                     forceCloseMouth()
                     return@launch
                 }
 
                 // 保底：音频即将结束
                 if (audioDur > 0 && audioPos >= audioDur - 50) {
+                    Log.d(TAG, "[LIPSYNC] 保底触发：音频即将结束")
                     forceCloseMouth()
                     return@launch
                 }
 
                 // 保底：口型时间轴结束
-                if (eventsEnd > 0 && audioPos > eventsEnd) {
+                if (eventsEnd > 0 && audioPos > eventsEnd + 50) {
+                    Log.d(TAG, "[LIPSYNC] 保底触发：时间轴结束")
                     forceCloseMouth()
                     return@launch
                 }
@@ -653,6 +695,7 @@ class AvatarPlaybackManager(
                 val elapsed = System.currentTimeMillis() - frameStart
                 if (elapsed < 16) delay(16 - elapsed)
             }
+            Log.d(TAG, "[LIPSYNC] 循环退出，forceCloseMouth")
             forceCloseMouth()
         }
     }
