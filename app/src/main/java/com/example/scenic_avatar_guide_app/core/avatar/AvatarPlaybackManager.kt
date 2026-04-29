@@ -197,18 +197,12 @@ class AvatarPlaybackManager(
         ttsController.onSpeakStart = {
             _avatarState.update { it.copy(state = AvatarState.SPEAKING) }
             isPlaying = true
-
-            // 设置外部时间源（音频进度）用于口型同步
-            lipSyncAnimator.setExternalTimeSource(
-                timeSource = { ttsController.getCurrentPosition() },
-                isPlayingSource = { ttsController.isAudioPlaying() }
-            )
         }
 
         ttsController.onSpeakComplete = {
             Log.d(TAG, "[TTS] 非流式播放完成")
-            lipSyncAnimator.stop()
-            lipSyncAnimator.clearExternalTimeSource()
+            audioPositionSyncJob?.cancel()
+            audioPositionSyncJob = null
             val shouldKeepGesture = currentPlayAction?.gestureLoop == true
             _avatarState.update {
                 it.copy(
@@ -221,24 +215,74 @@ class AvatarPlaybackManager(
             }
             isPlaying = false
             currentPlayAction = null
+            currentSegmentEvents.clear()
         }
 
-        // 音素事件列表回调 - 驱动高精度口型动画
-        // 使用音频同步模式
+        // 音素事件列表回调 - 使用与流式模式相同的口型同步逻辑
         ttsController.onPhonemeEvents = { events ->
             val eventCount = events.size
             val lastEvent = events.lastOrNull()
             Log.d(TAG, "[TTS] 非流式口型事件: count=$eventCount, 时间范围=0-${lastEvent?.endMs}ms")
-            lipSyncAnimator.start(events, scope, useAudioSync = true)
-        }
 
-        // 单个音素回调已由 LipSyncAnimator 的平滑动画接管，不再直接更新状态
-        // 避免双重竞争导致口型跳动
+            // 使用与流式模式相同的事件处理逻辑
+            currentSegmentEvents = LipSyncAnimator.mergeEventsByChar(events).toMutableList()
+
+            // 时间缩放：确保口型事件不超过音频时长（如果有）
+            val audioDuration = ttsController.let { controller ->
+                // 等音频开始后获取时长，这里先用事件时长
+                lastEvent?.endMs ?: 0L
+            }
+
+            val eventEnd = currentSegmentEvents.lastOrNull()?.endMs ?: 0L
+            Log.d(TAG, "[TTS] 口型事件=${currentSegmentEvents.size}个, 时间范围=0-${eventEnd}ms")
+
+            // 启动与流式模式相同的口型同步逻辑
+            startNonStreamingLipSync()
+        }
     }
 
     /**
-     * 设置系统 TTS 回调（降级方案）
+     * 非流式模式的口型同步（与流式模式使用相同逻辑）
      */
+    private fun startNonStreamingLipSync() {
+        audioPositionSyncJob?.cancel()
+
+        lastMouthOpen = 0f
+        lastMouthForm = 0f
+
+        audioPositionSyncJob = scope.launch {
+            while (isActive && isPlaying) {
+                val frameStart = System.currentTimeMillis()
+
+                val isAudioPlaying = ttsController.isAudioPlaying()
+                val audioPos = ttsController.getCurrentPosition()
+                val audioDur = ttsController.getEstimatedDuration()
+                val eventsEnd = currentSegmentEvents.lastOrNull()?.endMs ?: 0L
+
+                // 保底：音频已停止
+                if (!isAudioPlaying && audioPos > 0) {
+                    forceCloseMouth()
+                    return@launch
+                }
+
+                // 保底：口型时间轴结束
+                if (eventsEnd > 0 && audioPos > eventsEnd + 50) {
+                    forceCloseMouth()
+                    return@launch
+                }
+
+                // 计算并应用口型
+                val (open, form) = calculateLipSync(audioPos)
+                _avatarState.update { it.copy(mouthOpen = open, mouthForm = form) }
+
+                // 帧率控制
+                val elapsed = System.currentTimeMillis() - frameStart
+                if (elapsed < 16) delay(16 - elapsed)
+            }
+            forceCloseMouth()
+        }
+    }
+
     /**
      * 播放动作和语音
      */
@@ -615,7 +659,7 @@ class AvatarPlaybackManager(
 
     /**
      * 根据音频位置计算口型
-     * 包含字间过渡处理，让连续开口音有起伏变化
+     * 包含字间过渡处理，遇到 SIL（标点/停顿）强制闭唇
      */
     private fun calculateLipSync(audioPos: Long): Pair<Float, Float> {
         if (currentSegmentEvents.isEmpty()) return Pair(0f, 0f)
@@ -624,6 +668,13 @@ class AvatarPlaybackManager(
         val currentEvent = currentSegmentEvents.find { audioPos >= it.startMs && audioPos < it.endMs }
 
         if (currentEvent != null) {
+            // SIL 事件（标点/停顿）：强制闭唇
+            if (currentEvent.viseme == VisemeType.SIL) {
+                lastMouthOpen = lerpValue(lastMouthOpen, 0f, 0.5f)
+                lastMouthForm = lerpValue(lastMouthForm, 0f, 0.5f)
+                return Pair(lastMouthOpen, lastMouthForm)
+            }
+
             // 在某个事件内：计算事件内的进度并应用缓动
             val eventDuration = (currentEvent.endMs - currentEvent.startMs).coerceAtLeast(1)
             val progress = ((audioPos - currentEvent.startMs).toFloat() / eventDuration).coerceIn(0f, 1f)
@@ -648,6 +699,13 @@ class AvatarPlaybackManager(
         val nextEvent = currentSegmentEvents.firstOrNull { it.startMs > audioPos }
 
         if (prevEvent != null && nextEvent != null) {
+            // 如果前后有 SIL 事件，强制闭唇
+            if (prevEvent.viseme == VisemeType.SIL || nextEvent.viseme == VisemeType.SIL) {
+                lastMouthOpen = lerpValue(lastMouthOpen, 0f, 0.4f)
+                lastMouthForm = lerpValue(lastMouthForm, 0f, 0.4f)
+                return Pair(lastMouthOpen, lastMouthForm)
+            }
+
             // 字间过渡：插值 + 保持系数
             val gap = (nextEvent.startMs - prevEvent.endMs).coerceAtLeast(1)
             val t = ((audioPos - prevEvent.endMs).toFloat() / gap).coerceIn(0f, 1f)
@@ -658,11 +716,11 @@ class AvatarPlaybackManager(
 
             // 字间保持系数：让连续开口音之间有闭合过渡
             val holdFactor = when {
-                gap >= 150 -> 0.5f   // 长停顿，允许较多闭合
-                gap >= 80 -> 0.6f    // 中等停顿
-                avgOpen >= 0.7f -> 0.55f  // 连续高开口音，要有起伏
-                avgOpen >= 0.5f -> 0.6f
-                else -> 0.7f
+                gap >= 150 -> 0.4f   // 长停顿，闭合更多
+                gap >= 80 -> 0.5f    // 中等停顿
+                avgOpen >= 0.7f -> 0.5f  // 连续高开口音，要有起伏
+                avgOpen >= 0.5f -> 0.55f
+                else -> 0.65f
             }
 
             val open = lerpValue(prevOpen, nextOpen, t) * holdFactor
@@ -675,6 +733,10 @@ class AvatarPlaybackManager(
 
         // 在第一个事件之前
         if (prevEvent == null && nextEvent != null) {
+            // 如果下一个是 SIL，保持闭合
+            if (nextEvent.viseme == VisemeType.SIL) {
+                return Pair(0f, 0f)
+            }
             val t = (audioPos.toFloat() / nextEvent.startMs.coerceAtLeast(1)).coerceIn(0f, 1f)
             val open = nextEvent.viseme.mouthOpen * t
             val form = nextEvent.viseme.mouthForm * t

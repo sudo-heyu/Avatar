@@ -283,6 +283,14 @@ class RemoteTTSController(
     }
 
     /**
+     * 获取音频时长（毫秒）
+     * 用于口型同步
+     */
+    fun getEstimatedDuration(): Long {
+        return audioPlayer.getDuration()
+    }
+
+    /**
      * 获取当前是否正在播放（直接查询 ExoPlayer 状态）
      * 用于口型同步判断
      */
