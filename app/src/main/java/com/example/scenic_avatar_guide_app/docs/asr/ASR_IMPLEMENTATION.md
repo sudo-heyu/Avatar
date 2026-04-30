@@ -27,7 +27,7 @@
 |------|------|------|
 | SDK | 讯飞 SparkChain ASR | 国内领先的语音识别引擎 |
 | 实现方式 | 客户端实时流式识别 | 低延迟，用户体验好 |
-| 正式后端接口 | `POST /api/v1/chat/text` / `POST /api/v1/chat/text/stream` | 识别结果统一走文本问答；流式接口用于增量文本和分段 TTS |
+| 正式后端接口 | `POST /api/v1/chat/text/stream` | 识别结果统一走流式文本问答；返回 `text_delta`、`tts_segment` 等事件 |
 
 ### 1.2 功能特性
 
@@ -250,7 +250,7 @@ fun onSpeechRecognized(text: String) {
     _volumeLevel.value = 0f
     if (text.isNotBlank()) {
         addMessage(text, isUser = true)
-        sendMessageToBackend(text)  // 通过 chat/text 或 chat/text/stream 发送
+        sendMessageToBackend(text)  // 统一通过 chat/text/stream 发送
     }
     viewModelScope.launch {
         delay(300)
@@ -416,6 +416,6 @@ app/libs/
 
 当前 Android 端已完成本地语音识别功能，可实现：
 
-**语音输入 → 本地 ASR 识别 → 文本发送到 chat/text 或 chat/text/stream → 显示回复**
+**语音输入 → 本地 ASR 识别 → 文本发送到 chat/text/stream → 流式回复**
 
 当前不应再把 `chat/voice`、`audio_url` 或“上传音频到服务端识别”写成既定联调前提。

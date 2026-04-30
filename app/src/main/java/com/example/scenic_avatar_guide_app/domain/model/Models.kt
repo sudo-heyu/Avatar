@@ -100,7 +100,19 @@ data class ChatOptions(
     /**
      * TTS 发音人 ID（如 zh-CN-XiaoxiaoNeural）
      */
-    val voice: String? = null
+    val voice: String? = null,
+    /**
+     * 流式 TTS 语速，如 +10%、-20%，默认 +0%
+     */
+    val rate: String? = null,
+    /**
+     * 流式 TTS 音量，如 +10%，默认 +0%
+     */
+    val volume: String? = null,
+    /**
+     * 流式 TTS 音调，如 +5Hz、-5Hz，默认 +0Hz
+     */
+    val pitch: String? = null
 )
 
 @Serializable
@@ -116,96 +128,6 @@ data class ChatAbortResponse(
     val code: Int,
     val message: String
 )
-
-@Serializable
-data class ChatTextResponse(
-    val code: Int,
-    val message: String,
-    val data: ChatResponseData
-)
-
-/**
- * 聊天响应数据
- *
- * TTS 由后端 Edge-TTS 服务统一提供，移动端通过 /api/v1/tts/synthesize 获取音频 URL
- */
-@Serializable
-data class ChatResponseData(
-    @SerialName("message_id")
-    val messageId: String? = null,
-
-    @SerialName("session_id")
-    val sessionId: String? = null,
-
-    /**
-     * 回复文本
-     * 移动端通过后端 /api/v1/tts/synthesize 接口请求语音合成
-     */
-    @SerialName("reply_text")
-    val replyText: String,
-
-    /**
-     * 数字人动作数据
-     */
-    @SerialName("avatar_action")
-    val avatarAction: AvatarAction? = null,
-
-    /**
-     * 来源引用
-     */
-    @SerialName("sources")
-    val sources: List<SourceInfo> = emptyList(),
-
-    /**
-     * 阶段一后端主链路直接返回的耗时字段
-     * 若存在 metadata，则以 metadata 为准
-     */
-    @SerialName("latency_ms")
-    val latencyMs: Long? = null,
-
-    /**
-     * 阶段一后端主链路直接返回的置信度字段
-     */
-    @SerialName("confidence")
-    val confidence: Float? = null,
-
-    /**
-     * 阶段一后端主链路直接返回的降级标记
-     */
-    @SerialName("is_fallback")
-    val isFallback: Boolean? = null,
-
-    /**
-     * 元数据
-     */
-    @SerialName("metadata")
-    val metadata: ResponseMetadata? = null,
-
-    /**
-     * 路线规划数据
-     * 仅在 mode=route 时返回，mode=chat 时为 null
-     */
-    @SerialName("route_data")
-    val routeData: RouteData? = null,
-
-    @SerialName("created_at")
-    val createdAt: String? = null
-) {
-    val effectiveLatencyMs: Long?
-        get() = metadata?.latencyMs ?: latencyMs
-
-    val effectiveConfidence: Float?
-        get() = metadata?.confidence ?: confidence
-
-    val effectiveIsFallback: Boolean
-        get() = metadata?.isFallback ?: isFallback ?: false
-
-    val effectiveIntent: String?
-        get() = metadata?.intent
-
-    val effectiveEmotion: String?
-        get() = metadata?.emotion
-}
 
 // ==================== 数字人动作系统 ====================
 

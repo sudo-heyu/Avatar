@@ -186,21 +186,7 @@ class AudioPlayer(private val context: Context) {
         play("asset:///$fileName")
     }
 
-    /**
-     * 播放 PCM 数据（用于 TTS 实时输出）
-     */
-    fun playPcmData(pcmData: ByteArray, sampleRate: Int = 16000) {
-        // PCM 播放需要特殊处理，这里简化为写入临时文件
-        CoroutineScope(Dispatchers.IO).launch {
-            val tempFile = File(context.cacheDir, "tts_temp.pcm")
-            tempFile.writeBytes(pcmData)
-            withContext(Dispatchers.Main) {
-                play(tempFile.absolutePath)
-            }
-        }
-    }
-
-    /**
+/**
      * 停止播放
      */
     fun stop() {

@@ -8,30 +8,23 @@
 
 ## 一、当前基线
 
-当前数字人正式链路应理解为：
+当前数字人正式链路（streaming-only）：
 
 ```text
-非流式：
-后端返回 reply_text / avatar_action
-→ Android 端请求后端 /api/v1/tts/synthesize 获取 audio_url
-→ ExoPlayer 播放音频
-→ 音频播放过程中驱动口型
-→ 数字人根据状态和动作数据联动
-
-流式：
 后端返回 text_delta / tts_segment / avatar_action
 → Android 端增量展示 text_delta
 → tts_segment.audio_url 进入分段播放队列
 → 每段 marks 驱动该片段口型
+→ tts_segment.emotion 动态更新数字人表情
 → 队列为空但流未结束时口型归零并等待
 ```
 
 这意味着：
 
 1. TTS 由后端 Edge-TTS 服务统一提供
-2. 非流式下，后端返回文本与动作数据，移动端额外调用 TTS 接口获取音频
-3. 流式下，后端通过 `POST /api/v1/chat/text/stream` 返回 `tts_segment`，移动端不再对每段文本单独调用 TTS 接口
-4. 当前正式接口包括 `POST /api/v1/chat/text`、`POST /api/v1/chat/text/stream`，TTS 接口为 `POST /api/v1/tts/synthesize`
+2. Android 端仅通过 `POST /api/v1/chat/text/stream` 消费 `tts_segment`，不再对每段文本单独调用 TTS 接口
+3. 独立 `POST /api/v1/tts/synthesize` 仅保留用于测试、缓存预热或极端兜底
+4. `POST /api/v1/chat/text` 已从 Android 端移除，仅作为后端内部保留接口
 
 ---
 

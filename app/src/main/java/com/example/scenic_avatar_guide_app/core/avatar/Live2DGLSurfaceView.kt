@@ -31,6 +31,11 @@ class Live2DGLSurfaceView @JvmOverloads constructor(
     var onSurfaceCreatedListener: (() -> Unit)? = null
 
     /**
+     * 每帧渲染完成后的回调（用于在 SDK 动画更新后强制覆盖嘴部参数）
+     */
+    var onAfterDrawFrame: (() -> Unit)? = null
+
+    /**
      * 初始化渲染器
      */
     fun initialize() {
@@ -95,6 +100,7 @@ class Live2DGLSurfaceView @JvmOverloads constructor(
 
         override fun onDrawFrame(gl: GL10?) {
             JniBridgeJava.nativeOnDrawFrame()
+            onAfterDrawFrame?.invoke()
         }
     }
 

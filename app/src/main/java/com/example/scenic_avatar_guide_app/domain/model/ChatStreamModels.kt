@@ -52,5 +52,21 @@ data class TtsSegmentData(
     @SerialName("duration_ms")
     val durationMs: Int? = null,
     val voice: String? = null,
+    /**
+     * 实际使用语速（如 +0%）
+     */
+    val rate: String? = null,
+    /**
+     * 实际使用音量（如 +0%）
+     */
+    val volume: String? = null,
+    /**
+     * 实际使用音调（如 +0Hz）
+     */
+    val pitch: String? = null,
+    /**
+     * LLM 标注的情绪或后验推断的情绪，如 welcoming、excited、thinking 等
+     */
+    val emotion: String? = null,
     val marks: List<TtsMarkItem>? = null
 )

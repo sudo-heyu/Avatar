@@ -88,6 +88,12 @@ class Live2DRendererImpl(
     // 嘴部宽度缩放因子（偏移值，0=原始，正值=更大更圆，负值=更扁）
     var mouthWidthScale: Float = 0.3f
 
+    // 说话时强制覆盖 SDK 动画的嘴部参数（解决 Idle 动画与口型同步竞争）
+    @Volatile
+    private var speakingMouthOverride = false
+    private var overrideMouthOpenY = 0f
+    private var overrideMouthForm = 0f
+
     // 上一帧时间
     private var lastFrameTime: Long = 0
 
@@ -154,6 +160,11 @@ class Live2DRendererImpl(
         val amplifiedMouthOpen = (currentMouthOpen * 0.65f).coerceAtMost(1.0f)
 
         val scaledMouthForm = (mouthForm + mouthWidthScale).coerceIn(-1f, 1.5f)
+
+        // 缓存嘴部覆盖值，用于每帧强制覆盖 SDK Idle 动画
+        overrideMouthOpenY = amplifiedMouthOpen
+        overrideMouthForm = scaledMouthForm
+        speakingMouthOverride = currentMouthOpen > 0f
 
         runOnRenderThread {
             JniBridgeJava.nativeSetParameter(Live2DParams.MOUTH_OPEN_Y, amplifiedMouthOpen, 1.0f)
@@ -575,6 +586,7 @@ class Live2DRendererImpl(
             mainHandler.removeCallbacksAndMessages(null)
             motionTransitionManager.reset()
             gestureAnimationPlayer.stop()
+            surfaceViewRef?.get()?.onAfterDrawFrame = null
             JniBridgeJava.nativeOnStop()
             JniBridgeJava.nativeOnDestroy()
             _isInitialized = false
@@ -591,6 +603,14 @@ class Live2DRendererImpl(
         Log.d(TAG, "=== attachSurfaceView() CALLED ===")
         surfaceViewRef = WeakReference(surfaceView)
         hasSurfaceAttached = true
+
+        // 在 SDK 动画渲染完成后强制覆盖嘴部参数，确保口型同步优先于 Idle 动画
+        surfaceView.onAfterDrawFrame = {
+            if (speakingMouthOverride) {
+                JniBridgeJava.nativeSetParameter(Live2DParams.MOUTH_OPEN_Y, overrideMouthOpenY, 1.0f)
+                JniBridgeJava.nativeSetParameter(Live2DParams.MOUTH_FORM, overrideMouthForm, 1.0f)
+            }
+        }
 
         if (surfaceView.isSurfaceCreated) {
             preloadCommonMotions()

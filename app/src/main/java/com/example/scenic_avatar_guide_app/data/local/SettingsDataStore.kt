@@ -26,9 +26,15 @@ class SettingsDataStore @Inject constructor(
         private val VOICE_ID_KEY = stringPreferencesKey("voice_id")
         private val SCENIC_ID_KEY = stringPreferencesKey("scenic_id")
         private val SPOT_ID_KEY = stringPreferencesKey("spot_id")
+        private val RATE_KEY = stringPreferencesKey("rate")
+        private val VOLUME_KEY = stringPreferencesKey("volume")
+        private val PITCH_KEY = stringPreferencesKey("pitch")
 
         const val DEFAULT_BASE_URL = "http://10.0.2.2:8000/"
         const val DEFAULT_VOICE_ID = "zh-CN-XiaoxiaoNeural"
+        const val DEFAULT_RATE = "+0%"
+        const val DEFAULT_VOLUME = "+0%"
+        const val DEFAULT_PITCH = "+0Hz"
     }
 
     val baseUrl: Flow<String> = context.dataStore.data.map { preferences ->
@@ -57,6 +63,18 @@ class SettingsDataStore @Inject constructor(
 
     val spotId: Flow<String?> = context.dataStore.data.map { preferences ->
         preferences[SPOT_ID_KEY]
+    }
+
+    val rate: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[RATE_KEY] ?: DEFAULT_RATE
+    }
+
+    val volume: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[VOLUME_KEY] ?: DEFAULT_VOLUME
+    }
+
+    val pitch: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[PITCH_KEY] ?: DEFAULT_PITCH
     }
 
     suspend fun setBaseUrl(url: String) {
@@ -104,6 +122,24 @@ class SettingsDataStore @Inject constructor(
     suspend fun setSpotId(id: String) {
         context.dataStore.edit { preferences ->
             preferences[SPOT_ID_KEY] = id
+        }
+    }
+
+    suspend fun setRate(rate: String) {
+        context.dataStore.edit { preferences ->
+            preferences[RATE_KEY] = rate
+        }
+    }
+
+    suspend fun setVolume(volume: String) {
+        context.dataStore.edit { preferences ->
+            preferences[VOLUME_KEY] = volume
+        }
+    }
+
+    suspend fun setPitch(pitch: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PITCH_KEY] = pitch
         }
     }
 

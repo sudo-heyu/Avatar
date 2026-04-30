@@ -317,7 +317,22 @@ object IntentToGesture {
  */
 object EmotionToExpression {
     private val mapping = mapOf(
-        // 积极情感
+        // 直接情绪名称（后端 tts_segment.emotion 直接返回）
+        "welcoming" to AvatarExpression.WELCOMING,
+        "happy" to AvatarExpression.HAPPY,
+        "excited" to AvatarExpression.EXCITED,
+        "thinking" to AvatarExpression.THINKING,
+        "apologetic" to AvatarExpression.APologetic,
+        "concerned" to AvatarExpression.CONCERNED,
+        "surprised" to AvatarExpression.SURPRISED,
+        "grateful" to AvatarExpression.GRATEFUL,
+        "reverent" to AvatarExpression.REVERENT,
+        "playful" to AvatarExpression.PLAYFUL,
+        "approving" to AvatarExpression.APPROVING,
+        "focused" to AvatarExpression.FOCUSED,
+        "neutral" to AvatarExpression.NEUTRAL,
+
+        // 积极情感（LLM 情绪标注）
         "joy" to AvatarExpression.HAPPY,
         "happiness" to AvatarExpression.HAPPY,
         "excitement" to AvatarExpression.EXCITED,
@@ -329,7 +344,6 @@ object EmotionToExpression {
         "agreement" to AvatarExpression.APPROVING,
 
         // 中性/交互
-        "neutral" to AvatarExpression.NEUTRAL,
         "curiosity" to AvatarExpression.THINKING,
 
         // 俏皮/轻松

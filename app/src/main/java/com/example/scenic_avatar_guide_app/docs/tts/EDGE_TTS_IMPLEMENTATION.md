@@ -322,15 +322,11 @@ md5(text + voice + rate + pitch + volume).mp3
 
 ### 9.1 推荐改造方向
 
-当前项目的 TTS 已由后端 Edge-TTS 服务统一提供。移动端接入方式为：
+当前项目的 TTS 已由后端 Edge-TTS 服务统一提供。Android 端接入方式为：
 
 - Android 不再直接做在线合成
-- 非流式下，Android 请求 TTS 服务、播放音频、驱动口型
-- 流式下，后端随 `POST /api/v1/chat/text/stream` 返回 `tts_segment`，Android 只负责分段音频排队播放和口型驱动
-
-即：
-
-`reply_text -> 请求 /tts/synthesize -> 播放 mp3 -> 根据 marks 驱动 mouthOpen`
+- 主链路：后端随 `POST /api/v1/chat/text/stream` 返回 `tts_segment`，Android 只负责分段音频排队播放和口型驱动
+- 独立 `/api/v1/tts/synthesize` 仅保留用于测试、缓存预热或极端兜底
 
 流式链路为：
 
@@ -478,7 +474,7 @@ md5(text + voice + rate + pitch + volume).mp3
 
 `AvatarPlaybackManager` 已接入 `RemoteTTSController`，`MainViewModel` 通过 `playbackManager` 统一调用。
 
-流式重构不会直接废弃 `RemoteTTSController`：非流式和降级仍继续使用它；流式模式计划新增 `StreamingTtsQueue`，直接播放后端已经生成的 `tts_segment.audio_url`。
+`RemoteTTSController` 已从主链路移除，仅保留用于独立 TTS 测试、缓存预热或极端兜底场景。流式模式下，`StreamingTtsQueue` 直接播放后端返回的 `tts_segment.audio_url`，不再调用 `RemoteTTSController.speak()`。
 
 ---
 

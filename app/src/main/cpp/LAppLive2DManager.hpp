@@ -161,6 +161,11 @@ public:
      */
     bool IsMotionFinished() const;
 
+    /**
+     * @brief   安全地重新加载所有模型的渲染器（持有 _managerMutex）
+     */
+    void ReloadAllRenderers() const;
+
 private:
     /**
     * @brief  コンストラクタ

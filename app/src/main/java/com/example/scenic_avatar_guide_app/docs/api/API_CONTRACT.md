@@ -1,8 +1,8 @@
 # 移动端 API 接口契约
 
-版本：v7.2  
+版本：v7.3  
 日期：2026-04-30  
-状态：**新增中止对话接口 /api/v1/chat/abort；保留流式问答与非流式降级路径**
+状态：**streaming-only on Android；非流式 chat/text 已从客户端移除，仅保留为后端内部接口**
 
 ---
 
@@ -112,11 +112,12 @@
 
 ---
 
-### 3.3 统一交互接口（核心）
+### 3.3 统一交互接口（后端内部）
 
 **接口**：`POST /api/v1/chat/text`
 
-> 自 v6.0 起，聊天问答与路线规划统一为同一个接口，通过 `mode` 字段区分交互模式。
+> 自 v6.0 起，聊天问答与路线规划统一为同一个接口，通过 `mode` 字段区分交互模式。  
+> **自 v7.3 起，Android 客户端不再调用此接口；非流式路径已从端侧移除，本接口仅作为后端内部保留。**
 
 **请求**：
 ```json
@@ -174,7 +175,7 @@ event: text_delta
 data: {"type":"text_delta","delta":"欢迎来到灵山胜境，"}
 
 event: tts_segment
-data: {"type":"tts_segment","segment_id":"seg_001","text":"欢迎来到灵山胜境，","audio_url":"/api/v1/tts/file/seg_001.mp3","duration_ms":1800,"marks":[]}
+data: {"type":"tts_segment","segment_id":"seg_001","text":"欢迎来到灵山胜境，","audio_url":"/api/v1/tts/file/seg_001.mp3","duration_ms":1800,"rate":"+0%","volume":"+0%","pitch":"+0Hz","emotion":"happy","marks":[]}
 
 event: done
 data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
@@ -186,7 +187,7 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
 |------|------|------------|
 | `message_start` | 回答开始 | 绑定消息 ID 与会话 ID |
 | `text_delta` | 文本增量 | 追加到当前机器人消息 |
-| `tts_segment` | 可播放的 TTS 分段 | 音频入队播放，marks 驱动该段口型 |
+| `tts_segment` | 可播放的 TTS 分段 | 音频入队播放，marks 驱动该段口型；`emotion` 可动态更新数字人表情 |
 | `avatar_action` | 数字人表情/动作 | 提前更新 Expression / Gesture |
 | `sources` | 来源引用 | 回填到当前消息 |
 | `route_data` | 路线规划结构化数据 | 回填路线卡片 |
@@ -203,6 +204,10 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
   "audio_url": "/api/v1/tts/file/seg_001.mp3",
   "duration_ms": 1800,
   "voice": "zh-CN-XiaoxiaoNeural",
+  "rate": "+0%",
+  "volume": "+0%",
+  "pitch": "+0Hz",
+  "emotion": "happy",
   "marks": [
     { "text": "欢迎", "start_ms": 0, "end_ms": 420 },
     { "text": "来到", "start_ms": 430, "end_ms": 820 }
@@ -217,9 +222,8 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
 3. 首段超过 800ms 仍未遇到标点时，强制切分一个短片段以提升首响。
 4. 英文、数字、景点名、专有名词尽量不要从中间切断。
 5. markdown、表格、链接等内容需在 TTS 合成前清洗为纯朗读文本。
-6. `tts_segment.marks` 的时间戳为片段内相对时间。
+6. `tts_segment.marks` 的时间戳为片段内相对时间；后端保证 `marks[-1].end_ms` 与 `duration_ms` 对齐，端侧不再做时间缩放。
 7. `done` 表示后端事件发送完成，不表示移动端音频播放完成。
-8. 旧接口 `POST /api/v1/chat/text` 继续保留，作为非流式降级路径。
 
 **文本一致性要求**：
 
@@ -284,7 +288,7 @@ Content-Type: application/json
 
 > 自 v5.0 起，TTS 由后端统一提供。Android 端通过以下接口请求音频合成，使用 ExoPlayer 播放返回的音频 URL。
 >
-> 自 v7.0 起，流式问答推荐由后端在 `POST /api/v1/chat/text/stream` 中直接返回 `tts_segment` 事件。独立 TTS 接口仍用于非流式播放、测试、缓存预热和降级。
+> 自 v7.0 起，流式问答推荐由后端在 `POST /api/v1/chat/text/stream` 中直接返回 `tts_segment` 事件。独立 TTS 接口仍用于测试、缓存预热和兜底场景。
 
 ### 4.1 获取发音人列表
 
@@ -435,11 +439,13 @@ Content-Type: application/json
 ```
 
 **说明**：
-- 用户上传图片后，将返回的 `image_url` 填入 `chat/text` 请求的 `image_url` 字段，实现图文问答。
+- 用户上传图片后，将返回的 `image_url` 填入 `chat/text/stream` 请求的 `image_url` 字段，实现图文问答。
 
 ---
 
 ### 5.2 完整响应示例（聊天问答模式）
+
+> **自 v7.3 起，Android 客户端不再使用此完整响应结构；所有数据通过 `POST /api/v1/chat/text/stream` 的流式事件到达。**
 
 ```json
 {
@@ -452,7 +458,7 @@ Content-Type: application/json
     "latency_ms": 1200,
     "confidence": 0.95,
     "is_fallback": false,
-    
+
     "avatar_action": {
       "expression": {
         "type": "excited",
@@ -466,7 +472,7 @@ Content-Type: application/json
         {"type": "point_right", "start_offset_ms": 2000}
       ]
     },
-    
+
     "sources": [
       {
         "document_id": "doc_huangshan_faq",
@@ -477,7 +483,7 @@ Content-Type: application/json
         "snippet": "迎客松位于玉屏楼左侧，是黄山代表性景观之一。"
       }
     ],
-    
+
     "metadata": {
       "intent": "introduction",
       "emotion": "joy",
@@ -485,7 +491,7 @@ Content-Type: application/json
       "latency_ms": 1200,
       "is_fallback": false
     },
-    
+
     "created_at": "2026-04-28T12:00:00Z"
   }
 }
@@ -511,7 +517,7 @@ Content-Type: application/json
 
 1. **阶段一最小可用返回**：`reply_text + sources + latency_ms + confidence + is_fallback`
 2. **增强版返回**：在最小字段基础上，增加 `avatar_action`、`metadata`、`message_id`、`created_at`、`route_data`
-3. Android 客户端应兼容上述两种返回形态
+3. Android 客户端不再消费此响应结构；所有字段通过流式事件增量到达
 
 ---
 
@@ -910,38 +916,31 @@ data class ResponseMetadata(
 
 ## 九、端侧处理流程
 
-### 8.1 完整播放流程
+### 8.1 完整播放流程（streaming-only）
 
 ```
 用户发送问题
       │
       ▼
-  THINKING        显示思考状态
+  THINKING        等待首个文本/音频事件
       │
-      │ 后端返回响应
+      │ 后端持续返回 SSE/NDJSON 事件
       ▼
 ┌─────────────────────────────────────┐
-│ 解析响应数据                          │
-│ ├── reply_text → 请求后端 TTS 合成    │
-│ ├── avatar_action.expression → 表情   │
-│ ├── avatar_action.gesture → 动作      │
-│ └── avatar_action.motion_queue → 队列 │
+│ 事件流处理                            │
+│ ├── text_delta → 消息气泡增量展示      │
+│ ├── tts_segment → 音频片段入队播放     │
+│ ├── avatar_action → 表情/动作提前生效  │
+│ ├── sources/route_data → 回填结构化数据│
+│ └── done → 后端流结束                 │
 └─────────────────────────────────────┘
       │
       ▼
 ┌─────────────────────────────────────┐
-│ 后端 TTS 合成（Edge-TTS）             │
-│ ├── 生成音频文件                      │
-│ ├── 返回 audio_url + duration_ms      │
-│ └── 可选返回 marks（词级时间戳）      │
-└─────────────────────────────────────┘
-      │
-      ▼
-┌─────────────────────────────────────┐
-│ Android 播放与口型同步                │
-│ ├── ExoPlayer 播放 audio_url          │
-│ ├── marks 驱动口型动画（如可用）      │
-│ └── 无 marks 时按字符时长估算兜底     │
+│ TTS 分段队列                          │
+│ ├── 队列有片段：播放下一段             │
+│ ├── 队列为空且流未结束：停顿等待       │
+│ └── 队列为空且流已结束：恢复 IDLE      │
 └─────────────────────────────────────┘
       │
       ▼
@@ -951,7 +950,9 @@ data class ResponseMetadata(
     IDLE          恢复待机状态
 ```
 
-### 8.1.1 流式播放流程
+> **自 v7.3 起，非流式完整响应路径已从 Android 客户端移除；所有交互均通过 `POST /api/v1/chat/text/stream` 完成。**
+
+### 8.1.1 流式播放流程（详细）
 
 ```
 用户发送问题
@@ -1002,6 +1003,8 @@ ExoPlayer 播放进度回调（currentPosition）
 └── ParamMouthForm = viseme.mouthForm
 ```
 
+> **自 v7.3 起，后端保证 `marks[-1].end_ms` 与 `duration_ms` 对齐，端侧不再对 marks 做时间缩放。**
+
 #### 方案 B：字符时长估算（兜底）
 
 当后端未返回 marks 或请求 `format=audio` 时：
@@ -1025,40 +1028,9 @@ reply_text
 
 ### 9.1 后端响应模型
 
+> **自 v7.3 起，`ChatResponseData` 已从 Android 客户端移除；所有数据通过流式事件到达。**
+
 ```kotlin
-@Serializable
-data class ChatResponseData(
-    @SerialName("message_id")
-    val messageId: String? = null,
-    
-    @SerialName("session_id")
-    val sessionId: String? = null,
-    
-    @SerialName("reply_text")
-    val replyText: String,
-    
-    @SerialName("avatar_action")
-    val avatarAction: AvatarAction? = null,
-    
-    @SerialName("sources")
-    val sources: List<SourceInfo> = emptyList(),
-
-    @SerialName("latency_ms")
-    val latencyMs: Long? = null,
-
-    @SerialName("confidence")
-    val confidence: Float? = null,
-
-    @SerialName("is_fallback")
-    val isFallback: Boolean? = null,
-    
-    @SerialName("metadata")
-    val metadata: ResponseMetadata? = null,
-    
-    @SerialName("created_at")
-    val createdAt: String? = null
-)
-
 @Serializable
 data class AvatarAction(
     @SerialName("expression")
@@ -1075,7 +1047,62 @@ data class AvatarAction(
 )
 ```
 
-### 9.2 端侧状态模型
+### 9.2 流式事件模型
+
+```kotlin
+@Serializable
+data class TtsSegmentData(
+    @SerialName("type")
+    val type: String = "tts_segment",
+
+    @SerialName("segment_id")
+    val segmentId: String,
+
+    @SerialName("text")
+    val text: String,
+
+    @SerialName("audio_url")
+    val audioUrl: String,
+
+    @SerialName("duration_ms")
+    val durationMs: Long,
+
+    @SerialName("voice")
+    val voice: String? = null,
+
+    @SerialName("rate")
+    val rate: String? = null,
+
+    @SerialName("volume")
+    val volume: String? = null,
+
+    @SerialName("pitch")
+    val pitch: String? = null,
+
+    @SerialName("emotion")
+    val emotion: String? = null,
+
+    @SerialName("marks")
+    val marks: List<MarkData> = emptyList()
+)
+
+@Serializable
+data class ChatOptions(
+    @SerialName("voice")
+    val voice: String = "zh-CN-XiaoxiaoNeural",
+
+    @SerialName("rate")
+    val rate: String = "+0%",
+
+    @SerialName("volume")
+    val volume: String = "+0%",
+
+    @SerialName("pitch")
+    val pitch: String = "+0Hz"
+)
+```
+
+### 9.3 端侧状态模型
 
 ```kotlin
 enum class AvatarState {
@@ -1268,7 +1295,7 @@ enum class VisemeType(val mouthOpen: Float, val mouthForm: Float = 0f) {
 | 7 | 口型同步优先用什么驱动？ | **marks（词级时间戳）**，无 marks 时字符估算兜底 |
 | 8 | 交互模式是否统一为 `chat/text` 接口？ | **是**，通过 `mode` 字段区分 `chat` / `route` |
 | 9 | `route_data` 是否只在 `mode=route` 时返回？ | **是**，`mode=chat` 时返回 null |
-| 10 | 流式接口是否替代非流式接口？ | **否**，流式接口新增，非流式接口保留为降级路径 |
+| 10 | 流式接口是否替代非流式接口？ | **是（Android 端）**，v7.3 起客户端仅使用流式接口；`POST /api/v1/chat/text` 仍保留为后端内部接口 |
 | 11 | 流式 TTS 是否由移动端自行按 delta 调用合成？ | **否**，推荐后端随流返回 `tts_segment` |
 
 ### 可选确认
@@ -1298,3 +1325,4 @@ enum class VisemeType(val mouthOpen: Float, val mouthForm: Float = 0f) {
 | v7.0 | 2026-04-29 | **新增 `POST /api/v1/chat/text/stream` 流式接口摘要；引入 `text_delta`、`tts_segment`、`done` 等事件；明确分段 TTS 队列播放与非流式降级路径** |
 | v7.1 | 2026-04-30 | **口型同步升级为 15 种高精度 Viseme；AvatarExpression 补全为 13 种；AvatarGesture 补全为 13 种；同步动作语义匹配与场景示例** |
 | v7.2 | 2026-04-30 | **新增 `POST /api/v1/chat/abort` 中止对话接口；客户端支持主动终止流式对话并创建新会话** |
+| v7.3 | 2026-04-30 | **Android 端移除非流式降级路径，`POST /api/v1/chat/text` 改为后端专用；`TtsSegmentData` 新增 `rate`/`volume`/`pitch`/`emotion`；`ChatOptions` 新增 `rate`/`volume`/`pitch`；`ChatResponseData` 从客户端移除；marks 时间戳由后端保证与 `duration_ms` 对齐，端侧不再缩放；`tts_segment.emotion` 支持动态更新数字人表情** |

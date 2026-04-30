@@ -14,9 +14,9 @@
 当前共识：
 
 - TTS 由后端 Edge-TTS 服务统一提供
-- 非流式接口返回 `reply_text` + `avatar_action` + `metadata`，移动端额外调用 `POST /api/v1/tts/synthesize` 获取音频 URL
-- 流式接口返回 `text_delta` + `tts_segment` + 结构化收口事件，移动端将分段音频排队播放
-- 当前正式接口包括 `POST /api/v1/chat/text` 与新增的 `POST /api/v1/chat/text/stream`
+- Android 端仅使用流式接口 `POST /api/v1/chat/text/stream`，返回 `text_delta` + `tts_segment` + `avatar_action` + 结构化收口事件，移动端将分段音频排队播放
+- 独立 `POST /api/v1/tts/synthesize` 仅保留用于测试、缓存预热或极端兜底
+- `POST /api/v1/chat/text` 已从 Android 端移除，仅作为后端内部保留接口
 
 ---
 
@@ -32,7 +32,7 @@
 }
 ```
 
-`data` 对应 `ChatResponseData`：
+> **注**：`ChatResponseData` 已从 Android 客户端移除；以下结构仅作为后端内部保留接口或本地 mock 的参考。Android 端当前通过流式事件消费数据。
 
 ```json
 {
@@ -368,9 +368,9 @@
 - 前端本地 mock 时，优先覆盖 `reply_text`、`avatar_action`、`metadata` 三部分。
 - 若只测数字人动作，不必返回 `sources`。
 - 若只测 TTS 与口型，可固定 `expression=neutral`，仅替换 `reply_text`，并调用 `POST /api/v1/tts/synthesize` 获取音频。
-- 若测流式播放，可 mock `text_delta` 与 `tts_segment`，其中 `tts_segment.marks` 为片段内相对时间。
+- 若测流式播放，可 mock `text_delta` 与 `tts_segment`，其中 `tts_segment.marks` 为片段内相对时间，并携带 `rate` / `volume` / `pitch` / `emotion` 字段。
 - 若测端侧降级逻辑，刻意返回 `avatar_action: null`。
-- 非流式 `audio_url` 由 `POST /api/v1/tts/synthesize` 返回；流式 `audio_url` 位于 `tts_segment.audio_url`。
+- 独立 TTS 测试场景下，`audio_url` 由 `POST /api/v1/tts/synthesize` 返回；流式主链路下，`audio_url` 位于 `tts_segment.audio_url`。
 
 ---
 

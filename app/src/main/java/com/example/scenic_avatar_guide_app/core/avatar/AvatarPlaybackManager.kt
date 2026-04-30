@@ -67,6 +67,19 @@ class AvatarPlaybackManager(
                 notifiedFirstSegment = true
                 onFirstSegmentStart?.invoke()
             }
+            // 根据 segment 的 emotion 动态更新表情（细粒度实时表情切换）
+            segment.emotion?.let { emotion ->
+                val expression = EmotionToExpression.map(emotion)
+                if (expression != _avatarState.value.expression) {
+                    Log.d(TAG, "[EMOTION] segment=${segment.segmentId} emotion=$emotion -> expression=${expression.value}")
+                    _avatarState.update {
+                        it.copy(
+                            expression = expression,
+                            expressionIntensity = 0.7f
+                        )
+                    }
+                }
+            }
             _avatarState.update {
                 it.copy(
                     state = AvatarState.SPEAKING,
@@ -81,7 +94,22 @@ class AvatarPlaybackManager(
             Log.d(TAG, "segment ${segment.segmentId} 完成，实际时长=${actualDurationMs}ms")
         },
         onWaitingForSegment = {
-            // 短 gap 内保持当前状态，不闭合嘴巴
+            // 队列为空但流未结束：口型归零，进入等待状态
+            streamingLipSyncJob?.cancel()
+            streamingLipSyncJob = null
+            audioPositionSyncJob?.cancel()
+            audioPositionSyncJob = null
+            currentSegmentEvents.clear()
+            currentSegmentId = null
+            forceCloseMouth()
+            _avatarState.update {
+                it.copy(
+                    state = AvatarState.THINKING,
+                    mouthOpen = 0f,
+                    mouthForm = 0f,
+                    currentText = ""
+                )
+            }
         },
         onAllComplete = {
             cancelWaitingClose()
@@ -609,26 +637,7 @@ class AvatarPlaybackManager(
         // 按字合并，时间从 0 开始（不累计偏移）
         currentSegmentEvents = LipSyncAnimator.mergeEventsByChar(events).toMutableList()
 
-        // 关键修复：确保最后一个口型事件的结束时间不超过音频时长
-        // 这可以避免"音频播完但嘴还在动"的问题
-        if (segmentDuration > 0 && currentSegmentEvents.isNotEmpty()) {
-            val lastEvent = currentSegmentEvents.last()
-            if (lastEvent.endMs > segmentDuration) {
-                // 按比例压缩所有事件的时间，使其匹配音频时长
-                val scale = segmentDuration.toFloat() / lastEvent.endMs
-                currentSegmentEvents = currentSegmentEvents.mapIndexed { index, event ->
-                    PhonemeEvent(
-                        phoneme = event.phoneme,
-                        startMs = (event.startMs * scale).toLong(),
-                        endMs = (event.endMs * scale).toLong(),
-                        viseme = event.viseme,
-                        charIndex = event.charIndex
-                    )
-                }.toMutableList()
-                Log.d(TAG, "[SEGMENT] ${segment.segmentId}: 时间缩放 scale=$scale, 原 end=${lastEvent.endMs}ms -> 新 end=${segmentDuration}ms")
-            }
-        }
-
+        // 后端已保证 marks[-1].end_ms 与 duration_ms 对齐，端侧不再二次拉伸 marks
         val eventStart = currentSegmentEvents.firstOrNull()?.startMs ?: 0L
         val eventEnd = currentSegmentEvents.lastOrNull()?.endMs ?: 0L
         Log.d(TAG, "[SEGMENT] ${segment.segmentId}: 口型事件=${currentSegmentEvents.size}个, " +

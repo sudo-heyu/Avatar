@@ -4,10 +4,10 @@
 
 后端已完整实现 Edge TTS 在线语音生成功能，前端可通过以下接口实现文字转语音。
 
-自流式问答方案起，TTS 有两种使用方式：
+自流式问答方案起，TTS 使用方式如下：
 
-1. **非流式 / 降级路径**：移动端继续调用 `POST /api/v1/tts/synthesize`，用完整文本生成完整音频。
-2. **流式问答路径**：后端在 `POST /api/v1/chat/text/stream` 的事件流中直接返回 `tts_segment`，移动端只负责分段音频排队播放。
+1. **流式问答路径（主链路）**：后端在 `POST /api/v1/chat/text/stream` 的事件流中直接返回 `tts_segment`，移动端只负责分段音频排队播放。
+2. **独立 TTS 接口（测试/兜底）**：`POST /api/v1/tts/synthesize` 用于完整文本生成完整音频，仅在独立测试、缓存预热或极端降级场景使用。
 
 ## 基础信息
 
@@ -164,11 +164,10 @@ GET /api/v1/tts/file/tts_dd73dd073dca85db.mp3
 
 | 场景 | 推荐方式 |
 |------|----------|
-| 普通非流式回答 | 调用 `/api/v1/tts/synthesize` |
-| 流式回答 | 消费 `/api/v1/chat/text/stream` 中的 `tts_segment` |
+| 流式回答（主链路） | 消费 `/api/v1/chat/text/stream` 中的 `tts_segment` |
 | TTS 功能测试 | 调用 `/api/v1/tts/synthesize` |
 | 固定文案缓存预热 | 调用 `/api/v1/tts/synthesize` |
-| 流式接口失败降级 | 可回退非流式回答，再调用 `/api/v1/tts/synthesize` |
+| 极端离线兜底 | 调用系统 TTS 或 `/api/v1/tts/synthesize` |
 
 详细流式方案见：`STREAMING_REFACTOR_PLAN.md`。
 

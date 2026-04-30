@@ -23,12 +23,6 @@ interface ApiService {
     suspend fun createSession(@Body request: SessionCreateRequest): SessionCreateResponse
 
     /**
-     * 统一交互接口（聊天问答 / 路线规划）
-     */
-    @POST("api/v1/chat/text")
-    suspend fun chatText(@Body request: ChatTextRequest): ChatTextResponse
-
-    /**
      * 中止当前对话
      */
     @POST("api/v1/chat/abort")

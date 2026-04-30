@@ -84,12 +84,19 @@ LAppLive2DManager::~LAppLive2DManager()
 
 void LAppLive2DManager::ReleaseAllModel()
 {
+    // 先保存需要删除的模型指针，避免 delete 和 Clear 之间的时间窗口内
+    // 其他线程通过 GetModel() 拿到悬空指针
+    csmVector<LAppModel*> modelsToDelete;
     for (csmUint32 i = 0; i < _models.GetSize(); i++)
     {
-        delete _models[i];
+        modelsToDelete.PushBack(_models[i]);
     }
-
     _models.Clear();
+
+    for (csmUint32 i = 0; i < modelsToDelete.GetSize(); i++)
+    {
+        delete modelsToDelete[i];
+    }
 }
 
 void LAppLive2DManager::SetUpModel()
@@ -114,6 +121,10 @@ void LAppLive2DManager::SetRenderTargetSize(csmUint32 width, csmUint32 height)
     for (csmUint32 i = 0; i < _models.GetSize(); i++)
     {
         LAppModel* model = GetModel(i);
+        if (model == NULL)
+        {
+            continue;
+        }
 
         model->SetRenderTargetSize(width, height);
     }
@@ -193,6 +204,12 @@ void LAppLive2DManager::OnUpdate() const
     {
         CubismMatrix44 projection;
         LAppModel* model = GetModel(i);
+
+        if (model == NULL)
+        {
+            LAppPal::PrintLogLn("Failed to GetModel(%d).", i);
+            continue;
+        }
 
         if (model->GetModel() == NULL)
         {
@@ -366,6 +383,19 @@ bool LAppLive2DManager::IsMotionFinished() const
     }
 
     return model->IsMotionFinished();
+}
+
+void LAppLive2DManager::ReloadAllRenderers() const
+{
+    std::lock_guard<std::mutex> lock(_managerMutex);
+    for (Csm::csmUint32 i = 0; i < _models.GetSize(); i++)
+    {
+        LAppModel* model = GetModel(i);
+        if (model != NULL)
+        {
+            model->ReloadRenderer();
+        }
+    }
 }
 
 void LAppLive2DManager::StartMotion(const csmChar* group, csmInt32 index, csmInt32 priority)

@@ -176,6 +176,10 @@ class StreamingChatClient @Inject constructor(
             audioUrl = audioUrl,
             durationMs = envelope.durationMs,
             voice = envelope.voice,
+            rate = envelope.rate,
+            volume = envelope.volume,
+            pitch = envelope.pitch,
+            emotion = envelope.emotion,
             marks = envelope.marks
         )
     }
@@ -200,6 +204,10 @@ private data class ChatStreamEnvelope(
     @SerialName("duration_ms")
     val durationMs: Int? = null,
     val voice: String? = null,
+    val rate: String? = null,
+    val volume: String? = null,
+    val pitch: String? = null,
+    val emotion: String? = null,
     val marks: List<TtsMarkItem>? = null,
     val code: Int? = null,
     val message: String? = null

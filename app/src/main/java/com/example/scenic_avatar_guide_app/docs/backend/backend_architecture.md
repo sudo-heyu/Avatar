@@ -4,29 +4,30 @@
 >
 > 当前正式基线以 [API_CONTRACT.md](./API_CONTRACT.md) 为准，Android 客户端依赖以下接口：
 >
-> **核心接口**：
+> **Android 端核心接口（streaming-only）**：
 > 1. `GET /api/v1/health`
 > 2. `POST /api/v1/session/create`
-> 3. `POST /api/v1/chat/text`
-> 4. `POST /api/v1/chat/text/stream`
+> 3. `POST /api/v1/chat/text/stream`
+> 4. `POST /api/v1/chat/abort`
 >
-> **TTS 接口（Edge-TTS 方案）**：
+> **TTS 接口（Edge-TTS 方案，测试/兜底用）**：
 > 5. `POST /api/v1/tts/synthesize`
 > 6. `GET /api/v1/tts/voices`
 > 7. `GET /api/v1/tts/file/{file_name}`
 >
 > 当前职责划分：
 >
-> 1. 非流式接口返回 `reply_text`、可选 `avatar_action`、可选 `sources`、`metadata`；Android 端再请求后端 TTS 并播放 `audio_url`
-> 2. 流式接口返回 `text_delta`、`tts_segment`、`avatar_action`、`sources`、`metadata`、`done` 等事件；后端负责按可朗读片段生成音频
-> 3. Android 端负责 ASR、消费事件流、ExoPlayer 分段播放、口型与数字人联动
+> 1. **Android 端仅使用流式接口**：`POST /api/v1/chat/text/stream` 返回 `text_delta`、`tts_segment`、`avatar_action`、`sources`、`metadata`、`done` 等事件；后端负责按可朗读片段生成音频
+> 2. `tts_segment` 由后端分段生成，Android 端通过 ExoPlayer 排队播放分段 `audio_url`
+> 3. Android 端负责 ASR、消费事件流、分段播放、口型与数字人联动
 >
 > 当前测试阶段补充约定：
 >
 > 1. `edge-tts` **已并入后端主链路**，新增 `/api/v1/tts/*`；Android 端不再直连独立 Python TTS 服务；
 > 2. Android 端通过设置页配置同网段电脑的 `IP + 端口` 访问当前测试后端；
-> 3. 端侧讯飞 TTS / 系统 TTS 仅作为 **网络异常时的降级兜底**，不再是主链路。
-> 4. 流式接口详细方案见 `../api/STREAMING_REFACTOR_PLAN.md`。
+> 3. 系统 TTS 仅作为 **极端离线场景的兜底**，用于独立文本合成测试；主链路不再依赖端侧 TTS。
+> 4. `POST /api/v1/chat/text` 已从 Android 端移除，仅作为后端内部保留接口。
+> 5. 流式接口详细方案见 `../api/API_STREAMING.md`。
 >
 > 以下能力都只能视为后续扩展，不能当作当前联调事实：
 >

@@ -140,11 +140,7 @@ void LAppDelegate::OnSurfaceCreate()
     // シェーダコードを最読み込むするためにインスタンスを破棄しておく
     Live2D::Cubism::Framework::Rendering::CubismShader_OpenGLES2::DeleteInstance();
 
-    LAppLive2DManager* live2DManager = LAppLive2DManager::GetInstance();
-    for (Csm::csmUint32 i = 0; i < live2DManager->GetModelNum(); i++)
-    {
-        live2DManager->GetModel(i)->ReloadRenderer();
-    }
+    LAppLive2DManager::GetInstance()->ReloadAllRenderers();
 }
 
 void LAppDelegate::OnSurfaceChanged(float width, float height)
@@ -173,7 +169,9 @@ LAppDelegate::LAppDelegate():
     _mouseY(0.0f),
     _isActive(true),
     _textureManager(NULL),
-    _view(NULL)
+    _view(NULL),
+    _width(0),
+    _height(0)
 {
     // Setup Cubism
     _cubismOption.LogFunction = LAppPal::PrintMessageLn;

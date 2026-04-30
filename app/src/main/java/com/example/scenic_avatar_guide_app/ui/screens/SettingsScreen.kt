@@ -243,28 +243,6 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 操作
-            SettingsGroup(title = "操作") {
-                SettingsListItem(
-                    icon = Icons.Default.Refresh,
-                    iconBg = Warning.copy(alpha = 0.1f),
-                    iconTint = Warning,
-                    title = "重置会话",
-                    subtitle = "清除当前会话并创建新会话",
-                    titleColor = Warning,
-                    onClick = { viewModel.clearSession() },
-                    trailing = {
-                        Icon(
-                            imageVector = Icons.Default.ChevronRight,
-                            contentDescription = null,
-                            tint = TextHint
-                        )
-                    }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
             // 关于
             SettingsGroup(title = "关于") {
                 SettingsListItem(

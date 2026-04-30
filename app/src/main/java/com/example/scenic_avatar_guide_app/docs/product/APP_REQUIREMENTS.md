@@ -1,6 +1,6 @@
 # 景灵智导 Android 端需求基线
 
-版本：v2.5  
+版本：v2.6  
 日期：2026-04-30  
 适用仓库：`scenic_avatar_guide_app`  
 变更：
@@ -10,6 +10,7 @@
 4. 口型同步升级为 15 种高精度 Viseme，支持音频进度同步
 5. 新增表情时间轴与动作队列播放
 6. Live2D 动作过渡 v2.1（眼球方向、速度自适应过渡）
+7. Android 端移除非流式降级路径，统一使用 `POST /api/v1/chat/text/stream`
 
 ---
 
@@ -29,8 +30,8 @@
 **核心问答接口（已有）**：
 1. `GET /api/v1/health`
 2. `POST /api/v1/session/create`
-3. `POST /api/v1/chat/text`
-4. `POST /api/v1/chat/text/stream` — 流式问答，返回 `text_delta`、`tts_segment`、结构化收口事件
+3. `POST /api/v1/chat/text/stream` — 流式问答，返回 `text_delta`、`tts_segment`、结构化收口事件
+4. `POST /api/v1/chat/abort` — 中止当前流式对话
 
 **TTS 接口（Edge-TTS 方案新增）**：
 5. `POST /api/v1/tts/synthesize` — 文本合成音频
@@ -41,7 +42,7 @@
 
 1. 文本输入问答
 2. 端侧 ASR 识别后转文本问答
-3. 后端 TTS 合成 `reply_text`，返回 `audio_url`
+3. 后端在流式问答中按可朗读片段生成 TTS，通过 `tts_segment` 事件返回分段 `audio_url`
 4. Android 端使用 ExoPlayer 播放音频
 5. 基于 `avatar_action` 与 `marks` 的数字人状态联动
 6. Base URL、用户 ID、设备 ID、会话 ID 的本地存储
@@ -61,7 +62,7 @@
 说明：
 
 1. `audio_url` 与 `/api/v1/tts/*` 自本版本起纳入当前正式契约，属于 Edge-TTS 方案必需接口。
-2. 端侧讯飞 TTS 与系统 TTS 仅作为 **网络异常时的降级兜底**，不再是主链路。
+2. 系统 TTS 仅作为 **网络异常时的兜底**，用于独立文本合成测试或极端离线场景。
 
 ---
 
@@ -111,15 +112,16 @@ App 启动
 
 ### 4.2 当前交互流程
 
-**聊天问答模式**：
+**聊天问答模式（流式）**：
 ```text
 输入文本、拍照或本地 ASR 识别成功
-→ 插入用户消息
-→ 调用 /api/v1/chat/text (mode=chat)
-→ 展示 reply_text + sources
-→ 调用 /api/v1/tts/synthesize 请求音频
-→ ExoPlayer 播放 audio_url
-→ 数字人进入 SPEAKING / 恢复 IDLE
+→ 插入用户消息与机器人占位消息
+→ 调用 /api/v1/chat/text/stream (mode=chat)
+→ text_delta 增量展示
+→ tts_segment.audio_url 入队播放
+→ sources / metadata 回填到当前消息
+→ done 后等待 TTS 队列自然播完
+→ 数字人恢复 IDLE
 ```
 
 流式模式：
@@ -133,29 +135,19 @@ App 启动
 → done 后等待 TTS 队列自然播完
 ```
 
-**路线规划模式**：
+**路线规划模式（流式）**：
 ```text
 输入路线偏好或本地 ASR 识别成功
-→ 插入用户消息
-→ 调用 /api/v1/chat/text (mode=route)
-→ 展示 reply_text + route_data（地图 + 景点卡片）
-→ 调用 /api/v1/tts/synthesize 请求音频
-→ ExoPlayer 播放 audio_url
-→ 数字人进入 SPEAKING / 恢复 IDLE
+→ 插入用户消息与机器人占位消息
+→ 调用 /api/v1/chat/text/stream (mode=route)
+→ text_delta 增量展示
+→ route_data 回填路线卡片
+→ tts_segment.audio_url 入队播放
+→ done 后等待 TTS 队列自然播完
+→ 数字人恢复 IDLE
 ```
 
 ### 4.3 当前数字人播放流程
-
-**非流式模式**：
-```text
-收到响应
-→ 解析 reply_text / sources / latency_ms / confidence / is_fallback
-→ 若存在 avatar_action / metadata，则进一步消费增强字段
-→ 请求后端 /api/v1/tts/synthesize 获取 audio_url
-→ ExoPlayer 播放音频
-→ 播放过程中驱动口型（marks 优先，无 marks 则字符估算）
-→ 数字人动作完成后恢复待机
-```
 
 **流式模式**：
 ```text
@@ -292,7 +284,7 @@ app/src/main/jniLibs/
 ### 9.3 联调验收
 
 - [x] 可切换 baseUrl
-- [x] 完成 session/create → chat/text 主链路
+- [x] 完成 session/create → chat/text/stream 主链路
 - [x] health 可用于显式探活
 - [x] 对 code!=0 有统一处理
 - [x] 网络超时和错误可恢复
@@ -355,6 +347,6 @@ core/speech/
 ## 11. 参考文档
 
 - [API 接口契约](../api/API_CONTRACT.md)
-- [流式重构方案](../api/STREAMING_REFACTOR_PLAN.md)
+- [流式重构方案](../api/API_STREAMING.md)
 - [Live2D 开发计划](../avatar/AVATAR_LIVE2D_PLAN.md)
 - [ASR 实现说明](../asr/ASR_IMPLEMENTATION.md)

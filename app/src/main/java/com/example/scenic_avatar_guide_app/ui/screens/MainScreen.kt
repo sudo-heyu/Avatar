@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -46,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -99,6 +101,9 @@ fun MainScreen(
     var isCancelZone by remember { mutableStateOf(false) }
     var showImagePickerDialog by remember { mutableStateOf(false) }
     var cameraImageUri by remember { mutableStateOf<Uri?>(null) }
+
+    // 侧边栏状态
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
     var hasAudioPermission by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
@@ -181,118 +186,133 @@ fun MainScreen(
 
     var bottomBarContentHeight by remember { mutableStateOf(0.dp) }
 
-    Scaffold(
-        containerColor = Surface,
-        contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp)
-    ) { paddingValues ->
-        BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .statusBarsPadding()
-        ) {
-            val totalHeight = remember { maxHeight }
+    // 侧边栏：占屏幕2/3宽度
+    val configuration = LocalConfiguration.current
+    val drawerWidth = remember { (configuration.screenWidthDp.dp * 2 / 3) }
 
-            // 主内容区域：固定为初始屏幕高度减去底栏高度，输入法弹出时位置和大小完全不变
-            Column(
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ChatHistoryDrawer(
+                drawerWidth = drawerWidth,
+                onSettingsClick = onSettingsClick,
+                onCloseDrawer = { coroutineScope.launch { drawerState.close() } }
+            )
+        },
+        gesturesEnabled = true
+    ) {
+        Scaffold(
+            containerColor = Surface,
+            contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp)
+        ) { paddingValues ->
+            BoxWithConstraints(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(totalHeight - bottomBarContentHeight)
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .statusBarsPadding()
             ) {
-                TopBar(
-                    onSettingsClick = onSettingsClick,
-                    onTestToggle = { viewModel.toggleTestPanel() },
-                    showTestPanel = showTestPanel
-                )
+                val totalHeight = remember { maxHeight }
 
-                // 数字人区域：在主内容区域内按比例分配
-                AvatarSection(
-                    avatarState = avatarState,
-                    fullState = avatarFullState,
-                    showUpperBodyOnly = true,
-                    modifier = Modifier.fillMaxWidth().weight(2f)
-                )
-
-                // 消息列表：在主内容区域内填充剩余空间
-                MessageList(
-                    messages = messages,
-                    isLoading = isLoading,
-                    listState = listState,
-                    modifier = Modifier.fillMaxWidth().weight(3f),
-                    bottomPaddingDp = 4.dp
-                )
-            }
-
-            // 底栏：绝对定位在底部，只让底栏响应输入法上推
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .imePadding()
-                    .navigationBarsPadding()
-                    .background(Surface)
-            ) {
-                // 内层容器单独测量内容高度（不含 imePadding），只测一次
+                // 主内容区域：固定为初始屏幕高度减去底栏高度，输入法弹出时位置和大小完全不变
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .onGloballyPositioned { coordinates ->
-                            if (bottomBarContentHeight == 0.dp) {
-                                bottomBarContentHeight = with(density) { coordinates.size.height.toDp() }
-                            }
-                        }
+                        .height(totalHeight - bottomBarContentHeight)
                 ) {
-                    // 测试面板：功能卡片正上方，单行左右滑动
-                    if (showTestPanel) {
-                        CompactTestPanel(
-                            onActionClick = { action -> viewModel.playTestAction(action) },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
+                    TopBar(
+                        onMenuClick = { coroutineScope.launch { drawerState.open() } },
+                        onNewChat = { /* TODO: 新聊天 */ }
+                    )
 
-                    if (voiceInputMode && isRecording) {
-                        CancelZone(
-                            isCancelZone = isCancelZone,
-                            modifier = Modifier.fillMaxWidth().height(48.dp)
-                        )
-                    }
+                    // 数字人区域：在主内容区域内按比例分配
+                    AvatarSection(
+                        avatarState = avatarState,
+                        fullState = avatarFullState,
+                        showUpperBodyOnly = true,
+                        modifier = Modifier.fillMaxWidth().weight(2f)
+                    )
 
-                    if (voiceInputMode && isRecording) {
-                        VoiceWaveformSection(
-                            volumeLevel = volumeLevel,
-                            isCancelZone = isCancelZone,
-                            modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp)
-                        )
-                    }
+                    // 消息列表：在主内容区域内填充剩余空间
+                    MessageList(
+                        messages = messages,
+                        isLoading = isLoading,
+                        listState = listState,
+                        modifier = Modifier.fillMaxWidth().weight(3f),
+                        bottomPaddingDp = 4.dp
+                    )
+                }
 
-                    ModeSelector(currentMode, { viewModel.switchMode(it) }, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp))
+                // 底栏：绝对定位在底部，只让底栏响应输入法上推
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .imePadding()
+                        .navigationBarsPadding()
+                        .background(Surface)
+                ) {
+                    // 内层容器单独测量内容高度（不含 imePadding），只测一次
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onGloballyPositioned { coordinates ->
+                                if (bottomBarContentHeight == 0.dp) {
+                                    bottomBarContentHeight = with(density) { coordinates.size.height.toDp() }
+                                }
+                            }
+                    ) {
+                        // 测试面板：功能卡片正上方，单行左右滑动
+                        if (showTestPanel) {
+                            CompactTestPanel(
+                                onActionClick = { action -> viewModel.playTestAction(action) },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
 
-                    if (voiceInputMode) {
-                        VoiceInputButton(
-                            isRecording = isRecording,
-                            isCancelZone = isCancelZone,
-                            onCancelZoneChange = { isCancelZone = it },
-                            onVoiceStart = { speechHelper.startListening() },
-                            onVoiceStop = { speechHelper.stopListening() },
-                            onCancel = { speechHelper.cancel(); viewModel.exitVoiceInputMode() },
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
-                        )
-                    } else {
-                        InputSection(
-                            mode = currentMode, inputText = inputText, isLoading = isLoading,
-                            isConversationActive = isConversationActive,
-                            pendingImageUri = pendingImageUri,
-                            onInputChange = { viewModel.updateInputText(it) },
-                            onSend = { viewModel.sendMessage() },
-                            onAbort = { viewModel.abortConversation() },
-                            onVoiceClick = {
-                                if (hasAudioPermission) viewModel.enterVoiceInputMode()
-                                else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                            },
-                            onCameraInput = { showImagePickerDialog = true },
-                            onClearImage = { viewModel.clearPendingImage() },
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
-                        )
+                        if (voiceInputMode && isRecording) {
+                            CancelZone(
+                                isCancelZone = isCancelZone,
+                                modifier = Modifier.fillMaxWidth().height(48.dp)
+                            )
+                        }
+
+                        if (voiceInputMode && isRecording) {
+                            VoiceWaveformSection(
+                                volumeLevel = volumeLevel,
+                                isCancelZone = isCancelZone,
+                                modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp)
+                            )
+                        }
+
+                        ModeSelector(currentMode, { viewModel.switchMode(it) }, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp))
+
+                        if (voiceInputMode) {
+                            VoiceInputButton(
+                                isRecording = isRecording,
+                                isCancelZone = isCancelZone,
+                                onCancelZoneChange = { isCancelZone = it },
+                                onVoiceStart = { speechHelper.startListening() },
+                                onVoiceStop = { speechHelper.stopListening() },
+                                onCancel = { speechHelper.cancel(); viewModel.exitVoiceInputMode() },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
+                            )
+                        } else {
+                            InputSection(
+                                mode = currentMode, inputText = inputText, isLoading = isLoading,
+                                isConversationActive = isConversationActive,
+                                pendingImageUri = pendingImageUri,
+                                onInputChange = { viewModel.updateInputText(it) },
+                                onSend = { viewModel.sendMessage() },
+                                onAbort = { viewModel.abortConversation() },
+                                onVoiceClick = {
+                                    if (hasAudioPermission) viewModel.enterVoiceInputMode()
+                                    else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                },
+                                onCameraInput = { showImagePickerDialog = true },
+                                onClearImage = { viewModel.clearPendingImage() },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -335,25 +355,103 @@ fun MainScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TopBar(
-    onSettingsClick: () -> Unit,
-    onTestToggle: () -> Unit,
-    showTestPanel: Boolean
+    onMenuClick: () -> Unit,
+    onNewChat: () -> Unit
 ) {
     TopAppBar(
         title = { Text("景灵智导", fontWeight = FontWeight.Bold) },
+        navigationIcon = {
+            IconButton(onMenuClick) {
+                Icon(Icons.Default.Menu, "打开侧边栏", tint = Color.White)
+            }
+        },
         colors = TopAppBarDefaults.topAppBarColors(containerColor = Primary, titleContentColor = Color.White),
         actions = {
-            // 测试面板切换按钮
-            IconButton(onTestToggle) {
-                Icon(
-                    if (showTestPanel) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = "测试面板",
-                    tint = Color.White
-                )
+            IconButton(onNewChat) {
+                Icon(Icons.Default.Add, "新会话", tint = Color.White)
             }
-            IconButton(onSettingsClick) { Icon(Icons.Default.Settings, "设置", tint = Color.White) }
         }
     )
+}
+
+/**
+ * 历史会话侧边栏
+ */
+@Composable
+private fun ChatHistoryDrawer(
+    drawerWidth: Dp,
+    onSettingsClick: () -> Unit,
+    onCloseDrawer: () -> Unit
+) {
+    // 历史会话列表（目前未实现，展示空白）
+    // TODO: 从 ViewModel 获取历史会话数据
+
+    ModalDrawerSheet(
+        modifier = Modifier.width(drawerWidth),
+        drawerContainerColor = Surface
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
+        ) {
+            // 标题区域
+            Text(
+                text = "历史会话",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary,
+                modifier = Modifier.padding(vertical = 20.dp)
+            )
+
+            // 会话列表区域（目前为空）
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                // 空状态提示
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        Icons.Default.ChatBubbleOutline,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp),
+                        tint = TextHint
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "暂无历史会话",
+                        fontSize = 14.sp,
+                        color = TextHint
+                    )
+                }
+            }
+
+            // 底部设置入口
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 16.dp),
+                horizontalArrangement = Arrangement.End
+            ) {
+                IconButton(
+                    onClick = {
+                        onCloseDrawer()
+                        onSettingsClick()
+                    }
+                ) {
+                    Icon(
+                        Icons.Default.MoreVert,
+                        contentDescription = "设置",
+                        tint = TextSecondary
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -889,16 +987,18 @@ private fun InputSection(
                 )
                 when {
                     isConversationActive -> {
-                        IconButton(
-                            onClick = onAbort,
+                        Box(
                             modifier = Modifier
-                                .size(40.dp)
-                                .background(Color(0xFFE53935), CircleShape)
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF5A6772))
+                                .clickable(onClick = onAbort),
+                            contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 Icons.Filled.Stop,
                                 contentDescription = "停止回复",
-                                modifier = Modifier.size(20.dp),
+                                modifier = Modifier.size(16.dp),
                                 tint = Color.White
                             )
                         }

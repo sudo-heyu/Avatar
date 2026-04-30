@@ -9,7 +9,6 @@ import com.example.scenic_avatar_guide_app.domain.model.AvatarAction
 import com.example.scenic_avatar_guide_app.domain.model.AvatarExpression
 import com.example.scenic_avatar_guide_app.domain.model.AvatarGesture
 import com.example.scenic_avatar_guide_app.domain.model.ChatStreamEvent
-import com.example.scenic_avatar_guide_app.domain.model.ChatResponseData
 import com.example.scenic_avatar_guide_app.domain.model.ChatMessage
 import com.example.scenic_avatar_guide_app.domain.model.EmotionToExpression
 import com.example.scenic_avatar_guide_app.domain.model.IntentToGesture
@@ -483,7 +482,7 @@ class MainViewModel @Inject constructor(
                             typewriterController.append(event.delta)
                         }
                         is ChatStreamEvent.TtsSegment -> {
-                            Log.d(TAG, "TtsSegment: segmentId=${event.segment.segmentId}, audioUrl=${event.segment.audioUrl}, durationMs=${event.segment.durationMs}")
+                            Log.d(TAG, "[LATENCY] TtsSegment 收到: segmentId=${event.segment.segmentId}, time=${System.currentTimeMillis()}, audioUrl=${event.segment.audioUrl}, durationMs=${event.segment.durationMs}")
                             playbackManager.enqueueSpeechSegment(event.segment)
                         }
                         is ChatStreamEvent.AvatarActionDelta -> {
@@ -540,30 +539,17 @@ class MainViewModel @Inject constructor(
                         }
                         is ChatStreamEvent.Error -> {
                             Log.e(TAG, "Error: code=${event.code}, message=${event.message}")
-                            // 保底：让打字机开始
                             typewriterController.notifyTtsReady()
-                            if (!receivedText && !hadAnyEvent) {
-                                Log.d(TAG, "首事件前错误，降级到非流式接口")
-                                typewriterController.stop()
-                                sendMessageFallback(
-                                    assistantMessageId = assistantMessageId,
-                                    sessionId = sessionId ?: "",
-                                    message = text,
-                                    mode = mode,
-                                    imageUrl = imageUrl
-                                )
-                            } else {
-                                _isLoading.value = false
-                                typewriterController.flush()
-                                playbackManager.stop()
-                                updateAssistantMessage(
-                                    id = assistantMessageId,
-                                    content = currentMessageContent(assistantMessageId)
-                                        .ifBlank { "抱歉，回答中断了，请稍后再试。" },
-                                    isLoading = false,
-                                    isError = true
-                                )
-                            }
+                            _isLoading.value = false
+                            typewriterController.flush()
+                            playbackManager.stop()
+                            updateAssistantMessage(
+                                id = assistantMessageId,
+                                content = currentMessageContent(assistantMessageId)
+                                    .ifBlank { "抱歉，服务暂时不可用，请稍后再试。" },
+                                isLoading = false,
+                                isError = true
+                            )
                         }
                     }
                 }
@@ -578,27 +564,18 @@ class MainViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (!receivedText) {
-                    typewriterController.stop()
-                    sendMessageFallback(
-                        assistantMessageId = assistantMessageId,
-                        sessionId = sessionId ?: "",
-                        message = text,
-                        mode = mode,
-                        imageUrl = imageUrl
-                    )
-                } else {
-                    _isLoading.value = false
-                    // 保底：让打字机开始
-                    typewriterController.notifyTtsReady()
-                    typewriterController.flush()
-                    playbackManager.stop()
-                    updateAssistantMessage(
-                        id = assistantMessageId,
-                        isLoading = false,
-                        isError = true
-                    )
-                }
+                Log.e(TAG, "流式请求异常", e)
+                _isLoading.value = false
+                typewriterController.notifyTtsReady()
+                typewriterController.flush()
+                playbackManager.stop()
+                updateAssistantMessage(
+                    id = assistantMessageId,
+                    content = currentMessageContent(assistantMessageId)
+                        .ifBlank { "抱歉，服务暂时不可用，请稍后再试。" },
+                    isLoading = false,
+                    isError = true
+                )
             }
         }
     }
@@ -700,77 +677,12 @@ class MainViewModel @Inject constructor(
         return _messages.value.firstOrNull { it.id == id }?.content.orEmpty()
     }
 
-    private suspend fun sendMessageFallback(
-        assistantMessageId: String,
-        sessionId: String,
-        message: String,
-        mode: String,
-        imageUrl: String?
-    ) {
-        repository.sendTextMessage(
-            sessionId = sessionId,
-            message = message,
-            mode = mode,
-            imageUrl = imageUrl
-        ).fold(
-            onSuccess = { response ->
-                _isLoading.value = false
-                updateAssistantMessage(
-                    id = assistantMessageId,
-                    content = response.replyText,
-                    isLoading = false,
-                    isError = false,
-                    sources = response.sources,
-                    avatarAction = response.avatarAction,
-                    routeData = response.routeData
-                )
-                playbackManager.play(buildAvatarPlayAction(response))
-            },
-            onFailure = {
-                _isLoading.value = false
-                playbackManager.stop()
-                updateAssistantMessage(
-                    id = assistantMessageId,
-                    content = "抱歉，服务暂时不可用，请稍后再试。",
-                    isLoading = false,
-                    isError = true
-                )
-            }
-        )
-    }
-
     fun setPendingImage(uri: String) {
         _pendingImageUri.value = uri
     }
 
     fun clearPendingImage() {
         _pendingImageUri.value = null
-    }
-
-    private fun buildAvatarPlayAction(response: ChatResponseData): AvatarPlayAction {
-        val action = response.avatarAction
-        val expression = resolveExpression(response)
-        val gesture = resolveGesture(response)
-        val gestureData = action?.gesture
-
-        return AvatarPlayAction(
-            text = response.replyText,
-            expression = expression,
-            expressionIntensity = action?.expression?.intensity ?: 0.7f,
-            gesture = gesture,
-            gesturePriority = com.example.scenic_avatar_guide_app.domain.model.GesturePriority.fromValue(gestureData?.priority),
-            gestureLoop = gestureData?.loop ?: false,
-            gestureSpeed = gestureData?.speed ?: 1.0f,
-            motionQueue = action?.motionQueue ?: emptyList()
-        )
-    }
-
-    private fun resolveExpression(response: ChatResponseData): AvatarExpression {
-        val explicit = response.avatarAction?.expression?.type
-        if (!explicit.isNullOrBlank()) {
-            return AvatarExpression.fromValue(explicit)
-        }
-        return EmotionToExpression.map(response.effectiveEmotion)
     }
 
     private fun resolveExpression(
@@ -782,14 +694,6 @@ class MainViewModel @Inject constructor(
             return AvatarExpression.fromValue(explicit)
         }
         return EmotionToExpression.map(metadata?.emotion)
-    }
-
-    private fun resolveGesture(response: ChatResponseData): AvatarGesture {
-        val explicit = response.avatarAction?.gesture?.type
-        if (!explicit.isNullOrBlank()) {
-            return AvatarGesture.fromValue(explicit)
-        }
-        return IntentToGesture.map(response.effectiveIntent)
     }
 
     private fun resolveGesture(

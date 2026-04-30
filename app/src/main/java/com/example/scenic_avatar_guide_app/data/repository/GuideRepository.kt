@@ -78,49 +78,6 @@ class GuideRepository @Inject constructor(
     }
 
     /**
-     * 发送文本消息
-     */
-    suspend fun sendTextMessage(
-        sessionId: String,
-        message: String,
-        mode: String = "chat",
-        imageUrl: String? = null
-    ): Result<ChatResponseData> {
-        return try {
-            val userId = settingsDataStore.userId.first()
-                ?: return Result.failure(Exception("用户 ID 不存在"))
-
-            val scenicId = settingsDataStore.scenicId.first() ?: "lingshan"
-            val spotId = settingsDataStore.spotId.first()
-            val voiceId = settingsDataStore.voiceId.first()
-
-            val request = ChatTextRequest(
-                sessionId = sessionId,
-                userId = userId,
-                scenicId = scenicId,
-                question = message,
-                spotId = spotId,
-                mode = mode,
-                imageUrl = imageUrl,
-                options = ChatOptions(
-                    needAvatar = true,
-                    needSources = true,
-                    voice = voiceId
-                )
-            )
-
-            val response = apiService.chatText(request)
-            if (response.code == 0) {
-                Result.success(response.data)
-            } else {
-                Result.failure(Exception(response.message))
-            }
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    /**
      * 发送文本消息（流式）
      */
     suspend fun sendTextMessageStream(
@@ -136,8 +93,11 @@ class GuideRepository @Inject constructor(
         val scenicId = settingsDataStore.scenicId.first() ?: "lingshan"
         val spotId = settingsDataStore.spotId.first()
         val voiceId = settingsDataStore.voiceId.first()
+        val rate = settingsDataStore.rate.first()
+        val volume = settingsDataStore.volume.first()
+        val pitch = settingsDataStore.pitch.first()
 
-        Log.d("GuideRepository", "用户选择的发音人: $voiceId")
+        Log.d("GuideRepository", "用户选择的发音人: $voiceId, rate=$rate, volume=$volume, pitch=$pitch")
 
         val request = ChatTextRequest(
             sessionId = sessionId,
@@ -150,7 +110,10 @@ class GuideRepository @Inject constructor(
             options = ChatOptions(
                 needAvatar = true,
                 needSources = true,
-                voice = voiceId
+                voice = voiceId,
+                rate = rate,
+                volume = volume,
+                pitch = pitch
             )
         )
 
