@@ -166,9 +166,10 @@ fun AvatarView(
         }
     }
 
-    // 清理资源
+    // 清理资源：先暂停 GL 线程，再释放 renderer，避免 GL 线程在 SDK 销毁后仍访问模型
     DisposableEffect(Unit) {
         onDispose {
+            live2DView?.onPause()
             renderer?.release()
         }
     }

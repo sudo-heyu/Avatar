@@ -11,6 +11,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 private const val TAG = "StreamingTtsQueue"
 
@@ -22,10 +23,16 @@ private const val TAG = "StreamingTtsQueue"
  * - 通过 onMediaItemTransition(AUTO) 精确感知片段切换，驱动口型动画
  * - 消除旧方案中 "播放完 → stop → play" 带来的明显停顿
  * - 串行 enqueue 保证片段顺序严格一致
+ *
+ * 后端优化适配：
+ * - audio_url 先行推送，duration_ms 和 marks 可能为 null
+ * - onSegmentEnqueue 在入队时提前触发，让口型事件预生成
+ * - onSegmentStart 在音频开始播放时触发，用于同步口型动画
  */
 class StreamingTtsQueue(
     private val audioPlayer: AudioPlayer,
     private val buildAudioUrl: suspend (String) -> String,
+    private val onSegmentEnqueue: (TtsSegmentData) -> Unit,  // 新增：segment 入队时回调，提前准备口型事件
     private val onSegmentStart: (TtsSegmentData) -> Unit,
     private val onSegmentComplete: (TtsSegmentData, actualDurationMs: Long) -> Unit,
     private val onWaitingForSegment: () -> Unit,
@@ -128,21 +135,33 @@ class StreamingTtsQueue(
 
     fun enqueue(segment: TtsSegmentData) {
         if (!active) start()
-        Log.d(TAG, "[QUEUE] enqueue: segmentId=${segment.segmentId}, text=${segment.text.take(15)}, audioUrl=${segment.audioUrl}, durationMs=${segment.durationMs}, marks=${segment.marks?.size}")
+        val enqueueTime = System.currentTimeMillis()
+        Log.d(TAG, "[LATENCY] enqueue: segmentId=${segment.segmentId}, text=${segment.text.take(15)}, enqueueTime=$enqueueTime")
+
         pendingQueue.addLast(segment)
         submittedSegments.addLast(segment)
 
         scope.launch {
             enqueueMutex.withLock {
                 try {
+                    // 在 IO 线程异步预生成口型事件，避免阻塞主线程
+                    withContext(Dispatchers.IO) {
+                        onSegmentEnqueue(segment)
+                    }
+
+                    val urlBuildStart = System.currentTimeMillis()
                     val fullUrl = buildAudioUrl(segment.audioUrl)
-                    Log.d(TAG, "enqueue segment: ${segment.segmentId}, url=$fullUrl")
+                    val urlBuildTime = System.currentTimeMillis() - urlBuildStart
+                    Log.d(TAG, "[LATENCY] URL构建耗时=${urlBuildTime}ms, segmentId=${segment.segmentId}")
+
                     if (!active) return@withLock
 
+                    val playStartTime = System.currentTimeMillis()
                     if (!audioPlayer.hasMediaItems()) {
                         // 队列为空，立即开始播放
                         currentSegment = segment
                         audioPlayer.play(fullUrl)
+                        Log.d(TAG, "[LATENCY] 首片段播放启动: segmentId=${segment.segmentId}, 从入队到播放=${playStartTime - enqueueTime}ms")
                     } else {
                         // 已有内容在播放/缓冲，追加到队列实现无缝衔接
                         audioPlayer.enqueue(fullUrl)

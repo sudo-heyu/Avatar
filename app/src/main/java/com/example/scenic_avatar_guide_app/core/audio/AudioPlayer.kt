@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import kotlinx.coroutines.*
@@ -23,8 +24,20 @@ class AudioPlayer(private val context: Context) {
 
     private val dataSourceFactory = DefaultDataSource.Factory(context)
 
+    // 缓冲控制：平衡首帧速度和稳定性
+    // 过低的缓冲设置可能导致某些设备的 MediaCodec 出现问题
+    private val loadControl = DefaultLoadControl.Builder()
+        .setBufferDurationsMs(
+            /* minBufferMs = */ 500,         // 最小缓冲：保持稳定
+            /* maxBufferMs = */ 3000,        // 最大缓冲
+            /* bufferForPlaybackMs = */ 150, // 播放所需缓冲：略低于默认200ms
+            /* bufferForPlaybackAfterRebufferMs = */ 500 // 重新缓冲后播放
+        )
+        .build()
+
     private val player: ExoPlayer = ExoPlayer.Builder(context)
         .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+        .setLoadControl(loadControl)
         .build()
     private var playJob: Job? = null
     private var currentUrl: String? = null
@@ -69,10 +82,10 @@ class AudioPlayer(private val context: Context) {
                 Player.STATE_ENDED -> "ENDED"
                 else -> "UNKNOWN"
             }
-            Log.d(TAG, "state=$stateName, items=${player.mediaItemCount}, idx=${player.currentMediaItemIndex}, pos=${player.currentPosition}ms")
+            Log.d(TAG, "[LATENCY] state=$stateName, items=${player.mediaItemCount}, idx=${player.currentMediaItemIndex}, pos=${player.currentPosition}ms")
             when (playbackState) {
                 Player.STATE_READY -> {
-                    Log.d(TAG, "音频准备就绪, duration=${player.duration}ms")
+                    Log.d(TAG, "[LATENCY] 音频准备就绪, duration=${player.duration}ms, 从play调用到READY耗时估算")
                 }
                 Player.STATE_ENDED -> {
                     Log.d(TAG, "音频播放完成")

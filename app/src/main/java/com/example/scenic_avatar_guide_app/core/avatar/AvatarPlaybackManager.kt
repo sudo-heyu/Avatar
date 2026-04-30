@@ -58,6 +58,12 @@ class AvatarPlaybackManager(
     private val streamingTtsQueue = StreamingTtsQueue(
         audioPlayer = streamingAudioPlayer,
         buildAudioUrl = { repository.buildAudioUrl(it) },
+        onSegmentEnqueue = { segment ->
+            // segment 入队时预生成口型事件，不等音频开始播放
+            // 这样音频一开始播放就能立即同步口型
+            Log.d(TAG, "[PRELOAD] segment=${segment.segmentId} 入队，预生成口型事件")
+            preloadSegmentLipSync(segment)
+        },
         onSegmentStart = { segment ->
             receivedTtsSegment = true
             isPlaying = true
@@ -86,9 +92,9 @@ class AvatarPlaybackManager(
                     currentText = segment.text
                 )
             }
-            // 更新当前 segment 的口型事件（不再累计，每个 segment 独立）
+            // 音频开始播放，启动口型同步循环（口型事件已在 enqueue 时预生成）
             currentSegmentId = segment.segmentId
-            updateCurrentSegmentLipSync(segment)
+            startAudioSyncedLipSync()
         },
         onSegmentComplete = { segment, actualDurationMs ->
             Log.d(TAG, "segment ${segment.segmentId} 完成，实际时长=${actualDurationMs}ms")
@@ -178,6 +184,10 @@ class AvatarPlaybackManager(
 
     // 当前 segment 的 ID（用于判断 segment 切换）
     private var currentSegmentId: String? = null
+
+    // 预生成的口型事件缓存（segmentId -> 口型事件列表）
+    // 后端优化后 marks 可能为 null，需要在入队时预生成，播放时使用
+    private val preloadedLipSyncEvents = mutableMapOf<String, MutableList<PhonemeEvent>>()
 
     // 帧间平滑：记住上一帧的口型值
     private var lastMouthOpen = 0f
@@ -435,6 +445,7 @@ class AvatarPlaybackManager(
         notifiedFirstSegment = false
         currentSegmentEvents.clear()
         currentSegmentId = null
+        preloadedLipSyncEvents.clear()  // 清理预生成缓存
         streamingTtsQueue.start()
         _avatarState.update {
             it.copy(
@@ -565,6 +576,7 @@ class AvatarPlaybackManager(
         currentPlayAction = null
         currentSegmentEvents.clear()
         currentSegmentId = null
+        preloadedLipSyncEvents.clear()  // 清理预生成缓存
         _avatarState.update {
             AvatarFullState()
         }
@@ -604,6 +616,48 @@ class AvatarPlaybackManager(
                 mouthForm = viseme.mouthForm
             )
         }
+    }
+
+    /**
+     * 预生成口型事件（segment 入队时调用）
+     *
+     * 后端优化后，audio_url 先行推送，duration_ms 和 marks 可能为 null。
+     * 在 segment 入队时预生成口型事件，音频一开始播放就能立即同步口型。
+     * 如果后续收到实际时长或 marks，会在播放时动态调整。
+     */
+    private fun preloadSegmentLipSync(segment: TtsSegmentData) {
+        val marks = segment.marks
+        val segmentDuration = segment.durationMs?.toLong() ?: 0L
+
+        val events = if (!marks.isNullOrEmpty()) {
+            val marksEnd = marks.lastOrNull()?.endMs ?: 0
+            Log.d(TAG, "[PRELOAD] ${segment.segmentId}: 后端 marks=${marks.size}, " +
+                    "marks范围=0-${marksEnd}ms, 音频时长=${segmentDuration}ms")
+            ChinesePhonemeEngine.marksToPhonemeEvents(marks)
+        } else {
+            // 无 marks，使用文本估算
+            val estimatedDuration = estimateTextDuration(segment.text)
+            Log.d(TAG, "[PRELOAD] ${segment.segmentId}: 无 marks，本地估算=${estimatedDuration}ms, 音频时长=${segmentDuration}ms")
+            ChinesePhonemeEngine.textToPhonemeEvents(
+                text = segment.text,
+                totalDurationMs = segmentDuration.takeIf { it > 0 } ?: estimatedDuration
+            )
+        }
+
+        if (events.isEmpty()) {
+            Log.w(TAG, "[PRELOAD] ${segment.segmentId}: 生成口型事件为空")
+            return
+        }
+
+        // 按字合并，时间从 0 开始
+        val mergedEvents = LipSyncAnimator.mergeEventsByChar(events).toMutableList()
+
+        // 存储到预生成缓存
+        preloadedLipSyncEvents[segment.segmentId] = mergedEvents
+
+        val eventEnd = mergedEvents.lastOrNull()?.endMs ?: 0L
+        Log.d(TAG, "[PRELOAD] ${segment.segmentId}: 预生成口型事件=${mergedEvents.size}个, " +
+                "时间范围=0-${eventEnd}ms")
     }
 
     /**
@@ -649,12 +703,28 @@ class AvatarPlaybackManager(
 
     /**
      * 启动基于音频进度的口型同步协程。
+     * 优先使用预生成的口型事件，如果没有则使用当前 segment 的事件。
      */
     private fun startAudioSyncedLipSync() {
         // 如果 job 已在运行，取消旧的并重置状态（segment 切换时）
         if (audioPositionSyncJob?.isActive == true) {
             Log.d(TAG, "[LIPSYNC] 取消旧 job，启动新 segment 口型同步")
             audioPositionSyncJob?.cancel()
+        }
+
+        // 从预生成缓存加载口型事件
+        currentSegmentId?.let { segId ->
+            preloadedLipSyncEvents[segId]?.let { events ->
+                currentSegmentEvents = events
+                // 使用后清除，避免内存泄漏
+                preloadedLipSyncEvents.remove(segId)
+                Log.d(TAG, "[LIPSYNC] 使用预生成口型事件: segmentId=$segId, events=${events.size}")
+            }
+        }
+
+        // 如果预生成缓存没有，尝试使用当前 segment 重新生成（兜底）
+        if (currentSegmentEvents.isEmpty()) {
+            Log.w(TAG, "[LIPSYNC] 预生成缓存为空，使用兜底逻辑")
         }
 
         lastMouthOpen = 0f

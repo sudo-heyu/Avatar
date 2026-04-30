@@ -447,8 +447,9 @@ class MainViewModel @Inject constructor(
             val assistantMessageId = addMessage(content = "", isUser = false, isLoading = true)
             currentAssistantMessageId = assistantMessageId
 
-            // 启动打字机效果
-            typewriterController.start(assistantMessageId)
+            // 启动打字机效果，等待第一个音频片段开始播放后再同步显示
+            // 这样文字显示和数字人说话会同步开始
+            typewriterController.start(assistantMessageId, waitForSync = true)
 
             val mode = when (_currentMode.value) {
                 InteractionMode.Chat -> "chat"

@@ -103,7 +103,27 @@
       "WebFetch(domain:www.researchgate.net)",
       "Bash(git reset *)",
       "Bash(./gradlew compileDebugKotlin --info)",
-      "Bash(timeout 10 head -100)"
+      "Bash(timeout 10 head -100)",
+      "Bash(xargs -0 wc -l)",
+      "Bash(./gradlew compileDebugJavaWithJavac)",
+      "Bash(./gradlew --stop)",
+      "Bash(rm -rf .gradle/caches/transforms* app/.cxx app/build/intermediates/cxx)",
+      "Bash(./gradlew kspDebugKotlin)",
+      "Bash(./gradlew hiltJavaCompileDebug)",
+      "Bash(./gradlew compileDebugKotlin compileDebugJavaWithJavac)",
+      "Bash(taskkill /F /IM java.exe)",
+      "Bash(rm -rf app/build .gradle/caches)",
+      "Bash(git stash *)",
+      "Bash(rm -f .gradle/configuration-cache/configuration-cache.lock)",
+      "Bash(rm -rf .gradle/configuration-cache/*)",
+      "Bash(./gradlew :app:externalNativeBuildDebug)",
+      "Bash(pkill -f kotlin)",
+      "Bash(pkill -f KotlinCompileDaemon)",
+      "Bash(rm -rf ~/.gradle/caches/transforms-* ~/.gradle/daemon ~/.gradle/caches/modules-2/files-*)",
+      "Bash(./gradlew --no-configuration-cache assembleDebug)",
+      "Bash(./gradlew --no-configuration-cache --info assembleDebug)",
+      "Bash(./gradlew --no-configuration-cache compileDebugKotlin)",
+      "Bash(./gradlew --no-configuration-cache compileDebugKotlin --info)"
     ]
   }
 }

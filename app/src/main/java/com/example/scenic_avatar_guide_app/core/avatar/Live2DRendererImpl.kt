@@ -46,6 +46,10 @@ class Live2DRendererImpl(
     private var _isModelLoaded = false
     private var currentModelPath: String? = null
 
+    // 释放标志：防止 GL 线程在 renderer 释放后仍访问 SDK
+    @Volatile
+    private var isReleased = false
+
     // 当前参数缓存
     private var currentMouthOpen = 0f
     private var currentExpression: String? = null
@@ -153,7 +157,7 @@ class Live2DRendererImpl(
     }
 
     override fun setMouth(mouthOpen: Float, mouthForm: Float) {
-        if (!_isModelLoaded) return
+        if (isReleased || !_isModelLoaded) return
 
         currentMouthOpen = mouthOpen.coerceIn(0f, 1f)
         // 降低整体张开程度：0.65f 缩放因子让最大张开度约为 65%
@@ -173,7 +177,7 @@ class Live2DRendererImpl(
     }
 
     override fun setExpression(expressionId: String) {
-        if (!_isModelLoaded) return
+        if (isReleased || !_isModelLoaded) return
 
         currentExpression = expressionId
         runOnRenderThread {
@@ -182,7 +186,7 @@ class Live2DRendererImpl(
     }
 
     override fun playMotion(group: String, index: Int, loop: Boolean) {
-        if (!_isModelLoaded) return
+        if (isReleased || !_isModelLoaded) return
         val gesture = AvatarGesture.fromValue(group)
         Log.d(TAG, "playMotion: group=$group, gesture=$gesture")
 
@@ -195,7 +199,7 @@ class Live2DRendererImpl(
     }
 
     override fun stopMotion() {
-        if (!_isModelLoaded) return
+        if (isReleased || !_isModelLoaded) return
 
         Log.d(TAG, "stopMotion")
         nativeMotionPlaying = false
@@ -534,14 +538,14 @@ class Live2DRendererImpl(
     }
 
     override fun setParameter(paramId: String, value: Float, weight: Float) {
-        if (!_isModelLoaded) return
+        if (isReleased || !_isModelLoaded) return
         runOnRenderThread {
             JniBridgeJava.nativeSetParameter(paramId, value, weight)
         }
     }
 
     override fun updateState(state: AvatarFullState) {
-        if (!_isModelLoaded) return
+        if (isReleased || !_isModelLoaded) return
 
         setMouth(state.mouthOpen, state.mouthForm)
 
@@ -573,26 +577,35 @@ class Live2DRendererImpl(
     }
 
     override fun setUpperBodyMode(enabled: Boolean) {
+        if (isReleased) return
         runOnRenderThread {
+            if (isReleased) return@runOnRenderThread
             JniBridgeJava.nativeSetUpperBodyMode(enabled)
         }
     }
 
     override fun release() {
-        if (!_isInitialized) return
+        if (!_isInitialized || isReleased) return
+
+        // 先标记释放，阻止后续所有 JNI 调用进入 SDK
+        isReleased = true
 
         try {
             animationUpdateActive = false
             mainHandler.removeCallbacksAndMessages(null)
             motionTransitionManager.reset()
             gestureAnimationPlayer.stop()
+
+            // 清除回调，避免 GL 线程在 SDK 销毁后仍调用
             surfaceViewRef?.get()?.onAfterDrawFrame = null
+            surfaceViewRef = null
+            hasSurfaceAttached = false
+
             JniBridgeJava.nativeOnStop()
             JniBridgeJava.nativeOnDestroy()
             _isInitialized = false
             _isModelLoaded = false
             currentModelPath = null
-            surfaceViewRef = null
             Log.i(TAG, "Live2D renderer released")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to release Live2D renderer", e)
@@ -606,6 +619,7 @@ class Live2DRendererImpl(
 
         // 在 SDK 动画渲染完成后强制覆盖嘴部参数，确保口型同步优先于 Idle 动画
         surfaceView.onAfterDrawFrame = {
+            if (isReleased || !_isModelLoaded) return@onAfterDrawFrame
             if (speakingMouthOverride) {
                 JniBridgeJava.nativeSetParameter(Live2DParams.MOUTH_OPEN_Y, overrideMouthOpenY, 1.0f)
                 JniBridgeJava.nativeSetParameter(Live2DParams.MOUTH_FORM, overrideMouthForm, 1.0f)
@@ -723,12 +737,15 @@ class Live2DRendererImpl(
     }
 
     private fun runOnRenderThread(action: () -> Unit) {
+        if (isReleased) return
         val surfaceView = surfaceViewRef?.get()
         if (surfaceView == null) {
             Log.w(TAG, "runOnRenderThread FAILED: surfaceView is null, surfaceAttached=$hasSurfaceAttached")
             return
         }
-        surfaceView.runOnRenderThread(action)
+        surfaceView.runOnRenderThread {
+            if (!isReleased) action()
+        }
     }
 
     private fun findActivity(context: Context): Activity? {

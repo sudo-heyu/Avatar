@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -42,6 +43,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -58,6 +60,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.example.scenic_avatar_guide_app.R
 import com.example.scenic_avatar_guide_app.ui.theme.*
 import com.example.scenic_avatar_guide_app.ui.components.ArcWaveform
 import com.example.scenic_avatar_guide_app.ui.components.AvatarView
@@ -184,11 +187,11 @@ fun MainScreen(
         }
     }
 
-    var bottomBarContentHeight by remember { mutableStateOf(0.dp) }
+    var bottomBarContentHeight by remember { mutableStateOf(120.dp) } // 给一个合理的初始估算值
 
-    // 侧边栏：占屏幕2/3宽度
+    // 侧边栏：占屏幕3/4宽度
     val configuration = LocalConfiguration.current
-    val drawerWidth = remember { (configuration.screenWidthDp.dp * 2 / 3) }
+    val drawerWidth = remember { (configuration.screenWidthDp.dp * 3 / 4) }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -199,7 +202,7 @@ fun MainScreen(
                 onCloseDrawer = { coroutineScope.launch { drawerState.close() } }
             )
         },
-        gesturesEnabled = true
+        gesturesEnabled = false  // 禁用滑动打开侧边栏，只通过左上角按钮打开
     ) {
         Scaffold(
             containerColor = Surface,
@@ -211,13 +214,9 @@ fun MainScreen(
                     .padding(paddingValues)
                     .statusBarsPadding()
             ) {
-                val totalHeight = remember { maxHeight }
-
-                // 主内容区域：固定为初始屏幕高度减去底栏高度，输入法弹出时位置和大小完全不变
+                // 主内容区域：填充整个屏幕，消息列表通过 padding 避开底栏
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(totalHeight - bottomBarContentHeight)
+                    modifier = Modifier.fillMaxSize()
                 ) {
                     TopBar(
                         onMenuClick = { coroutineScope.launch { drawerState.open() } },
@@ -232,42 +231,49 @@ fun MainScreen(
                         modifier = Modifier.fillMaxWidth().weight(2f)
                     )
 
-                    // 消息列表：在主内容区域内填充剩余空间
+                    // 消息列表：底部留出底栏高度的空间，确保内容不被遮挡
                     MessageList(
                         messages = messages,
                         isLoading = isLoading,
                         listState = listState,
-                        modifier = Modifier.fillMaxWidth().weight(3f),
-                        bottomPaddingDp = 4.dp
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(3f)
+                            .padding(bottom = bottomBarContentHeight),
+                        bottomPaddingDp = 8.dp
                     )
                 }
 
-                // 底栏：绝对定位在底部，只让底栏响应输入法上推
+                // 底栏：绝对定位在底部，不随输入法移动
+                // 顺序从上到下：测试卡片 → 功能卡片（模式选择器）→ 输入框
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .imePadding()
                         .navigationBarsPadding()
                         .background(Surface)
                 ) {
-                    // 内层容器单独测量内容高度（不含 imePadding），只测一次
+                    // 内层容器单独测量内容高度
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .onGloballyPositioned { coordinates ->
-                                if (bottomBarContentHeight == 0.dp) {
-                                    bottomBarContentHeight = with(density) { coordinates.size.height.toDp() }
+                                val newHeight = with(density) { coordinates.size.height.toDp() }
+                                if (bottomBarContentHeight != newHeight) {
+                                    bottomBarContentHeight = newHeight
                                 }
                             }
                     ) {
-                        // 测试面板：功能卡片正上方，单行左右滑动
+                        // 测试面板：位于最上方，消息列表的底部与之对齐
                         if (showTestPanel) {
                             CompactTestPanel(
                                 onActionClick = { action -> viewModel.playTestAction(action) },
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
+
+                        // 功能卡片：模式选择器
+                        ModeSelector(currentMode, { viewModel.switchMode(it) }, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp))
 
                         if (voiceInputMode && isRecording) {
                             CancelZone(
@@ -284,8 +290,7 @@ fun MainScreen(
                             )
                         }
 
-                        ModeSelector(currentMode, { viewModel.switchMode(it) }, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp))
-
+                        // 输入框：位于最下方
                         if (voiceInputMode) {
                             VoiceInputButton(
                                 isRecording = isRecording,
@@ -430,13 +435,37 @@ private fun ChatHistoryDrawer(
                 }
             }
 
-            // 底部设置入口
+            // 底部区域：左侧头像+用户名，右侧设置按钮
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 16.dp),
-                horizontalArrangement = Arrangement.End
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                // 左侧：头像 + 用户名
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // 头像
+                    Image(
+                        painter = painterResource(id = R.mipmap.ic_launcher_foreground),
+                        contentDescription = "头像",
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    // 用户名
+                    Text(
+                        text = "灵山游",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = TextPrimary
+                    )
+                }
+
+                // 右侧：设置按钮
                 IconButton(
                     onClick = {
                         onCloseDrawer()

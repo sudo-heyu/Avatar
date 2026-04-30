@@ -46,20 +46,20 @@ data class GestureAnimation(
 
         /**
          * 摇头动画
-         * 自然的摇头：左右摆动，带轻微歪头
+         * 自然的摇头：左右摆动，带轻微歪头（幅度已调低，更克制自然）
          */
         val SHAKE = GestureAnimation(
             keyframes = listOf(
                 // 初始状态
                 GestureKeyframe(0, GestureParams.IDLE),
                 // 向左
-                GestureKeyframe(200, GestureParams(angleX = -18f, angleZ = 5f)),
+                GestureKeyframe(200, GestureParams(angleX = -12f, angleZ = 3f)),
                 // 向右
-                GestureKeyframe(250, GestureParams(angleX = 18f, angleZ = -5f)),
+                GestureKeyframe(250, GestureParams(angleX = 12f, angleZ = -3f)),
                 // 再向左
-                GestureKeyframe(250, GestureParams(angleX = -15f, angleZ = 4f)),
+                GestureKeyframe(250, GestureParams(angleX = -10f, angleZ = 2.5f)),
                 // 再向右
-                GestureKeyframe(220, GestureParams(angleX = 12f, angleZ = -3f)),
+                GestureKeyframe(220, GestureParams(angleX = 8f, angleZ = -2f)),
                 // 回到中间
                 GestureKeyframe(180, GestureParams.IDLE)
             ),
@@ -84,11 +84,11 @@ data class GestureAnimation(
         val SHAKE_STRONG = GestureAnimation(
             keyframes = listOf(
                 GestureKeyframe(0, GestureParams.IDLE),
-                GestureKeyframe(180, GestureParams(angleX = -22f, angleZ = 8f)),
-                GestureKeyframe(220, GestureParams(angleX = 22f, angleZ = -8f)),
-                GestureKeyframe(220, GestureParams(angleX = -20f, angleZ = 7f)),
-                GestureKeyframe(200, GestureParams(angleX = 18f, angleZ = -6f)),
-                GestureKeyframe(180, GestureParams(angleX = -12f, angleZ = 4f)),
+                GestureKeyframe(180, GestureParams(angleX = -15f, angleZ = 5f)),
+                GestureKeyframe(220, GestureParams(angleX = 15f, angleZ = -5f)),
+                GestureKeyframe(220, GestureParams(angleX = -14f, angleZ = 4.5f)),
+                GestureKeyframe(200, GestureParams(angleX = 12f, angleZ = -4f)),
+                GestureKeyframe(180, GestureParams(angleX = -8f, angleZ = 2.5f)),
                 GestureKeyframe(200, GestureParams.IDLE)
             ),
             loopCount = 1
