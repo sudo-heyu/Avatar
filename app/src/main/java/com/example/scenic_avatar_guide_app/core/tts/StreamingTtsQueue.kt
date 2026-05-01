@@ -1,0 +1,317 @@
+package com.example.scenic_avatar_guide_app.core.tts
+
+import android.util.Log
+import androidx.media3.common.Player
+import com.example.scenic_avatar_guide_app.core.audio.AudioPlayer
+import com.example.scenic_avatar_guide_app.domain.model.TtsMarkItem
+import com.example.scenic_avatar_guide_app.domain.model.TtsSegmentData
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+
+private const val TAG = "StreamingTtsQueue"
+
+/**
+ * 流式 TTS 分段播放队列。
+ *
+ * 利用 ExoPlayer 的播放列表能力实现片段间无缝衔接：
+ * - 收到 segment 后立即加入 ExoPlayer 队列，由播放器自动缓冲和过渡
+ * - 通过 onMediaItemTransition(AUTO) 精确感知片段切换，驱动口型动画
+ * - 消除旧方案中 "播放完 → stop → play" 带来的明显停顿
+ * - 串行 enqueue 保证片段顺序严格一致
+ *
+ * 后端优化适配：
+ * - audio_url 先行推送，duration_ms 和 marks 可能为 null
+ * - onSegmentEnqueue 在入队时提前触发，让口型事件预生成
+ * - onSegmentStart 在音频开始播放时触发，用于同步口型动画
+ */
+class StreamingTtsQueue(
+    private val audioPlayer: AudioPlayer,
+    private val buildAudioUrl: suspend (String) -> String,
+    private val onSegmentEnqueue: (TtsSegmentData) -> Unit,  // 新增：segment 入队时回调，提前准备口型事件
+    private val onSegmentStart: (TtsSegmentData) -> Unit,
+    private val onSegmentComplete: (TtsSegmentData, actualDurationMs: Long) -> Unit,
+    private val onWaitingForSegment: () -> Unit,
+    private val onAllComplete: () -> Unit,
+    private val onError: (Throwable) -> Unit,
+    private val onBufferingStateChanged: ((Boolean) -> Unit)? = null  // 缓冲状态变化回调
+) {
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val enqueueMutex = Mutex()
+
+    // 尚未构建完整 URL 的待处理片段
+    private val pendingQueue = ArrayDeque<TtsSegmentData>()
+
+    // 已提交给 ExoPlayer 的片段（按播放顺序）
+    private val submittedSegments = ArrayDeque<TtsSegmentData>()
+
+    private var currentSegment: TtsSegmentData? = null
+    private var segmentStarted = false
+    private var inputFinished = false
+    private var active = false
+
+    // 精确计时（用于诊断 segment 间 gap）
+    private var segmentStartTime = 0L
+
+    init {
+        audioPlayer.onMediaItemTransition = { reason, mediaItem ->
+            if (active && mediaItem != null) {
+                when (reason) {
+                    Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> {
+                        // 自然过渡：上一个片段播放完成，自动进入下一个
+                        val completed = submittedSegments.removeFirstOrNull()
+                        if (completed != null) {
+                            val elapsed = System.currentTimeMillis() - segmentStartTime
+                            Log.d(TAG, "[TIMER] segment=${completed.segmentId} 播放完成，历时=${elapsed}ms，队列剩余=${submittedSegments.size}")
+                            // 传入实际播放时长
+                            onSegmentComplete(completed, elapsed)
+                            // 清理 ExoPlayer 中已播放的媒体项，避免播放列表无限膨胀
+                            audioPlayer.removeMediaItem(0)
+                            currentSegment = submittedSegments.firstOrNull()
+                            segmentStartTime = System.currentTimeMillis()
+                            currentSegment?.let(onSegmentStart)
+                        }
+                    }
+                    Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED,
+                    Player.MEDIA_ITEM_TRANSITION_REASON_SEEK -> {
+                        // 播放列表变更或跳转：新片段开始播放
+                        if (!segmentStarted && submittedSegments.isNotEmpty()) {
+                            currentSegment = submittedSegments.firstOrNull()
+                            segmentStarted = true
+                            segmentStartTime = System.currentTimeMillis()
+                            Log.d(TAG, "[TIMER] segment=${currentSegment?.segmentId} 开始播放")
+                            currentSegment?.let(onSegmentStart)
+                        }
+                    }
+                }
+            }
+        }
+
+        audioPlayer.onPlayComplete = {
+            if (active) {
+                // 处理最后一个 segment 的 complete（没有 AUTO transition 触发它）
+                val completed = submittedSegments.removeFirstOrNull()
+                if (completed != null) {
+                    val elapsed = System.currentTimeMillis() - segmentStartTime
+                    Log.d(TAG, "[TIMER] segment=${completed.segmentId} 播放完成(ENDED)，历时=${elapsed}ms")
+                    onSegmentComplete(completed, elapsed)
+                }
+                currentSegment = null
+                segmentStarted = false
+
+                // 最后一个 item 播放完成，也清理一下播放列表
+                audioPlayer.removeMediaItem(0)
+
+                if (inputFinished) {
+                    active = false
+                    onAllComplete()
+                } else {
+                    // 输入尚未结束，保持 active，等待后续 segment
+                    Log.d(TAG, "[TIMER] 播放队列暂时为空，等待新片段...")
+                    onWaitingForSegment()
+                }
+            }
+        }
+
+        audioPlayer.onPlayError = { error ->
+            fail(IllegalStateException(error))
+        }
+
+        // 缓冲状态监听：通知上层暂停/恢复口型同步
+        audioPlayer.onBufferingStateChanged = { isBuffering ->
+            if (active) {
+                Log.d(TAG, "[BUFFER] 缓冲状态: $isBuffering, 当前 segment=${currentSegment?.segmentId}")
+                onBufferingStateChanged?.invoke(isBuffering)
+            }
+        }
+    }
+
+    fun start() {
+        active = false
+        audioPlayer.stop()
+        pendingQueue.clear()
+        submittedSegments.clear()
+        currentSegment = null
+        segmentStarted = false
+        inputFinished = false
+        active = true
+        Log.d(TAG, "[QUEUE] 队列已启动，等待 segment 入队")
+    }
+
+    fun enqueue(segment: TtsSegmentData) {
+        if (!active) start()
+        val enqueueTime = System.currentTimeMillis()
+        Log.d(TAG, "[LATENCY] enqueue: segmentId=${segment.segmentId}, text=${segment.text.take(15)}, enqueueTime=$enqueueTime")
+
+        pendingQueue.addLast(segment)
+        submittedSegments.addLast(segment)
+
+        scope.launch {
+            enqueueMutex.withLock {
+                try {
+                    // 在 IO 线程异步预生成口型事件，避免阻塞主线程
+                    withContext(Dispatchers.IO) {
+                        onSegmentEnqueue(segment)
+                    }
+
+                    val urlBuildStart = System.currentTimeMillis()
+                    val fullUrl = buildAudioUrl(segment.audioUrl)
+                    val urlBuildTime = System.currentTimeMillis() - urlBuildStart
+                    Log.d(TAG, "[LATENCY] URL构建耗时=${urlBuildTime}ms, segmentId=${segment.segmentId}")
+
+                    if (!active) return@withLock
+
+                    val playStartTime = System.currentTimeMillis()
+                    if (!audioPlayer.hasMediaItems()) {
+                        // 队列为空，立即开始播放
+                        currentSegment = segment
+                        audioPlayer.play(fullUrl)
+                        Log.d(TAG, "[LATENCY] 首片段播放启动: segmentId=${segment.segmentId}, 从入队到播放=${playStartTime - enqueueTime}ms")
+                    } else {
+                        // 已有内容在播放/缓冲，追加到队列实现无缝衔接
+                        audioPlayer.enqueue(fullUrl)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "播放音频失败", e)
+                    if (active) fail(e)
+                }
+            }
+        }
+    }
+
+    /**
+     * 流式 segment 入队：创建 chunk stream 并将 MediaItem 加入 ExoPlayer 队列。
+     * 收到 tts_segment 时调用。
+     */
+    fun enqueueStreamSegment(segment: TtsSegmentData) {
+        if (!active) start()
+        val enqueueTime = System.currentTimeMillis()
+        Log.d(TAG, "[LATENCY] enqueueStream: segmentId=${segment.segmentId}, text=${segment.text.take(15)}, enqueueTime=$enqueueTime")
+
+        pendingQueue.addLast(segment)
+        submittedSegments.addLast(segment)
+
+        scope.launch {
+            enqueueMutex.withLock {
+                try {
+                    withContext(Dispatchers.IO) {
+                        onSegmentEnqueue(segment)
+                    }
+
+                    if (!active) return@withLock
+
+                    if (!audioPlayer.hasMediaItems()) {
+                        currentSegment = segment
+                        audioPlayer.enqueueStream(segment.segmentId)
+                        Log.d(TAG, "[LATENCY] 首片段流式启动: segmentId=${segment.segmentId}")
+                    } else {
+                        audioPlayer.enqueueStream(segment.segmentId)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "流式音频入队失败", e)
+                    if (active) fail(e)
+                }
+            }
+        }
+    }
+
+    /**
+     * 写入音频 chunk。应在 IO 线程调用。
+     * 收到 tts_audio_chunk 时调用。
+     */
+    fun writeChunk(segmentId: String, bytes: ByteArray) {
+        audioPlayer.writeChunk(segmentId, bytes)
+    }
+
+    /**
+     * 该 segment 音频结束，关闭写端并更新 duration/marks。
+     * 收到 tts_audio_end 时调用。
+     */
+    fun endStreamSegment(
+        segmentId: String,
+        durationMs: Int?,
+        marks: List<TtsMarkItem>?,
+        streamAudioOffsetMs: Int? = null,
+        streamAudioDurationMs: Int? = null
+    ) {
+        Log.d(TAG, "endStreamSegment: segmentId=$segmentId, durationMs=$durationMs, offset=$streamAudioOffsetMs")
+        // 更新 submittedSegments 中的 segment 数据
+        val idx = submittedSegments.indexOfFirst { it.segmentId == segmentId }
+        if (idx >= 0) {
+            val old = submittedSegments[idx]
+            submittedSegments[idx] = old.copy(
+                durationMs = durationMs ?: old.durationMs,
+                marks = marks ?: old.marks,
+                streamAudioOffsetMs = streamAudioOffsetMs ?: old.streamAudioOffsetMs,
+                streamAudioDurationMs = streamAudioDurationMs ?: old.streamAudioDurationMs
+            )
+        }
+        audioPlayer.endStream(segmentId)
+    }
+
+    /**
+     * 强制中断该 segment 的 stream。
+     * 收到 tts_audio_error 时调用。
+     */
+    fun abortStreamSegment(segmentId: String) {
+        Log.d(TAG, "abortStreamSegment: segmentId=$segmentId")
+        // 从 submittedSegments 和 pendingQueue 中移除
+        submittedSegments.removeAll { it.segmentId == segmentId }
+        pendingQueue.removeAll { it.segmentId == segmentId }
+        audioPlayer.abortStream(segmentId)
+    }
+
+    fun finishInput() {
+        inputFinished = true
+        if (active && submittedSegments.isEmpty() && pendingQueue.isEmpty() && !audioPlayer.isPlaying.value) {
+            Log.d(TAG, "输入已结束且队列为空，立即完成")
+            active = false
+            currentSegment = null
+            segmentStarted = false
+            onAllComplete()
+        }
+    }
+
+    fun cancel() {
+        runCatching {
+            active = false
+            inputFinished = false
+            pendingQueue.clear()
+            submittedSegments.clear()
+            currentSegment = null
+            segmentStarted = false
+            audioPlayer.stop()
+        }.onFailure {
+            Log.w(TAG, "cancel failed: ${it.message}")
+        }
+        Log.d(TAG, "队列已取消")
+    }
+
+    fun release() {
+        runCatching {
+            cancel()
+            scope.cancel()
+            audioPlayer.release()
+        }.onFailure {
+            Log.w(TAG, "release failed: ${it.message}")
+        }
+    }
+
+    private fun fail(error: Throwable) {
+        if (!active) return
+        Log.e(TAG, "队列失败: ${error.message}")
+        active = false
+        inputFinished = false
+        pendingQueue.clear()
+        submittedSegments.clear()
+        currentSegment = null
+        segmentStarted = false
+        audioPlayer.stop()
+        onError(error)
+    }
+}

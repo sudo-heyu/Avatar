@@ -1,0 +1,78 @@
+# Gradle
+.gradle/
+build/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/**/build/
+
+# Local configuration
+local.properties
+*.properties.local
+
+# IDE - Android Studio / IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+.idea/caches
+.idea/libraries
+.idea/modules.xml
+.idea/workspace.xml
+.idea/navEditor.xml
+.idea/assetWizardSettings.xml
+.idea/sonarlint/
+.idea/inspectionProfiles/
+.idea/runConfigurations/
+
+#opencode
+opencode.json
+
+# Kotlin
+.kotlin/
+
+# NDK / C++
+.cxx/
+.externalNativeBuild
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Android captures
+/captures
+
+# Large binary dependencies (third-party SDKs)
+*.aar
+
+# Live2D core libs (prebuilt binaries, large)
+app/src/main/jniLibs/**/*.so
+
+# APK / Bundle outputs
+*.apk
+*.ap_
+*.aab
+
+# Java heap dumps
+*.hprof
+
+# Keystore files
+*.jks
+*.keystore
+
+# Google Services (API keys, etc)
+google-services.json
+
+# Large knowledge base files (too big for git)
+app/src/main/java/com/example/scenic_avatar_guide_app/docs/knowledge/*.md
+app/src/main/java/com/example/scenic_avatar_guide_app/docs/knowledge/*.xlsx
+app/src/main/java/com/example/scenic_avatar_guide_app/docs/knowledge/*.csv
+app/src/main/java/com/example/scenic_avatar_guide_app/docs/knowledge/*.json
+
+# Demo resources (videos and large images)
+res_demo/
+
+# Third-party SDK jars
+app/libs/*.jar
