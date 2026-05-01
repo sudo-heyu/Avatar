@@ -32,20 +32,26 @@
 
 ### 界面截图
 
-<p float="left">
-  <img src="res_demo/pic1.jpg" width="48%" />
-  <img src="res_demo/pic2.jpg" width="48%" />
-</p>
+<div align="center">
+  <img src="res_demo/pic1.jpg" width="45%" alt="界面截图1" />
+  <img src="res_demo/pic2.jpg" width="45%" alt="界面截图2" />
+</div>
 
 ### 功能演示
 
-**演示 1**
+<div align="center">
 
-<video src="res_demo/video1.mp4" width="48%"></video>
+**对话演示**
 
-**演示 2**
+https://github.com/user-attachments/assets/video1.mp4
 
-<video src="res_demo/video2.mp4" width="48%"></video>
+**数字人播报演示**
+
+https://github.com/user-attachments/assets/video2.mp4
+
+> 💡 若视频无法播放，可下载 `res_demo/video1.mp4` 和 `res_demo/video2.mp4` 本地观看
+
+</div>
 
 ---
 
