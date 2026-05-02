@@ -9,9 +9,6 @@ import com.example.scenic_avatar_guide_app.domain.model.ChatTextRequest
 import com.example.scenic_avatar_guide_app.domain.model.ResponseMetadata
 import com.example.scenic_avatar_guide_app.domain.model.RouteData
 import com.example.scenic_avatar_guide_app.domain.model.SourceInfo
-import com.example.scenic_avatar_guide_app.domain.model.TtsAudioChunkData
-import com.example.scenic_avatar_guide_app.domain.model.TtsAudioEndData
-import com.example.scenic_avatar_guide_app.domain.model.TtsAudioErrorData
 import com.example.scenic_avatar_guide_app.domain.model.TtsMarkItem
 import com.example.scenic_avatar_guide_app.domain.model.TtsSegmentData
 import kotlinx.coroutines.Dispatchers
@@ -156,9 +153,9 @@ class StreamingChatClient @Inject constructor(
                 ?.let { ChatStreamEvent.TextDelta(it) }
             "tts_segment", "segment_tts", "segmenttts" -> decodeTtsSegment(envelope)
                 ?.let { ChatStreamEvent.TtsSegment(it) }
-            "tts_audio_chunk" -> decodeTtsAudioChunk(envelope)
-            "tts_audio_end" -> decodeTtsAudioEnd(envelope)
-            "tts_audio_error" -> decodeTtsAudioError(envelope)
+            "tts_segment_ready" -> decodeTtsSegmentReady(envelope)
+                ?.let { ChatStreamEvent.TtsSegmentReady(it) }
+            "tts_audio_chunk", "tts_audio_end" -> null
             "avatar_action" -> envelope.data
                 ?.let { json.decodeFromJsonElement<AvatarAction>(it) }
                 ?.let { ChatStreamEvent.AvatarActionDelta(it) }
@@ -182,87 +179,6 @@ class StreamingChatClient @Inject constructor(
         }
     }
 
-    private fun decodeTtsAudioChunk(envelope: ChatStreamEnvelope): ChatStreamEvent? {
-        // 后端发送平铺格式（字段在顶层），优先直接读取；若存在嵌套 data 则尝试解析
-        val segmentId = envelope.segmentId
-        val audioBase64 = envelope.audioBase64
-        Log.d(TAG, "decodeTtsAudioChunk: segmentId=$segmentId, audioBase64 length=${audioBase64?.length}, sequence=${envelope.sequence}")
-        if (segmentId != null && audioBase64 != null) {
-            return ChatStreamEvent.TtsAudioChunk(
-                TtsAudioChunkData(
-                    segmentId = segmentId,
-                    segmentIndex = envelope.segmentIndex,
-                    sequence = envelope.sequence ?: 0,
-                    audioFormat = envelope.audioFormat ?: "mp3",
-                    audioProfile = envelope.audioProfile,
-                    audioBase64 = audioBase64
-                )
-            )
-        }
-        Log.w(TAG, "decodeTtsAudioChunk: 平铺字段缺失，尝试嵌套 data 回退")
-        // 回退：尝试从嵌套 data 解析
-        return envelope.data?.let { data ->
-            runCatching {
-                json.decodeFromJsonElement<TtsAudioChunkData>(data)
-            }.getOrElse { e ->
-                Log.e(TAG, "tts_audio_chunk 嵌套解析失败: ${e.message}")
-                null
-            }
-        }?.let { ChatStreamEvent.TtsAudioChunk(it) }
-    }
-
-    private fun decodeTtsAudioEnd(envelope: ChatStreamEnvelope): ChatStreamEvent? {
-        val segmentId = envelope.segmentId
-        val audioUrl = envelope.audioUrl
-        Log.d(TAG, "decodeTtsAudioEnd: segmentId=$segmentId, audioUrl=$audioUrl, durationMs=${envelope.durationMs}, chunkCount=${envelope.chunkCount}")
-        if (segmentId != null && audioUrl != null) {
-            return ChatStreamEvent.TtsAudioEnd(
-                TtsAudioEndData(
-                    segmentId = segmentId,
-                    segmentIndex = envelope.segmentIndex,
-                    durationMs = envelope.durationMs,
-                    marks = envelope.marks,
-                    chunkCount = envelope.chunkCount ?: 0,
-                    audioUrl = audioUrl,
-                    fileName = envelope.fileName,
-                    streamAudioOffsetMs = envelope.streamAudioOffsetMs,
-                    streamAudioDurationMs = envelope.streamAudioDurationMs
-                )
-            )
-        }
-        Log.w(TAG, "decodeTtsAudioEnd: 平铺字段缺失，尝试嵌套 data 回退")
-        return envelope.data?.let { data ->
-            runCatching {
-                json.decodeFromJsonElement<TtsAudioEndData>(data)
-            }.getOrElse { e ->
-                Log.e(TAG, "tts_audio_end 嵌套解析失败: ${e.message}")
-                null
-            }
-        }?.let { ChatStreamEvent.TtsAudioEnd(it) }
-    }
-
-    private fun decodeTtsAudioError(envelope: ChatStreamEnvelope): ChatStreamEvent? {
-        val segmentId = envelope.segmentId
-        val message = envelope.message
-        if (segmentId != null && message != null) {
-            return ChatStreamEvent.TtsAudioError(
-                TtsAudioErrorData(
-                    segmentId = segmentId,
-                    segmentIndex = envelope.segmentIndex,
-                    message = message
-                )
-            )
-        }
-        return envelope.data?.let { data ->
-            runCatching {
-                json.decodeFromJsonElement<TtsAudioErrorData>(data)
-            }.getOrElse { e ->
-                Log.e(TAG, "tts_audio_error 嵌套解析失败: ${e.message}")
-                null
-            }
-        }?.let { ChatStreamEvent.TtsAudioError(it) }
-    }
-
     private fun decodeTtsSegment(envelope: ChatStreamEnvelope): TtsSegmentData? {
         envelope.data?.let { data ->
             runCatching {
@@ -282,6 +198,26 @@ class StreamingChatClient @Inject constructor(
             rate = envelope.rate,
             volume = envelope.volume,
             pitch = envelope.pitch,
+            emotion = envelope.emotion,
+            marks = envelope.marks
+        )
+    }
+
+    private fun decodeTtsSegmentReady(envelope: ChatStreamEnvelope): TtsSegmentData? {
+        envelope.data?.let { data ->
+            runCatching {
+                return json.decodeFromJsonElement<TtsSegmentData>(data)
+            }
+        }
+
+        val segmentId = envelope.segmentId ?: return null
+        val audioUrl = envelope.audioUrl ?: return null
+        return TtsSegmentData(
+            segmentId = segmentId,
+            segmentIndex = envelope.segmentIndex,
+            text = envelope.text ?: "",
+            audioUrl = audioUrl,
+            durationMs = envelope.durationMs,
             emotion = envelope.emotion,
             marks = envelope.marks
         )

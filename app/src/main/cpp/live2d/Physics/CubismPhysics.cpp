@@ -687,6 +687,18 @@ void CubismPhysics::Stabilization(CubismModel* model)
     const csmFloat32* parameterMinimumValues;
     const csmFloat32* parameterDefaultValues;
 
+    // 防御检查：模型或物理 Rig 无效时直接返回
+    if (model == nullptr || _physicsRig == nullptr)
+    {
+        return;
+    }
+
+    // 防御检查：模型的 Core 对象无效时直接返回
+    if (model->GetModel() == nullptr)
+    {
+        return;
+    }
+
     parameterValues = Core::csmGetParameterValues(model->GetModel());
     parameterMaximumValues = Core::csmGetParameterMaximumValues(model->GetModel());
     parameterMinimumValues = Core::csmGetParameterMinimumValues(model->GetModel());
@@ -853,7 +865,19 @@ void CubismPhysics::Evaluate(CubismModel* model, csmFloat32 deltaTimeSeconds)
     CubismPhysicsOutput* currentOutputs;
     CubismPhysicsParticle* currentParticles;
 
+    // 防御检查：模型或物理 Rig 无效时直接返回
+    if (model == nullptr || _physicsRig == nullptr)
+    {
+        return;
+    }
+
     if (0.0f >= deltaTimeSeconds)
+    {
+        return;
+    }
+
+    // 防御检查：模型的 Core 对象无效时直接返回
+    if (model->GetModel() == nullptr)
     {
         return;
     }
@@ -1012,6 +1036,12 @@ void CubismPhysics::Evaluate(CubismModel* model, csmFloat32 deltaTimeSeconds)
         _currentRemainTime -= physicsDeltaTime;
     }
 
+    // 防止除零：确保 physicsDeltaTime 不为 0
+    if (physicsDeltaTime <= 0.0f)
+    {
+        return;
+    }
+
     const float alpha = _currentRemainTime / physicsDeltaTime;
     Interpolate(model, alpha);
 }
@@ -1024,6 +1054,12 @@ void CubismPhysics::Interpolate(CubismModel* model, csmFloat32 weight)
     csmFloat32* parameterValues;
     const csmFloat32* parameterMaximumValues;
     const csmFloat32* parameterMinimumValues;
+
+    // 防御检查
+    if (model == nullptr || _physicsRig == nullptr || model->GetModel() == nullptr)
+    {
+        return;
+    }
 
     parameterValues = Core::csmGetParameterValues(model->GetModel());
     parameterMaximumValues = Core::csmGetParameterMaximumValues(model->GetModel());

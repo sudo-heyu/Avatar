@@ -1,8 +1,8 @@
 # 流式输入输出重构方案
 
-版本：v1.7
-日期：2026-04-30  
-状态：后端文本 SSE + 实时 Edge-TTS 音频 chunk 已实现并通过测试；已支持 LLM 情绪标注、按情绪边界截断流式 TTS 和 `chat/abort` 取消；Android 端待接入播放队列
+版本：v2.0
+日期：2026-05-03  
+状态：后端文本 SSE + TTS URL 方案已实现并通过测试；已支持 LLM 情绪标注（只标注关键词）、按情绪边界截断流式 TTS 和 `chat/abort` 取消；Android 端待接入播放队列
 
 ---
 
@@ -31,7 +31,7 @@
 | `route_data` | 已实现 | `mode=route` 且解析出路线数据时发送 |
 | `error` | 已实现 | 流式链路异常时发送 |
 | `tts_segment` | 已实现 | `ChatService` 中按情绪边界/句子边界分段，立即推送段落元信息 |
-| `tts_audio_chunk` / `tts_audio_end` | 已实现 | Edge-TTS 返回 audio chunk 时实时转发，片段完成后补真实时长、marks 和最终 URL |
+| `tts_segment_ready` | 已实现 | 音频文件已生成，返回完整 audio_url、duration_ms、marks |
 | `chat/abort` / `aborted` | 已实现 | 客户端可按 `message_id` 或 `session_id` 取消正在进行的 SSE 流 |
 | TTS 不阻塞文本流 | 已实现 | LLM delta 通过事件队列立即发送，TTS 合成和 chunk 推送在后台任务中执行 |
 | TTS 文件名安全 | 已实现 | 自定义文件名仅允许安全 `.mp3` 文件名，拒绝路径穿越和绝对路径 |
@@ -100,9 +100,8 @@ GuideRepository.sendTextMessageStream(): Flow<ChatStreamEvent>
       ├─ MessageStart    -> 创建或绑定机器人消息
       ├─ AvatarAction    -> 基于用户问题提前设置数字人表情/动作
       ├─ TextDelta       -> UI 立即追加文字
-      ├─ TtsSegment      -> 创建 TTS 片段元信息
-      ├─ TtsAudioChunk   -> 实时追加 MP3 chunk 到播放缓冲
-      ├─ TtsAudioEnd     -> 片段完成，补齐 marks / duration / fallback URL
+      ├─ TtsSegment      -> 创建 TTS 片段元信息（预告）
+      ├─ TtsSegmentReady -> 音频已生成，播放 audio_url
       ├─ Sources         -> 补齐来源引用
       ├─ RouteData       -> 补齐路线规划数据
       ├─ Metadata        -> 补齐意图、情绪、耗时、置信度
@@ -181,26 +180,22 @@ data: {"type":"text_delta","delta":"欢迎来到灵山胜境，"}
 
 ```text
 event: tts_segment
-data: {"type":"tts_segment","segment_id":"seg_001","segment_index":0,"text":"欢迎来到灵山胜境，","audio_url":"/api/v1/tts/file/seg_001.mp3","duration_ms":null,"voice":"zh-CN-XiaoxiaoNeural","rate":"+0%","volume":"+0%","pitch":"+0Hz","emotion":"welcoming","marks":[]}
+data: {"type":"tts_segment","segment_id":"seg_001","segment_index":0,"text":"欢迎来到灵山胜境，","audio_url":"/api/v1/tts/file/seg_001.mp3","duration_ms":null,"voice":"zh-CN-XiaoxiaoNeural","rate":"+0%","volume":"+0%","pitch":"+0Hz","emotion":"neutral","marks":[]}
 ```
 
-音频 chunk 和完成事件：
+音频就绪事件：
 
 ```text
-event: tts_audio_chunk
-data: {"type":"tts_audio_chunk","segment_id":"seg_001","segment_index":0,"sequence":0,"audio_format":"mp3","audio_profile":"edge_tts_raw_mp3","audio_base64":"SUQz..."}
-
-event: tts_audio_end
-data: {"type":"tts_audio_end","segment_id":"seg_001","segment_index":0,"audio_url":"/api/v1/tts/file/seg_001.mp3","file_name":"seg_001.mp3","duration_ms":1800,"stream_audio_duration_ms":1944,"stream_audio_offset_ms":96,"marks":[],"chunk_count":8}
+event: tts_segment_ready
+data: {"type":"tts_segment_ready","segment_id":"seg_001","segment_index":0,"audio_url":"/api/v1/tts/file/seg_001.mp3","file_name":"seg_001.mp3","duration_ms":1800,"marks":[{"word":"欢迎","start_ms":0,"end_ms":420},{"word":"来到","start_ms":430,"end_ms":820}],"emotion":"neutral"}
 ```
 
 NDJSON 不再作为当前后端实现目标，只作为后续兼容备选：
 
 ```jsonl
 {"type":"text_delta","delta":"欢迎来到灵山胜境，"}
-{"type":"tts_segment","segment_id":"seg_001","segment_index":0,"text":"欢迎来到灵山胜境，","audio_url":"/api/v1/tts/file/seg_001.mp3","duration_ms":null,"voice":"zh-CN-XiaoxiaoNeural","rate":"+0%","volume":"+0%","pitch":"+0Hz","emotion":"welcoming","marks":[]}
-{"type":"tts_audio_chunk","segment_id":"seg_001","segment_index":0,"sequence":0,"audio_format":"mp3","audio_profile":"edge_tts_raw_mp3","audio_base64":"SUQz..."}
-{"type":"tts_audio_end","segment_id":"seg_001","segment_index":0,"audio_url":"/api/v1/tts/file/seg_001.mp3","file_name":"seg_001.mp3","duration_ms":1800,"stream_audio_duration_ms":1944,"stream_audio_offset_ms":96,"marks":[],"chunk_count":8}
+{"type":"tts_segment","segment_id":"seg_001","segment_index":0,"text":"欢迎来到灵山胜境，","audio_url":"/api/v1/tts/file/seg_001.mp3","duration_ms":null,"voice":"zh-CN-XiaoxiaoNeural","rate":"+0%","volume":"+0%","pitch":"+0Hz","emotion":"neutral","marks":[]}
+{"type":"tts_segment_ready","segment_id":"seg_001","segment_index":0,"audio_url":"/api/v1/tts/file/seg_001.mp3","file_name":"seg_001.mp3","duration_ms":1800,"marks":[],"emotion":"neutral"}
 ```
 
 Android 端应优先实现 SSE 解析，同时可将解析器设计为按行读取，便于兼容 NDJSON。
@@ -215,9 +210,8 @@ Android 端应优先实现 SSE 解析，同时可将解析器设计为按行读�
 |------|----------|----------|------------|
 | `message_start` | 流开始 | 当前已实现 | 绑定 `message_id`、`session_id` |
 | `text_delta` | 每次文本增量 | 是 | 追加到机器人消息气泡 |
-| `tts_segment` | 可朗读片段切出后立即发送 | 已实现 | 创建片段队列项，记录文本、音色和 fallback URL |
-| `tts_audio_chunk` | Edge-TTS 返回音频块时 | 已实现 | 解码 Base64 MP3 chunk，按 `segment_index + sequence` 或 `segment_id + sequence` 追加到播放缓冲 |
-| `tts_audio_end` | 单个 TTS 片段完成 | 已实现 | 补齐 duration、marks、最终 audio_url，关闭该片段输入 |
+| `tts_segment` | 可朗读片段切出后立即发送 | 已实现 | 创建片段队列项，记录文本、音色和预告 URL |
+| `tts_segment_ready` | 音频文件已生成 | 已实现 | 播放 audio_url，用 marks 驱动口型 |
 | `tts_audio_error` | 单个 TTS 片段失败 | 已实现 | 跳过该段或等待整段 TTS 降级 |
 | `avatar_action` | 流开始后立即发送（基于用户问题推断） | 当前已实现 | 更新数字人表情、动作 |
 | `sources` | 检索来源完成后 | 当前已实现，未接 RAG 时为空数组 | 补齐消息来源 |
@@ -661,12 +655,6 @@ sealed interface ChatStreamEvent {
 
     data object Done : ChatStreamEvent
 
-    data class Aborted(
-        val messageId: String?,
-        val sessionId: String?,
-        val reason: String? = null
-    ) : ChatStreamEvent
-
     data class Error(
         val code: Int? = null,
         val message: String
@@ -681,8 +669,6 @@ sealed interface ChatStreamEvent {
 data class TtsSegmentData(
     @SerialName("segment_id")
     val segmentId: String,
-    @SerialName("segment_index")
-    val segmentIndex: Int? = null,
     val text: String,
     @SerialName("audio_url")
     val audioUrl: String,
@@ -702,8 +688,6 @@ data class TtsSegmentData(
 data class TtsAudioChunkData(
     @SerialName("segment_id")
     val segmentId: String,
-    @SerialName("segment_index")
-    val segmentIndex: Int? = null,
     val sequence: Int,
     @SerialName("audio_format")
     val audioFormat: String,
@@ -717,8 +701,6 @@ data class TtsAudioChunkData(
 data class TtsAudioEndData(
     @SerialName("segment_id")
     val segmentId: String,
-    @SerialName("segment_index")
-    val segmentIndex: Int? = null,
     @SerialName("audio_url")
     val audioUrl: String,
     @SerialName("file_name")

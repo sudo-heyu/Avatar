@@ -97,8 +97,20 @@ class Live2DGLSurfaceView @JvmOverloads constructor(
         }
 
         override fun onDrawFrame(gl: GL10?) {
-            JniBridgeJava.nativeOnDrawFrame()
-            onAfterDrawFrame?.invoke()
+            try {
+                JniBridgeJava.nativeOnDrawFrame()
+                onAfterDrawFrame?.invoke()
+            } catch (e: Exception) {
+                android.util.Log.e("Live2DGLSurfaceView", "nativeOnDrawFrame failed", e)
+                // 不重新抛出 Exception，尝试继续渲染下一帧
+            } catch (e: Error) {
+                // Native 崩溃（如 SIGSEGV、SIGFPE 等）
+                // 注意：不要在这里调用 nativeOnStop/nativeOnDestroy，因为这会破坏 GL 上下文
+                // 导致字体纹理和其他 GPU 资源丢失，使所有文字变成方块
+                android.util.Log.e("Live2DGLSurfaceView", "nativeOnDrawFrame error (native crash): ${e.message}", e)
+                // 重新抛出 Error，让应用崩溃。Native 崩溃通常无法安全恢复。
+                throw e
+            }
         }
     }
 

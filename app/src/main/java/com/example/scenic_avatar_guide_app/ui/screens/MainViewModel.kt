@@ -47,7 +47,11 @@ private const val TAG = "MainViewModel"
 /**
  * 打字机效果控制器
  * 负责平滑地逐字显示文本
- * 支持与 TTS 同步启动：等待第一个音频片段准备好后才开始显示
+ *
+ * 设计要点：
+ * 1. 等待首个 TTS 片段开始播放后再显示文字，实现音画同步
+ * 2. 根据 TTS 播放进度动态调整显示速度
+ * 3. 控制更新频率防止 Compose 渲染崩溃
  */
 class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope) {
     // 待显示的文本缓冲区
@@ -68,20 +72,35 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
     // 是否允许开始显示（等待 TTS 同步信号）
     private var canStartDisplay = false
 
-    // 基础打字间隔（毫秒）- 正常速度
-    private val baseIntervalMs = 180L
+    // 打字速度：正常模式下每次取出的字符数
+    private val charsPerTick = 2
 
-    // 最大速度间隔（毫秒）- 消息全部获取后使用
-    private val maxSpeedIntervalMs = 50L
+    // 打字间隔（毫秒）- 根据接收速度动态调整
+    private var currentIntervalMs = 60L
 
-    // 当前间隔
-    private var currentIntervalMs = baseIntervalMs
+    // 最小间隔（快速模式）
+    private val minIntervalMs = 30L
 
-    // 上次接收新文本的时间
-    private var lastReceiveTime = 0L
+    // 最大间隔（慢速模式）
+    private val maxIntervalMs = 80L
 
-    // 批量更新：累积字符数后统一回调
+    // 批量更新阈值
     private var batchChars = 0
+
+    // 最小更新间隔（毫秒）- 防止高频更新导致 Compose 渲染崩溃
+    private val minUpdateIntervalMs = 80L
+
+    // 上次更新时间
+    private var lastUpdateTime = 0L
+
+    // 上次接收文本时间
+    private var lastAppendTime = 0L
+
+    // TTS 同步等待超时（毫秒）- 如果 TTS 在此时间内未就绪，直接开始显示文字
+    private val ttsSyncTimeoutMs = 1500L
+
+    // 是否收到过 TTS 就绪信号
+    private var receivedTtsReady = false
 
     // 文本更新回调
     var onTextUpdate: ((messageId: String, text: String) -> Unit)? = null
@@ -99,38 +118,60 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
         batchChars = 0
         isComplete = false
         canStartDisplay = !waitForSync
-        currentIntervalMs = baseIntervalMs
-        lastReceiveTime = System.currentTimeMillis()
+        receivedTtsReady = false
+        currentIntervalMs = 60L
+        lastUpdateTime = System.currentTimeMillis()
+        lastAppendTime = System.currentTimeMillis()
 
         typewriterJob = scope.launch {
-            // 等待 TTS 同步信号
-            while (!canStartDisplay && isActive) {
-                delay(16)
+            // 等待 TTS 同步信号（首个音频片段开始播放）
+            // 有超时保护：如果 TTS 在 1.5 秒内未就绪，直接开始显示文字
+            if (waitForSync) {
+                Log.d("TypewriterController", "等待 TTS 同步信号...")
+                val startTime = System.currentTimeMillis()
+                while (!canStartDisplay && isActive) {
+                    val elapsed = System.currentTimeMillis() - startTime
+                    if (elapsed >= ttsSyncTimeoutMs) {
+                        Log.d("TypewriterController", "TTS 同步等待超时，直接开始显示文字")
+                        break
+                    }
+                    delay(16)
+                }
+                if (canStartDisplay) {
+                    Log.d("TypewriterController", "TTS 已就绪，开始显示文字")
+                }
             }
 
             while (isActive) {
                 if (pendingText.isNotEmpty()) {
-                    // 取出字符显示
-                    val char = pendingText[0]
-                    pendingText.deleteCharAt(0)
-                    displayedText.append(char)
-                    batchChars++
-
-                    // 根据状态调整速度
-                    currentIntervalMs = if (isComplete) {
-                        // 消息已全部获取，使用最大速度
-                        maxSpeedIntervalMs
-                    } else {
-                        // 消息还在接收中，使用正常速度
-                        baseIntervalMs
+                    // 根据 TTS 接收速度动态调整显示速度
+                    val timeSinceAppend = System.currentTimeMillis() - lastAppendTime
+                    currentIntervalMs = when {
+                        isComplete -> minIntervalMs  // 文本已全部到达，快速显示
+                        timeSinceAppend < 100 -> maxIntervalMs  // 快速接收中，稍慢显示
+                        timeSinceAppend < 300 -> 60L  // 正常接收
+                        else -> minIntervalMs  // 接收慢了，快速追赶
                     }
 
-                    // 批量 flush：每累积 2 个字符统一回调
-                    if (batchChars >= 2) {
+                    // 每次取出多个字符显示
+                    val charsToTake = minOf(charsPerTick, pendingText.length)
+                    for (i in 0 until charsToTake) {
+                        if (pendingText.isEmpty()) break
+                        val char = pendingText[0]
+                        pendingText.deleteCharAt(0)
+                        displayedText.append(char)
+                        batchChars++
+                    }
+
+                    // 批量 flush：累积3个字符 OR 距离上次更新超过80ms
+                    val now = System.currentTimeMillis()
+                    val timeSinceLastUpdate = now - lastUpdateTime
+                    if (batchChars >= 3 || timeSinceLastUpdate >= minUpdateIntervalMs) {
                         currentMessageId?.let { id ->
                             onTextUpdate?.invoke(id, displayedText.toString())
                         }
                         batchChars = 0
+                        lastUpdateTime = now
                     }
                 } else if (isComplete) {
                     // 消息完成且已显示完毕
@@ -161,7 +202,7 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
      */
     fun append(text: String) {
         pendingText.append(text)
-        lastReceiveTime = System.currentTimeMillis()
+        lastAppendTime = System.currentTimeMillis()
     }
 
     /**
@@ -529,20 +570,11 @@ class MainViewModel @Inject constructor(
                             typewriterController.append(event.delta)
                         }
                         is ChatStreamEvent.TtsSegment -> {
-                            Log.d(TAG, "[LATENCY] TtsSegment 收到: segmentId=${event.segment.segmentId}, time=${System.currentTimeMillis()}, audioUrl=${event.segment.audioUrl}, durationMs=${event.segment.durationMs}")
-                            playbackManager.cacheStreamSegment(event.segment)
+                            Log.d(TAG, "[LATENCY] TtsSegment 预通知: segmentId=${event.segment.segmentId}, time=${System.currentTimeMillis()}")
                         }
-                        is ChatStreamEvent.TtsAudioChunk -> {
-                            Log.d(TAG, "TtsAudioChunk: segmentId=${event.data.segmentId}, sequence=${event.data.sequence}, size=${event.data.audioBase64.length}")
-                            playbackManager.feedAudioChunk(event.data)
-                        }
-                        is ChatStreamEvent.TtsAudioEnd -> {
-                            Log.d(TAG, "TtsAudioEnd: segmentId=${event.data.segmentId}, durationMs=${event.data.durationMs}, chunkCount=${event.data.chunkCount}")
-                            playbackManager.endAudioStream(event.data)
-                        }
-                        is ChatStreamEvent.TtsAudioError -> {
-                            Log.e(TAG, "TtsAudioError: segmentId=${event.data.segmentId}, message=${event.data.message}")
-                            playbackManager.abortAudioStream(event.data.segmentId)
+                        is ChatStreamEvent.TtsSegmentReady -> {
+                            Log.d(TAG, "[LATENCY] TtsSegmentReady 播放: segmentId=${event.segment.segmentId}, audioUrl=${event.segment.audioUrl}, durationMs=${event.segment.durationMs}")
+                            playbackManager.enqueueSpeechSegment(event.segment)
                         }
                         is ChatStreamEvent.AvatarActionDelta -> {
                             Log.d(TAG, "AvatarActionDelta: expression=${event.action.expression?.type}")
@@ -708,6 +740,7 @@ class MainViewModel @Inject constructor(
 
     /**
      * 更新助手消息内容（由打字机效果调用）
+     * 使用同步块保护，防止 Compose 渲染时并发修改
      */
     private fun updateAssistantMessageContent(id: String, content: String) {
         val currentList = _messages.value.toMutableList()
@@ -715,6 +748,9 @@ class MainViewModel @Inject constructor(
         if (index == -1) return
 
         val current = currentList[index]
+        // 只有内容真正变化时才更新，避免不必要的重组
+        if (current.content == content) return
+
         currentList[index] = current.copy(
             content = content,
             isLoading = true

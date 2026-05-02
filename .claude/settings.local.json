@@ -132,7 +132,19 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(gh api *)",
       "Bash(Select-Object -Last 20)",
-      "PowerShell(./gradlew assembleDebug 2>&1)"
+      "PowerShell(./gradlew assembleDebug 2>&1)",
+      "Bash(Get-ChildItem -Path \"E:\\\\scenic_avatar_guide_app\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(.\\\\gradlew assembleDebug --daemon)",
+      "Bash(Select-Object -Last 50)",
+      "PowerShell(.\\\\gradlew assembleDebug --daemon 2>&1 | Select-Object -Last 50)",
+      "PowerShell(.\\\\gradlew assembleDebug --daemon 2>&1 | Select-Object -Last 30)",
+      "PowerShell(.\\\\gradlew assembleDebug --daemon 2>&1 | Select-Object -Last 20)",
+      "PowerShell(.\\\\gradlew assembleDebug --daemon 2>&1 | Select-Object -Last 25)",
+      "Bash(.\\\\gradlew assembleDebug)",
+      "PowerShell(.\\\\gradlew assembleDebug 2>&1 | Select-Object -Last 60)",
+      "PowerShell(.\\\\gradlew assembleDebug 2>&1 | Select-Object -Last 40)",
+      "PowerShell(.\\\\gradlew assembleDebug 2>&1 | Select-Object -Last 30)"
     ]
   }
 }

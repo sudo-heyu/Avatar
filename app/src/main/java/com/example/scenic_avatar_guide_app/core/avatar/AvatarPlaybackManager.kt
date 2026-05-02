@@ -18,11 +18,19 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import java.util.TreeMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 private const val TAG = "AvatarPlaybackManager"
+
+// 辅助数据类，用于批量返回音频状态
+private data class AudioSyncState(
+    val isPlaying: Boolean,
+    val isBuffering: Boolean,
+    val position: Long,
+    val duration: Long,
+    val eventsEnd: Long
+)
 
 /**
  * 数字人播放管理器
@@ -63,6 +71,12 @@ class AvatarPlaybackManager(
 
     // 流式 TTS 分段播放队列
     private val streamingAudioPlayer = AudioPlayer(context)
+
+    // 口型同步状态保护：防止 segment 切换时的竞态条件
+    private val lipSyncLock = Any()
+    private val isLipSyncActive = AtomicBoolean(false)
+    private val currentLipSyncSegmentId = AtomicReference<String?>(null)
+
     private val streamingTtsQueue = StreamingTtsQueue(
         audioPlayer = streamingAudioPlayer,
         buildAudioUrl = { repository.buildAudioUrl(it) },
@@ -73,37 +87,26 @@ class AvatarPlaybackManager(
             preloadSegmentLipSync(segment)
         },
         onSegmentStart = { segment ->
-            receivedTtsSegment = true
-            isPlaying = true
-            cancelWaitingClose()
-            // 通知第一个片段开始播放（用于与打字机同步）
-            if (!notifiedFirstSegment) {
-                notifiedFirstSegment = true
-                onFirstSegmentStart?.invoke()
-            }
-            // 根据 segment 的 emotion 动态更新表情（细粒度实时表情切换）
-            segment.emotion?.let { emotion ->
-                val expression = EmotionToExpression.map(emotion)
-                if (expression != _avatarState.value.expression) {
-                    Log.d(TAG, "[EMOTION] segment=${segment.segmentId} emotion=$emotion -> expression=${expression.value}")
-                    _avatarState.update {
-                        it.copy(
-                            expression = expression,
-                            expressionIntensity = 0.7f
-                        )
-                    }
+            // 使用同步锁保护 segment 切换
+            synchronized(lipSyncLock) {
+                receivedTtsSegment = true
+                isPlaying = true
+                cancelWaitingClose()
+                if (!notifiedFirstSegment) {
+                    notifiedFirstSegment = true
+                    onFirstSegmentStart?.invoke()
                 }
+                _avatarState.update {
+                    it.copy(
+                        state = AvatarState.SPEAKING,
+                        currentText = segment.text
+                    )
+                }
+                currentSegmentId = segment.segmentId
+                currentStreamOffsetMs = segment.streamAudioOffsetMs?.toLong() ?: 0L
+                currentSegmentText = segment.text ?: ""
             }
-            _avatarState.update {
-                it.copy(
-                    state = AvatarState.SPEAKING,
-                    currentText = segment.text
-                )
-            }
-            // 音频开始播放，启动口型同步循环（口型事件已在 enqueue 时预生成）
-            currentSegmentId = segment.segmentId
-            currentStreamOffsetMs = segment.streamAudioOffsetMs?.toLong() ?: 0L
-            currentSegmentText = segment.text ?: ""
+            // 在同步锁外启动口型同步，避免死锁
             startAudioSyncedLipSync()
         },
         onSegmentComplete = { segment, actualDurationMs ->
@@ -112,12 +115,14 @@ class AvatarPlaybackManager(
         onWaitingForSegment = {
             // 队列为空但流未结束：保持当前口型状态，仅暂停口型同步循环
             // 不切换到 THINKING 状态，避免 segment 间隙出现明显的口型跳变
-            streamingLipSyncJob?.cancel()
-            streamingLipSyncJob = null
-            audioPositionSyncJob?.cancel()
-            audioPositionSyncJob = null
-            currentSegmentEvents.clear()
-            currentSegmentId = null
+            synchronized(lipSyncLock) {
+                streamingLipSyncJob?.cancel()
+                streamingLipSyncJob = null
+                audioPositionSyncJob?.cancel()
+                audioPositionSyncJob = null
+                currentSegmentEvents.clear()
+                currentSegmentId = null
+            }
             // 不强制闭嘴，保持当前口型状态，让下一个 segment 开始时平滑过渡
             _avatarState.update {
                 it.copy(
@@ -129,13 +134,15 @@ class AvatarPlaybackManager(
         },
         onAllComplete = {
             cancelWaitingClose()
-            audioPositionSyncJob?.cancel()
-            audioPositionSyncJob = null
-            streamingLipSyncJob?.cancel()
-            streamingLipSyncJob = null
-            isPlaying = false
-            currentSegmentEvents.clear()
-            currentSegmentId = null
+            synchronized(lipSyncLock) {
+                audioPositionSyncJob?.cancel()
+                audioPositionSyncJob = null
+                streamingLipSyncJob?.cancel()
+                streamingLipSyncJob = null
+                isPlaying = false
+                currentSegmentEvents.clear()
+                currentSegmentId = null
+            }
             _mouthState.value = Pair(0f, 0f)
             _avatarState.update {
                 it.copy(
@@ -150,13 +157,15 @@ class AvatarPlaybackManager(
         },
         onError = {
             cancelWaitingClose()
-            audioPositionSyncJob?.cancel()
-            audioPositionSyncJob = null
-            streamingLipSyncJob?.cancel()
-            streamingLipSyncJob = null
-            isPlaying = false
-            currentSegmentEvents.clear()
-            currentSegmentId = null
+            synchronized(lipSyncLock) {
+                audioPositionSyncJob?.cancel()
+                audioPositionSyncJob = null
+                streamingLipSyncJob?.cancel()
+                streamingLipSyncJob = null
+                isPlaying = false
+                currentSegmentEvents.clear()
+                currentSegmentId = null
+            }
             _mouthState.value = Pair(0f, 0f)
             _avatarState.update {
                 it.copy(
@@ -168,17 +177,11 @@ class AvatarPlaybackManager(
             }
         },
         onBufferingStateChanged = { isBuffering ->
-            // 缓冲时暂停口型同步，恢复后继续
+            // 缓冲状态由口型同步循环内部处理，这里只记录日志
             if (isBuffering) {
-                Log.d(TAG, "[BUFFER] 音频缓冲中，暂停口型同步")
-                // 暂停口型同步但不重置状态
-                audioPositionSyncJob?.cancel()
+                Log.d(TAG, "[BUFFER] 音频缓冲中")
             } else {
-                Log.d(TAG, "[BUFFER] 音频缓冲完成，恢复口型同步")
-                // 恢复口型同步
-                if (isPlaying && currentSegmentId != null) {
-                    startAudioSyncedLipSync()
-                }
+                Log.d(TAG, "[BUFFER] 音频缓冲完成")
             }
         }
     )
@@ -221,33 +224,6 @@ class AvatarPlaybackManager(
     // 预生成的口型事件缓存（segmentId -> 口型事件列表）
     // 后端优化后 marks 可能为 null，需要在入队时预生成，播放时使用
     private val preloadedLipSyncEvents = mutableMapOf<String, MutableList<PhonemeEvent>>()
-
-    // 待入队的流式 segment 缓存：收到 tts_segment 时缓存，收到第一个 chunk 时才入队
-    // 这样可以避免后端未发送 chunk 时在播放列表中创建空的 chunk stream item
-    private val pendingStreamSegments = mutableMapOf<String, TtsSegmentData>()
-
-    // 已入队到 streamingTtsQueue 的 chunk stream segmentId（防止重复入队）
-    private val enqueuedStreamSegmentIds = mutableSetOf<String>()
-
-    // 已收到但尚未写入 PipedStream 的音频 chunk，按 segment 内 sequence 排序
-    private val bufferedAudioChunks = mutableMapOf<String, TreeMap<Int, ByteArray>>()
-
-    // 早于可播放顺序到达的 tts_audio_end，等 segment 真正入队后再关闭写端
-    private val pendingAudioEnds = mutableMapOf<String, TtsAudioEndData>()
-
-    // 每个 segment 下一个应写入的 sequence
-    private val nextChunkSequenceBySegment = mutableMapOf<String, Int>()
-
-    // 保证同一 segment 的多次异步 flush 仍按调用顺序串行写入
-    private val chunkWriteMutexes = mutableMapOf<String, Mutex>()
-
-    // 超时 watchdog：防止 tts_audio_end 丢失导致 segment 永久卡在 pending
-    private val segmentWatchdogs = mutableMapOf<String, Job>()
-
-    // chunk stream 入队前最少需缓存的 chunk 数量，防止 ExoPlayer 读空 PipedInputStream 导致播放中断。
-    // 若已收到 tts_audio_end 则不受此限制（全部 chunk 已到齐）。
-    // 提高到 5 个，增加缓冲量以应对后端 chunk 到达不稳定的情况
-    private var MIN_STREAM_CHUNKS_BEFORE_ENQUEUE = 5
 
     // 优先按后端 segment_index 播放。旧后端不返回该字段时退回到 chunk 到达顺序。
     private var nextExpectedSegmentIndex = 0
@@ -514,13 +490,7 @@ class AvatarPlaybackManager(
         currentSegmentId = null
         currentStreamOffsetMs = 0L
         currentSegmentText = ""
-        preloadedLipSyncEvents.clear()  // 清理预生成缓存
-        pendingStreamSegments.clear()
-        enqueuedStreamSegmentIds.clear()
-        bufferedAudioChunks.clear()
-        pendingAudioEnds.clear()
-        nextChunkSequenceBySegment.clear()
-        chunkWriteMutexes.clear()
+        preloadedLipSyncEvents.clear()
         nextExpectedSegmentIndex = 0
         streamingTtsQueue.start()
         _mouthState.value = Pair(0f, 0f)
@@ -571,428 +541,9 @@ class AvatarPlaybackManager(
     }
 
     fun finishStreamingInput() {
-        // 1) 使用 Mutex 保护的异步写入，替换原来的同步 writeChunk 调用。
-        //    同步写入绕过 per-segment Mutex，可能与 flushBufferedChunks 的
-        //    IO 协程写入交织 → PipedOutputStream 字节乱序 → 音频损坏。
-        for ((segId, buffer) in bufferedAudioChunks.toMap()) {
-            if (enqueuedStreamSegmentIds.contains(segId) && buffer.isNotEmpty()) {
-                Log.d(TAG, "[STREAM] done 到达，异步写入 segment $segId 剩余 ${buffer.size} 个 chunk")
-                flushBufferedChunks(segId, null)
-            }
-        }
-
-        // 2) 使用 Mutex 保护的方式关闭未收到 tts_audio_end 的 segment 写端。
-        //    直接调用 endStream 会绕过 Mutex，可能与步骤 1 的异步写入产生竞态。
-        val enqueuedButNotEnded = enqueuedStreamSegmentIds.toSet() - pendingAudioEnds.keys
-        for (segId in enqueuedButNotEnded) {
-            Log.d(TAG, "[STREAM] done 到达，关闭未收到 tts_audio_end 的 segment $segId 写端")
-            val writeMutex = chunkWriteMutexes.getOrPut(segId) { Mutex() }
-            scope.launch(Dispatchers.IO) {
-                writeMutex.withLock {
-                    streamingAudioPlayer.endStream(segId)
-                }
-            }
-        }
-
-        // 3) 未入队的 segment 回退到 URL 播放
-        val pending = pendingStreamSegments.toMap()
-        pendingStreamSegments.clear()
-        if (pending.isNotEmpty()) {
-            Log.w(TAG, "[FALLBACK] 流结束，${pending.size} 个 segment 未收到 chunk，回退到 URL 播放")
-            pending.values.sortedWith(compareBy<TtsSegmentData> { it.segmentIndex ?: Int.MAX_VALUE }.thenBy { it.segmentId }).forEach { segment ->
-                streamingTtsQueue.enqueue(segment)
-            }
-        }
-
-        // 4) 清理
-        cancelAllWatchdogs()
-        bufferedAudioChunks.clear()
-        pendingAudioEnds.clear()
-        nextChunkSequenceBySegment.clear()
-        chunkWriteMutexes.clear()
-        enqueuedStreamSegmentIds.clear()
         streamingTtsQueue.finishInput()
     }
 
-    // ==================== 流式 chunk 播放接口 ====================
-
-    /**
-     * 缓存流式 segment：收到 tts_segment 时调用，暂不入队。
-     * 等到收到第一个 tts_audio_chunk 时再真正入队 chunk stream。
-     * 这样可以避免后端未发送 chunk 时在播放列表中创建空的 chunk item。
-     */
-    fun cacheStreamSegment(segment: TtsSegmentData) {
-        pendingStreamSegments[segment.segmentId] = segment
-        Log.d(TAG, "[STREAM] cacheStreamSegment: segmentId=${segment.segmentId}, index=${segment.segmentIndex}, 等待 chunk 入队")
-        cancelSegmentWatchdog(segment.segmentId)
-        segmentWatchdogs[segment.segmentId] = scope.launch {
-            delay(30_000L)
-            if (pendingStreamSegments.containsKey(segment.segmentId) && !enqueuedStreamSegmentIds.contains(segment.segmentId)) {
-                Log.w(TAG, "[WATCHDOG] segment ${segment.segmentId} 30s 未收到任何 chunk，回退 URL 播放")
-                pendingStreamSegments.remove(segment.segmentId)?.let { seg ->
-                    streamingTtsQueue.enqueue(seg)
-                }
-                segmentWatchdogs.remove(segment.segmentId)
-            }
-        }
-        tryEnqueueReadyStreamSegments()
-    }
-
-    /**
-     * 入队流式 segment：创建 chunk stream 并将 MediaItem 加入 ExoPlayer 队列。
-     * 供外部直接调用（如测试场景），正常流式路径通过 cacheStreamSegment + feedAudioChunk 自动触发。
-     */
-    fun enqueueSpeechStreamSegment(segment: TtsSegmentData) {
-        Log.d(TAG, "[STREAM] enqueueSpeechStreamSegment: segmentId=${segment.segmentId}")
-        streamingTtsQueue.enqueueStreamSegment(segment)
-    }
-
-    /**
-     * 喂入音频 chunk：内部做 base64 解码后写入对应 stream。
-     * 如果是该 segment 的第一个 chunk，会先将其从 pending 中入队 chunk stream。
-     * 兼容后端不发送 tts_segment 的场景：直接收到 chunk 时也创建 stream 并入队。
-     */
-    fun feedAudioChunk(chunk: TtsAudioChunkData) {
-        scope.launch(Dispatchers.IO) {
-            try {
-                val bytes = android.util.Base64.decode(chunk.audioBase64, android.util.Base64.DEFAULT)
-                withContext(Dispatchers.Main) {
-                    handleDecodedAudioChunk(chunk, bytes)
-                }
-            } catch (e: IllegalArgumentException) {
-                Log.e(TAG, "Base64 解码失败: segmentId=${chunk.segmentId}", e)
-            }
-        }
-    }
-
-    fun feedAudioChunk(segmentId: String, base64Audio: String) {
-        feedAudioChunk(
-            TtsAudioChunkData(
-                segmentId = segmentId,
-                sequence = nextChunkSequenceBySegment[segmentId] ?: 0,
-                audioFormat = "mp3",
-                audioBase64 = base64Audio
-            )
-        )
-    }
-
-    /**
-     * 该 segment 音频结束：关闭写端，更新 duration/marks。
-     * 如果该 segment 从未收到 chunk（仍在 pending 中），回退到 URL 播放。
-     * 如果该 segment 正在播放，用返回的 marks 动态替换口型事件。
-     */
-    fun endAudioStream(end: TtsAudioEndData) {
-        val segmentId = end.segmentId
-        cancelSegmentWatchdog(segmentId)
-        pendingAudioEnds[segmentId] = end
-
-        // 如果 segment 尚未按播放顺序入队，先补齐最终元信息，等轮到它时再播放/兜底。
-        val pendingSegment = pendingStreamSegments[segmentId]
-        if (pendingSegment != null) {
-            pendingStreamSegments[segmentId] = pendingSegment.copy(
-                audioUrl = end.audioUrl,
-                durationMs = end.durationMs ?: pendingSegment.durationMs,
-                marks = end.marks ?: pendingSegment.marks,
-                streamAudioOffsetMs = end.streamAudioOffsetMs ?: pendingSegment.streamAudioOffsetMs,
-                streamAudioDurationMs = end.streamAudioDurationMs ?: pendingSegment.streamAudioDurationMs
-            )
-            tryEnqueueReadyStreamSegments()
-            tryEnqueueReadyFallbackSegments()
-            return
-        }
-
-        completeEnqueuedAudioEnd(end)
-    }
-
-    private fun completeEnqueuedAudioEnd(end: TtsAudioEndData) {
-        val segmentId = end.segmentId
-        Log.d(TAG, "[STREAM] endAudioStream: segmentId=$segmentId, durationMs=${end.durationMs}, offset=${end.streamAudioOffsetMs}, chunkCount=${end.chunkCount}")
-        // 先写入当前连续 chunk，但不关闭写端。
-        // 关闭延迟到 50ms 之后 + 最终 drain，防止与异步解码中的 chunk 产生竞态：
-        // feedAudioChunk → IO 解码 → withContext(Main) → handleDecodedAudioChunk
-        // 可能排在此调用之后。若立即 close，Mutex FIFO 会让 close 先于 write，
-        // 导致 PipedOutputStream 写入失败、chunk 静默丢失 → 音频不完整。
-        flushBufferedChunks(segmentId, null)
-        val hasUnwrittenChunks = bufferedAudioChunks[segmentId]?.isNotEmpty() == true
-        if (hasUnwrittenChunks) {
-            Log.w(TAG, "[FALLBACK] segment $segmentId 存在 sequence 缺口，丢弃 chunk stream 并回退 URL")
-            streamingTtsQueue.abortStreamSegment(segmentId)
-            streamingTtsQueue.enqueue(
-                TtsSegmentData(
-                    segmentId = segmentId,
-                    segmentIndex = end.segmentIndex,
-                    text = "",
-                    audioUrl = end.audioUrl,
-                    durationMs = end.durationMs,
-                    marks = end.marks,
-                    streamAudioOffsetMs = end.streamAudioOffsetMs,
-                    streamAudioDurationMs = end.streamAudioDurationMs
-                )
-            )
-            bufferedAudioChunks.remove(segmentId)
-            pendingAudioEnds.remove(segmentId)
-            nextChunkSequenceBySegment.remove(segmentId)
-            enqueuedStreamSegmentIds.remove(segmentId)
-            return
-        }
-
-        // 如果该 segment 正在播放，用更精确的 marks 替换口型事件
-        if (currentSegmentId == segmentId) {
-            currentStreamOffsetMs = end.streamAudioOffsetMs?.toLong() ?: currentStreamOffsetMs
-        }
-        if (currentSegmentId == segmentId && !end.marks.isNullOrEmpty()) {
-            Log.d(TAG, "[LIPSYNC] 动态替换口型事件: segmentId=$segmentId, marks=${end.marks.size}")
-            val events = ChinesePhonemeEngine.marksToPhonemeEvents(end.marks)
-            currentSegmentEvents = LipSyncAnimator.mergeEventsByChar(events).toMutableList()
-        }
-
-        // 延迟关闭：50ms 足以让所有正在途中的 feedAudioChunk → withContext(Main)
-        // 到达并完成写入。延迟后做最终 drain + close，确保所有 chunk 写入后才发 EOF。
-        scope.launch {
-            delay(100)
-            flushBufferedChunks(segmentId, end)
-        }
-    }
-
-    fun endAudioStream(segmentId: String, durationMs: Int?, marks: List<TtsMarkItem>?) {
-        endAudioStream(
-            TtsAudioEndData(
-                segmentId = segmentId,
-                durationMs = durationMs,
-                marks = marks,
-                chunkCount = 0,
-                audioUrl = pendingStreamSegments[segmentId]?.audioUrl ?: ""
-            )
-        )
-    }
-
-    /**
-     * 该 segment 音频失败：强制中断 stream。
-     */
-    fun abortAudioStream(segmentId: String) {
-        cancelSegmentWatchdog(segmentId)
-        pendingStreamSegments.remove(segmentId)
-        enqueuedStreamSegmentIds.remove(segmentId)
-        bufferedAudioChunks.remove(segmentId)
-        nextChunkSequenceBySegment.remove(segmentId)
-        chunkWriteMutexes.remove(segmentId)
-        streamingTtsQueue.abortStreamSegment(segmentId)
-    }
-
-    private fun handleDecodedAudioChunk(chunk: TtsAudioChunkData, bytes: ByteArray) {
-        val segmentId = chunk.segmentId
-        val expected = nextChunkSequenceBySegment[segmentId] ?: 0
-        if (chunk.sequence < expected) {
-            Log.w(TAG, "[CHUNK] 忽略重复 chunk: segmentId=$segmentId, sequence=${chunk.sequence}, expected=$expected")
-            return
-        }
-
-        val buffer = bufferedAudioChunks.getOrPut(segmentId) { TreeMap() }
-        buffer[chunk.sequence] = bytes
-        Log.d(TAG, "[CHUNK] buffered: segmentId=$segmentId, index=${chunk.segmentIndex}, sequence=${chunk.sequence}, bytes=${bytes.size}")
-
-        if (!pendingStreamSegments.containsKey(segmentId) && !enqueuedStreamSegmentIds.contains(segmentId)) {
-            Log.w(TAG, "[STREAM] 未收到 tts_segment，创建临时 segment: segmentId=$segmentId")
-            pendingStreamSegments[segmentId] = TtsSegmentData(
-                segmentId = segmentId,
-                segmentIndex = chunk.segmentIndex,
-                text = "",
-                audioUrl = ""
-            )
-        }
-
-        tryEnqueueReadyStreamSegments()
-        if (enqueuedStreamSegmentIds.contains(segmentId)) {
-            // 若已收到 tts_audio_end，将 end 传入 flushBufferedChunks，
-            // 让写入和关闭在同一协程中完成，消除 close-before-write 竞态。
-            val end = pendingAudioEnds[segmentId]
-            flushBufferedChunks(segmentId, end)
-        }
-    }
-
-    private fun tryEnqueueReadyStreamSegments() {
-        while (true) {
-            val readySegments = pendingStreamSegments.values.filter { seg ->
-                val chunkCount = bufferedAudioChunks[seg.segmentId]?.size ?: 0
-                val hasAudioEnd = pendingAudioEnds.containsKey(seg.segmentId)
-                chunkCount >= MIN_STREAM_CHUNKS_BEFORE_ENQUEUE || (chunkCount > 0 && hasAudioEnd)
-            }
-
-            val next = readySegments.firstOrNull { it.segmentIndex == nextExpectedSegmentIndex }
-                ?: readySegments
-                    .filter { it.segmentIndex == null }
-                    .minByOrNull { it.segmentId }
-
-            if (next == null) return
-
-            // 更高 index 的 segment 已就绪但当前 index 缺失时，
-            // 检查缺失 segment 是否可 force-resolve（已收到 audio_end → 回退 URL 播放），
-            // 避免所有后续 segment 被永久阻塞。
-            if (next.segmentIndex != null && next.segmentIndex != nextExpectedSegmentIndex) {
-                val blocker = pendingStreamSegments.values.firstOrNull {
-                    it.segmentIndex == nextExpectedSegmentIndex
-                }
-                if (blocker != null && pendingAudioEnds.containsKey(blocker.segmentId)) {
-                    Log.w(TAG, "[STREAM] segment ${blocker.segmentId} (index=${blocker.segmentIndex}) 阻塞后续，回退 URL 播放")
-                    pendingStreamSegments.remove(blocker.segmentId)
-                    cancelSegmentWatchdog(blocker.segmentId)
-                    val end = pendingAudioEnds.remove(blocker.segmentId)
-                    val fallback = blocker.copy(
-                        audioUrl = end?.audioUrl ?: blocker.audioUrl,
-                        durationMs = end?.durationMs ?: blocker.durationMs,
-                        marks = end?.marks ?: blocker.marks,
-                        streamAudioOffsetMs = end?.streamAudioOffsetMs ?: blocker.streamAudioOffsetMs,
-                        streamAudioDurationMs = end?.streamAudioDurationMs ?: blocker.streamAudioDurationMs
-                    )
-                    streamingTtsQueue.enqueue(fallback)
-                    blocker.segmentIndex?.let { nextExpectedSegmentIndex = it + 1 }
-                    bufferedAudioChunks.remove(blocker.segmentId)
-                    nextChunkSequenceBySegment.remove(blocker.segmentId)
-                    chunkWriteMutexes.remove(blocker.segmentId)
-                    continue  // 重试 while 循环，现在 next 应该能匹配
-                }
-                // 缺失 segment 尚未收到 audio_end，继续等待
-                return
-            }
-
-            pendingStreamSegments.remove(next.segmentId)
-            cancelSegmentWatchdog(next.segmentId)
-            Log.d(TAG, "[STREAM] 入队 chunk stream: segmentId=${next.segmentId}, index=${next.segmentIndex}")
-            val prepared = streamingAudioPlayer.prepareStream(next.segmentId)
-            Log.d(TAG, "[STREAM] prepareStream result=$prepared, segmentId=${next.segmentId}")
-            streamingTtsQueue.enqueueStreamSegment(next)
-            enqueuedStreamSegmentIds.add(next.segmentId)
-            next.segmentIndex?.let { nextExpectedSegmentIndex = it + 1 }
-            flushBufferedChunks(next.segmentId)
-            pendingAudioEnds[next.segmentId]?.let { completeEnqueuedAudioEnd(it) }
-        }
-    }
-
-    private fun tryEnqueueReadyFallbackSegments() {
-        while (true) {
-            val candidates = pendingStreamSegments.values.filter {
-                pendingAudioEnds.containsKey(it.segmentId) && bufferedAudioChunks[it.segmentId].isNullOrEmpty()
-            }
-
-            val next = candidates.firstOrNull { it.segmentIndex == nextExpectedSegmentIndex }
-                ?: candidates
-                    .filter { it.segmentIndex == null }
-                    .minByOrNull { it.segmentId }
-
-            if (next == null) {
-                // 检查是否存在可 force-resolve 的阻塞 segment（有 audio_end 但 index 不匹配）
-                val blocker = candidates.firstOrNull { it.segmentIndex != null && it.segmentIndex != nextExpectedSegmentIndex }
-                if (blocker != null) {
-                    Log.w(TAG, "[FALLBACK] segment ${blocker.segmentId} (index=${blocker.segmentIndex}) 阻塞回退队列，跳过并回退 URL")
-                    pendingStreamSegments.remove(blocker.segmentId)
-                    cancelSegmentWatchdog(blocker.segmentId)
-                    val end = pendingAudioEnds.remove(blocker.segmentId)
-                    val fallback = blocker.copy(
-                        audioUrl = end?.audioUrl ?: blocker.audioUrl,
-                        durationMs = end?.durationMs ?: blocker.durationMs,
-                        marks = end?.marks ?: blocker.marks,
-                        streamAudioOffsetMs = end?.streamAudioOffsetMs ?: blocker.streamAudioOffsetMs,
-                        streamAudioDurationMs = end?.streamAudioDurationMs ?: blocker.streamAudioDurationMs
-                    )
-                    streamingTtsQueue.enqueue(fallback)
-                    blocker.segmentIndex?.let { nextExpectedSegmentIndex = it + 1 }
-                    continue
-                }
-                return
-            }
-
-            pendingStreamSegments.remove(next.segmentId)
-            cancelSegmentWatchdog(next.segmentId)
-            val end = pendingAudioEnds.remove(next.segmentId)
-            val fallbackSegment = if (end != null) {
-                next.copy(
-                    audioUrl = end.audioUrl,
-                    durationMs = end.durationMs ?: next.durationMs,
-                    marks = end.marks ?: next.marks,
-                    streamAudioOffsetMs = end.streamAudioOffsetMs ?: next.streamAudioOffsetMs,
-                    streamAudioDurationMs = end.streamAudioDurationMs ?: next.streamAudioDurationMs
-                )
-            } else {
-                next
-            }
-            Log.w(TAG, "[FALLBACK] segment ${next.segmentId} 未收到任何 chunk，回退到 URL 播放: ${fallbackSegment.audioUrl}")
-            streamingTtsQueue.enqueue(fallbackSegment)
-            next.segmentIndex?.let { nextExpectedSegmentIndex = it + 1 }
-        }
-        tryEnqueueReadyStreamSegments()
-    }
-
-    private fun flushBufferedChunks(segmentId: String, end: TtsAudioEndData? = null) {
-        val buffer = bufferedAudioChunks[segmentId]
-        if (buffer == null) {
-            if (end != null) {
-                closeStreamAfterPendingWrites(segmentId, end)
-            }
-            return
-        }
-        var expected = nextChunkSequenceBySegment[segmentId] ?: 0
-        val chunksToWrite = mutableListOf<ByteArray>()
-
-        while (true) {
-            val bytes = buffer.remove(expected) ?: break
-            chunksToWrite += bytes
-            expected++
-        }
-
-        nextChunkSequenceBySegment[segmentId] = expected
-        if (buffer.isEmpty()) {
-            bufferedAudioChunks.remove(segmentId)
-        }
-
-        val shouldCloseStream = end != null && bufferedAudioChunks[segmentId].isNullOrEmpty()
-
-        if (chunksToWrite.isNotEmpty() || shouldCloseStream) {
-            val writeMutex = chunkWriteMutexes.getOrPut(segmentId) { Mutex() }
-            scope.launch(Dispatchers.IO) {
-                writeMutex.withLock {
-                    chunksToWrite.forEach { bytes ->
-                        streamingTtsQueue.writeChunk(segmentId, bytes)
-                    }
-                    if (shouldCloseStream) {
-                        closeStreamOnMain(segmentId, end)
-                    }
-                }
-            }
-        }
-    }
-
-    private fun closeStreamAfterPendingWrites(segmentId: String, end: TtsAudioEndData) {
-        val writeMutex = chunkWriteMutexes.getOrPut(segmentId) { Mutex() }
-        scope.launch(Dispatchers.IO) {
-            writeMutex.withLock {
-                closeStreamOnMain(segmentId, end)
-            }
-        }
-    }
-
-    private suspend fun closeStreamOnMain(segmentId: String, end: TtsAudioEndData) {
-        withContext(Dispatchers.Main) {
-            streamingTtsQueue.endStreamSegment(
-                segmentId = segmentId,
-                durationMs = end.durationMs,
-                marks = end.marks,
-                streamAudioOffsetMs = end.streamAudioOffsetMs,
-                streamAudioDurationMs = end.streamAudioDurationMs
-            )
-            pendingAudioEnds.remove(segmentId)
-            enqueuedStreamSegmentIds.remove(segmentId)
-            nextChunkSequenceBySegment.remove(segmentId)
-            chunkWriteMutexes.remove(segmentId)
-        }
-    }
-
-    /**
-     * 播放简单动作（无语音）
-     *
-     * @param priority 动作优先级，低于当前优先级时会被忽略
-     * @param loop 是否循环保持，为 true 时不自动恢复 IDLE
-     * @param speed 动作速度倍率，影响自动恢复时长和过渡速度
-     */
     fun playGesture(
         gesture: AvatarGesture,
         expression: AvatarExpression = AvatarExpression.NEUTRAL,
@@ -1053,30 +604,28 @@ class AvatarPlaybackManager(
         runCatching {
             ttsController.stop()
             streamingTtsQueue.cancel()
-            audioPositionSyncJob?.cancel()
-            audioPositionSyncJob = null
-            streamingLipSyncJob?.cancel()
-            streamingLipSyncJob = null
+            synchronized(lipSyncLock) {
+                audioPositionSyncJob?.cancel()
+                audioPositionSyncJob = null
+                streamingLipSyncJob?.cancel()
+                streamingLipSyncJob = null
+                isPlaying = false
+                currentSegmentEvents.clear()
+                currentSegmentId = null
+                currentStreamOffsetMs = 0L
+                currentSegmentText = ""
+                preloadedLipSyncEvents.clear()
+                nextExpectedSegmentIndex = 0
+            }
+            // 重置原子状态
+            isLipSyncActive.set(false)
+            currentLipSyncSegmentId.set(null)
             motionQueueJob?.cancel()
             motionQueueJob = null
             expressionTimelineJob?.cancel()
             expressionTimelineJob = null
             cancelWaitingClose()
-            isPlaying = false
             currentPlayAction = null
-            currentSegmentEvents.clear()
-            currentSegmentId = null
-            currentStreamOffsetMs = 0L
-            currentSegmentText = ""
-            preloadedLipSyncEvents.clear()
-            cancelAllWatchdogs()
-            pendingStreamSegments.clear()
-            enqueuedStreamSegmentIds.clear()
-            bufferedAudioChunks.clear()
-            pendingAudioEnds.clear()
-            nextChunkSequenceBySegment.clear()
-            chunkWriteMutexes.clear()
-            nextExpectedSegmentIndex = 0
             _mouthState.value = Pair(0f, 0f)
             _avatarState.update {
                 AvatarFullState()
@@ -1086,18 +635,6 @@ class AvatarPlaybackManager(
         }
     }
 
-    private fun cancelSegmentWatchdog(segmentId: String) {
-        segmentWatchdogs.remove(segmentId)?.cancel()
-    }
-
-    private fun cancelAllWatchdogs() {
-        segmentWatchdogs.values.forEach { it.cancel() }
-        segmentWatchdogs.clear()
-    }
-
-    /**
-     * 取消延迟闭嘴任务
-     */
     private fun cancelWaitingClose() {
         waitingCloseJob?.cancel()
         waitingCloseJob = null
@@ -1221,58 +758,103 @@ class AvatarPlaybackManager(
      * 优先使用预生成的口型事件，如果没有则使用当前 segment 的事件。
      */
     private fun startAudioSyncedLipSync() {
+        // 获取当前 segment ID，用于后续校验
+        val segmentId = synchronized(lipSyncLock) { currentSegmentId }
+        if (segmentId == null) {
+            Log.w(TAG, "[LIPSYNC] startAudioSyncedLipSync: currentSegmentId is null, skipping")
+            return
+        }
+
         // 如果 job 已在运行，取消旧的并重置状态（segment 切换时）
-        if (audioPositionSyncJob?.isActive == true) {
-            Log.d(TAG, "[LIPSYNC] 取消旧 job，启动新 segment 口型同步")
-            audioPositionSyncJob?.cancel()
+        synchronized(lipSyncLock) {
+            if (audioPositionSyncJob?.isActive == true) {
+                Log.d(TAG, "[LIPSYNC] 取消旧 job，启动新 segment 口型同步: $segmentId")
+                audioPositionSyncJob?.cancel()
+            }
         }
 
         // 从预生成缓存加载口型事件
-        currentSegmentId?.let { segId ->
-            preloadedLipSyncEvents[segId]?.let { events ->
-                currentSegmentEvents = events
-                // 使用后清除，避免内存泄漏
-                preloadedLipSyncEvents.remove(segId)
-                Log.d(TAG, "[LIPSYNC] 使用预生成口型事件: segmentId=$segId, events=${events.size}")
+        synchronized(lipSyncLock) {
+            currentSegmentId?.let { segId ->
+                preloadedLipSyncEvents[segId]?.let { events ->
+                    currentSegmentEvents = events
+                    // 使用后清除，避免内存泄漏
+                    preloadedLipSyncEvents.remove(segId)
+                    Log.d(TAG, "[LIPSYNC] 使用预生成口型事件: segmentId=$segId, events=${events.size}")
+                }
             }
-        }
 
-        // 如果预生成缓存没有，尝试从 segment 文本重新生成（兜底）
-        // 实际触发场景：marks 和 text 同时为空，或 preloadSegmentLipSync 因某种原因未写入缓存
-        if (currentSegmentEvents.isEmpty() && currentSegmentText.isNotBlank()) {
-            Log.w(TAG, "[LIPSYNC] 预生成缓存为空，使用当前文本兜底生成口型: text='${currentSegmentText.take(20)}'")
-            val estDuration = estimateTextDuration(currentSegmentText)
-            val fallbackEvents = ChinesePhonemeEngine.textToPhonemeEvents(currentSegmentText, estDuration)
-            if (fallbackEvents.isNotEmpty()) {
-                currentSegmentEvents = LipSyncAnimator.mergeEventsByChar(fallbackEvents).toMutableList()
-                Log.d(TAG, "[LIPSYNC] 兜底生成口型事件: ${currentSegmentEvents.size}个")
-            } else {
-                Log.w(TAG, "[LIPSYNC] 兜底生成也为空，将等待 marks 动态更新")
+            // 如果预生成缓存没有，尝试从 segment 文本重新生成（兜底）
+            // 实际触发场景：marks 和 text 同时为空，或 preloadSegmentLipSync 因某种原因未写入缓存
+            if (currentSegmentEvents.isEmpty() && currentSegmentText.isNotBlank()) {
+                Log.w(TAG, "[LIPSYNC] 预生成缓存为空，使用当前文本兜底生成口型: text='${currentSegmentText.take(20)}'")
+                val estDuration = estimateTextDuration(currentSegmentText)
+                val fallbackEvents = ChinesePhonemeEngine.textToPhonemeEvents(currentSegmentText, estDuration)
+                if (fallbackEvents.isNotEmpty()) {
+                    currentSegmentEvents = LipSyncAnimator.mergeEventsByChar(fallbackEvents).toMutableList()
+                    Log.d(TAG, "[LIPSYNC] 兜底生成口型事件: ${currentSegmentEvents.size}个")
+                } else {
+                    Log.w(TAG, "[LIPSYNC] 兜底生成也为空，将等待 marks 动态更新")
+                }
+            } else if (currentSegmentEvents.isEmpty()) {
+                Log.w(TAG, "[LIPSYNC] 预生成缓存为空且无文本，将等待 marks 动态更新")
             }
-        } else if (currentSegmentEvents.isEmpty()) {
-            Log.w(TAG, "[LIPSYNC] 预生成缓存为空且无文本，将等待 marks 动态更新")
         }
 
         lastMouthOpen = 0f
         lastMouthForm = 0f
 
+        // 记录启动时的 segment ID，用于后续校验
+        currentLipSyncSegmentId.set(segmentId)
+        isLipSyncActive.set(true)
+
         audioPositionSyncJob = scope.launch {
             var lastAudioPosition = -1L
             var samePositionCount = 0
             var frameCount = 0
+            var wasBuffering = false
 
             while (isActive && isPlaying) {
+                // 校验是否仍在处理同一个 segment
+                val currentSegId = currentLipSyncSegmentId.get()
+                if (currentSegId != segmentId) {
+                    Log.d(TAG, "[LIPSYNC] Segment 已切换 ($segmentId -> $currentSegId)，退出循环")
+                    break
+                }
+
                 frameCount++
                 val frameStart = System.currentTimeMillis()
 
-                val isAudioPlaying = streamingAudioPlayer.isActuallyPlaying()
-                val audioPos = streamingAudioPlayer.getCurrentPosition()
-                val audioDur = streamingAudioPlayer.getDuration()
-                val eventsEnd = currentSegmentEvents.lastOrNull()?.endMs ?: 0L
+                // 使用同步锁读取音频状态，避免竞态
+                val (isAudioPlaying, isBuffering, audioPos, audioDur, eventsEnd) = synchronized(lipSyncLock) {
+                    AudioSyncState(
+                        isPlaying = streamingAudioPlayer.isActuallyPlaying(),
+                        isBuffering = streamingAudioPlayer.isBuffering.value,
+                        position = streamingAudioPlayer.getCurrentPosition(),
+                        duration = streamingAudioPlayer.getDuration(),
+                        eventsEnd = currentSegmentEvents.lastOrNull()?.endMs ?: 0L
+                    )
+                }
 
                 // 每 30 帧输出诊断日志
                 if (frameCount % 30 == 0) {
-                    Log.d(TAG, "[LIPSYNC] frame=$frameCount, audioPos=$audioPos, events=${currentSegmentEvents.size}, eventsEnd=$eventsEnd, isPlaying=$isAudioPlaying, mouthOpen=$lastMouthOpen, mouthForm=$lastMouthForm")
+                    Log.d(TAG, "[LIPSYNC] seg=$segmentId, frame=$frameCount, audioPos=$audioPos, events=${currentSegmentEvents.size}, eventsEnd=$eventsEnd, isPlaying=$isAudioPlaying, isBuffering=$isBuffering, mouthOpen=$lastMouthOpen, mouthForm=$lastMouthForm")
+                }
+
+                // 缓冲时暂停口型同步，但不退出循环
+                if (isBuffering) {
+                    if (!wasBuffering) {
+                        Log.d(TAG, "[LIPSYNC] 音频缓冲中，暂停口型同步")
+                        wasBuffering = true
+                    }
+                    // 保持当前口型状态，不更新
+                    delay(16)
+                    continue
+                }
+                if (wasBuffering && !isBuffering) {
+                    Log.d(TAG, "[LIPSYNC] 音频缓冲完成，恢复口型同步")
+                    wasBuffering = false
+                    samePositionCount = 0  // 重置停滞计数
                 }
 
                 // 检测停滞
@@ -1284,18 +866,18 @@ class AvatarPlaybackManager(
                 lastAudioPosition = audioPos
 
                 // 保底：音频停止（需连续确认，避免流式 segment 切换瞬间误判）
-                // samePositionCount 阈值提高到 6（≈96ms），为 ExoPlayer segment 切换留出缓冲窗口
-                if (samePositionCount >= 6) {
+                // samePositionCount 阈值提高到 10（≈160ms），为 ExoPlayer segment 切换和缓冲留出更多时间
+                if (samePositionCount >= 10) {
                     Log.d(TAG, "[LIPSYNC] 保底触发：进度停滞 ${samePositionCount} 帧")
                     forceCloseMouth()
-                    return@launch
+                    break
                 }
-                // isActuallyPlaying=false 时额外确认：停滞超过 3 帧（≈48ms）才退出，
-                // 防止 segment 交接瞬间的瞬态 false 触发过早退出
-                if (!isAudioPlaying && audioPos > 0 && samePositionCount >= 3) {
+                // isActuallyPlaying=false 时额外确认：停滞超过 5 帧（≈80ms）才退出，
+                // 防止 segment 交接瞬间和缓冲的瞬态 false 触发过早退出
+                if (!isAudioPlaying && audioPos > 0 && samePositionCount >= 5) {
                     Log.d(TAG, "[LIPSYNC] 保底触发：音频停止且停滞 ${samePositionCount} 帧")
                     forceCloseMouth()
-                    return@launch
+                    break
                 }
                 // 注意：故意移除"音频即将结束（audioDur-50）"保底——
                 // 流式播放时 getDuration() 返回值不稳定，会导致提前退出截断最后音节
@@ -1304,7 +886,7 @@ class AvatarPlaybackManager(
                 if (eventsEnd > 0 && audioPos > eventsEnd + 50) {
                     Log.d(TAG, "[LIPSYNC] 保底触发：时间轴结束")
                     forceCloseMouth()
-                    return@launch
+                    break
                 }
 
                 // 计算并应用口型（直接更新 _mouthState，绕过 Compose 状态层）
@@ -1315,8 +897,12 @@ class AvatarPlaybackManager(
                 val elapsed = System.currentTimeMillis() - frameStart
                 if (elapsed < 16) delay(16 - elapsed)
             }
-            Log.d(TAG, "[LIPSYNC] 循环退出，forceCloseMouth")
-            forceCloseMouth()
+            Log.d(TAG, "[LIPSYNC] 循环退出: segmentId=$segmentId")
+            isLipSyncActive.set(false)
+            // 只在当前 segment 仍是我们处理的情况下才强制闭嘴
+            if (currentLipSyncSegmentId.get() == segmentId) {
+                forceCloseMouth()
+            }
         }
     }
 

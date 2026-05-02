@@ -166,6 +166,14 @@ class Live2DRendererImpl(
         synchronized(this) {
             if (isReleased || !_isModelLoaded) return
 
+            // 修复 Live2D 物理引擎崩溃：
+            // 确保参数有效，防止 NaN/Infinity 传入 SDK
+            if (mouthOpen.isNaN() || mouthOpen.isInfinite() ||
+                mouthForm.isNaN() || mouthForm.isInfinite()) {
+                Log.w(TAG, "setMouth: Invalid parameters detected, skipping (open=$mouthOpen, form=$mouthForm)")
+                return
+            }
+
             currentMouthOpen = mouthOpen.coerceIn(0f, 1f)
             // 降低整体张开程度：0.65f 缩放因子让最大张开度约为 65%
             val amplifiedMouthOpen = (currentMouthOpen * 0.65f).coerceAtMost(1.0f)
@@ -358,6 +366,8 @@ class Live2DRendererImpl(
                 JniBridgeJava.nativeStartRandomMotion("Idle", 1)
             } catch (e: Exception) {
                 Log.w(TAG, "playIdleMotion JNI call failed", e)
+            } catch (e: Error) {
+                Log.e(TAG, "playIdleMotion native error", e)
             }
         }
     }
@@ -392,6 +402,9 @@ class Live2DRendererImpl(
                 JniBridgeJava.nativeStartMotionByPath(motionPath, 3) // priority 3 = Force
             } catch (e: Exception) {
                 Log.w(TAG, "playNativeMotion JNI call failed", e)
+                nativeMotionPlaying = false
+            } catch (e: Error) {
+                Log.e(TAG, "playNativeMotion native error", e)
                 nativeMotionPlaying = false
             }
             Log.i(TAG, "=== nativeStartMotionByPath returned ===")
@@ -465,8 +478,13 @@ class Live2DRendererImpl(
         lastLoopTime = System.currentTimeMillis()
 
         val currentTime = System.currentTimeMillis()
-        val deltaTime = currentTime - lastFrameTime
+        var deltaTime = currentTime - lastFrameTime
         lastFrameTime = currentTime
+
+        // 修复 Live2D 物理引擎崩溃：
+        // 限制 deltaTime 最大值为 100ms，防止应用暂停恢复或设备卡顿时
+        // deltaTime 过大导致物理计算越界（NaN/Infinity）
+        deltaTime = deltaTime.coerceIn(0, 100)
 
         var needsContinue = false
 
@@ -570,19 +588,29 @@ class Live2DRendererImpl(
 
     /**
      * 直接应用动作参数（必须在渲染线程调用）
+     * 修复 Live2D 物理引擎崩溃：添加参数有效性检查
      */
     private fun applyGestureParamsDirect(params: GestureParams) {
-        JniBridgeJava.nativeSetParameter(Live2DParams.ANGLE_X, params.angleX, 1.0f)
-        JniBridgeJava.nativeSetParameter(Live2DParams.ANGLE_Y, params.angleY, 1.0f)
-        JniBridgeJava.nativeSetParameter(Live2DParams.ANGLE_Z, params.angleZ, 1.0f)
-        JniBridgeJava.nativeSetParameter(Live2DParams.BODY_ANGLE_X, params.bodyAngleX, 1.0f)
-        JniBridgeJava.nativeSetParameter(Live2DParams.BODY_ANGLE_Y, params.bodyAngleY, 1.0f)
-        JniBridgeJava.nativeSetParameter(Live2DParams.BODY_ANGLE_Z, params.bodyAngleZ, 1.0f)
-        JniBridgeJava.nativeSetParameter(Live2DParams.SHOULDER, params.shoulder, 1.0f)
+        // 检查参数有效性
+        fun safeParam(value: Float, name: String): Float {
+            if (value.isNaN() || value.isInfinite()) {
+                Log.w(TAG, "Invalid $name parameter: $value, using 0")
+                return 0f
+            }
+            return value.coerceIn(-100f, 100f)  // 合理范围限制
+        }
+
+        JniBridgeJava.nativeSetParameter(Live2DParams.ANGLE_X, safeParam(params.angleX, "angleX"), 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.ANGLE_Y, safeParam(params.angleY, "angleY"), 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.ANGLE_Z, safeParam(params.angleZ, "angleZ"), 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.BODY_ANGLE_X, safeParam(params.bodyAngleX, "bodyAngleX"), 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.BODY_ANGLE_Y, safeParam(params.bodyAngleY, "bodyAngleY"), 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.BODY_ANGLE_Z, safeParam(params.bodyAngleZ, "bodyAngleZ"), 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.SHOULDER, safeParam(params.shoulder, "shoulder"), 1.0f)
 
         // 眼球方向
-        JniBridgeJava.nativeSetParameter(Live2DParams.EYE_BALL_X, params.eyeBallX, 1.0f)
-        JniBridgeJava.nativeSetParameter(Live2DParams.EYE_BALL_Y, params.eyeBallY, 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.EYE_BALL_X, safeParam(params.eyeBallX, "eyeBallX"), 1.0f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.EYE_BALL_Y, safeParam(params.eyeBallY, "eyeBallY"), 1.0f)
 
         // 手臂参数归零
         JniBridgeJava.nativeSetParameter(Live2DParams.ARM_LA, 0f, 1.0f)
@@ -799,6 +827,14 @@ class Live2DRendererImpl(
                 // 在 synchronized 块内捕获变量值，避免后续变化
                 val openY = overrideMouthOpenY
                 val form = overrideMouthForm
+
+                // 修复 Live2D 物理引擎崩溃：
+                // 确保参数有效，防止 NaN/Infinity 传入 SDK
+                if (openY.isNaN() || openY.isInfinite() ||
+                    form.isNaN() || form.isInfinite()) {
+                    return@synchronized
+                }
+
                 try {
                     JniBridgeJava.nativeSetParameter(Live2DParams.MOUTH_OPEN_Y, openY, 1.0f)
                     JniBridgeJava.nativeSetParameter(Live2DParams.MOUTH_FORM, form, 1.0f)
@@ -877,11 +913,13 @@ class Live2DRendererImpl(
                 setParameter(Live2DParams.ANGLE_X, -28f)
                 setParameter(Live2DParams.ANGLE_Y, 5f)
                 setParameter(Live2DParams.ANGLE_Z, 12f)
+                setParameter(Live2DParams.EYE_BALL_X, -1f)
             }
             AvatarGesture.POINT_RIGHT -> {
                 setParameter(Live2DParams.ANGLE_X, 28f)
                 setParameter(Live2DParams.ANGLE_Y, 5f)
                 setParameter(Live2DParams.ANGLE_Z, -12f)
+                setParameter(Live2DParams.EYE_BALL_X, 1f)
             }
             AvatarGesture.POINT_FORWARD -> {
                 setParameter(Live2DParams.ANGLE_Y, 22f)
@@ -905,8 +943,10 @@ class Live2DRendererImpl(
                 setParameter(Live2DParams.ANGLE_Z, -10f)
             }
             AvatarGesture.LOOK_UP -> {
-                setParameter(Live2DParams.ANGLE_Y, -28f)
-                setParameter(Live2DParams.ANGLE_Z, 12f)
+                setParameter(Live2DParams.ANGLE_Y, 45f)
+                setParameter(Live2DParams.ANGLE_Z, 10f)
+                setParameter(Live2DParams.BODY_ANGLE_Y, -12f)
+                setParameter(Live2DParams.EYE_BALL_Y, 1.0f)
             }
             AvatarGesture.LISTEN -> {
                 setParameter(Live2DParams.ANGLE_X, 20f)

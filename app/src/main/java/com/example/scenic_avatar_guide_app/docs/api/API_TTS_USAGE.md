@@ -4,10 +4,10 @@
 
 后端已完整实现 Edge TTS 在线语音生成功能，前端可通过以下接口实现文字转语音。
 
-自流式问答方案起，TTS 使用方式如下：
+自流式问答方案起，TTS 有两种使用方式：
 
-1. **流式问答路径（主链路）**：后端在 `POST /api/v1/chat/text/stream` 的事件流中直接返回 `tts_segment`，移动端只负责分段音频排队播放。
-2. **独立 TTS 接口（测试/兜底）**：`POST /api/v1/tts/synthesize` 用于完整文本生成完整音频，仅在独立测试、缓存预热或极端降级场景使用。
+1. **非流式 / 降级路径**：移动端继续调用 `POST /api/v1/tts/synthesize`，用完整文本生成完整音频。
+2. **流式问答路径**：后端在 `POST /api/v1/chat/text/stream` 的事件流中直接返回 `tts_segment` 和 `tts_segment_ready`，移动端负责分段音频排队播放。
 
 ## 基础信息
 
@@ -15,7 +15,7 @@
 - **支持格式**: MP3 (音频文件)
 - **最大文本长度**: 500 字符
 - **缓存机制**: 相同文本+音色组合自动复用已生成的音频
-- **流式分段**: 长回答按可朗读短句生成多个音频片段，每段通过 `tts_segment` 事件下发
+- **流式分段**: 长回答按情绪边界优先、句子边界次之生成多个音频片段，每段通过 `tts_segment` 事件下发
 
 ---
 
@@ -63,7 +63,8 @@ Content-Type: application/json
   "voice": "zh-CN-XiaoxiaoNeural",
   "rate": "+0%",
   "volume": "+0%",
-  "pitch": "+0Hz"
+  "pitch": "+0Hz",
+  "format": "audio_with_marks"
 }
 ```
 
@@ -76,7 +77,7 @@ Content-Type: application/json
 | rate | string | ✗ | 语速调整 | "+0%", "+10%", "-20%" |
 | volume | string | ✗ | 音量调整 | "+0%", "+10%", "-20%" |
 | pitch | string | ✗ | 音调调整 | "+0Hz", "+50Hz", "-100Hz" |
-| format | string | ✗ | 返回格式 | "audio" (默认) |
+| format | string | ✗ | 返回格式 | "audio" (默认), "audio_with_marks" |
 
 **响应示例**
 
@@ -132,42 +133,85 @@ GET /api/v1/tts/file/tts_dd73dd073dca85db.mp3
 
 ## 流式问答中的 TTS 分段
 
-流式问答不建议移动端拿到 `text_delta` 后再自行调用 `/tts/synthesize`，否则会增加额外 HTTP 往返并导致首句播放不稳定。推荐由后端在生成文本时同步维护朗读缓冲区，达到可朗读边界后生成音频片段，并通过 `tts_segment` 事件下发。
+流式问答不建议移动端拿到 `text_delta` 后再自行调用 `/tts/synthesize`，否则会增加额外 HTTP 往返并导致首句播放不稳定。后端在生成文本时同步维护朗读缓冲区，按**情绪边界优先、句子边界次之**的策略分段，并通过以下事件下发：
 
-### `tts_segment` 事件示例
+### 事件顺序
+
+```
+tts_segment (段落元信息预告)
+    ↓
+tts_segment_ready (音频已生成，可播放)
+```
+
+### `tts_segment` 事件
 
 ```json
 {
   "type": "tts_segment",
   "segment_id": "seg_001",
-  "text": "欢迎来到灵山胜境，",
+  "segment_index": 0,
+  "text": "欢迎来到灵山胜境！",
   "audio_url": "/api/v1/tts/file/seg_001.mp3",
-  "duration_ms": 1800,
+  "duration_ms": null,
   "voice": "zh-CN-XiaoxiaoNeural",
-  "marks": [
-    { "text": "欢迎", "start_ms": 0, "end_ms": 420 },
-    { "text": "来到", "start_ms": 430, "end_ms": 820 },
-    { "text": "灵山胜境", "start_ms": 830, "end_ms": 1600 }
-  ]
+  "rate": "+0%",
+  "volume": "+0%",
+  "pitch": "+0Hz",
+  "emotion": "neutral",
+  "marks": []
 }
 ```
 
+**字段说明**：
+
+| 字段 | 说明 |
+|------|------|
+| segment_id | 分段音频 ID |
+| segment_index | 分段序号，从 0 开始，客户端应按此排序播放 |
+| text | 该片段对应文本 |
+| audio_url | 音频 URL 预告（此时文件可能还未生成完成） |
+| duration_ms | 本阶段通常为 null |
+| emotion | LLM 标注的情绪，如 `excited`、`thinking`、`neutral` |
+
+### `tts_segment_ready` 事件
+
+```json
+{
+  "type": "tts_segment_ready",
+  "segment_id": "seg_001",
+  "segment_index": 0,
+  "audio_url": "/api/v1/tts/file/seg_001.mp3",
+  "file_name": "seg_001.mp3",
+  "duration_ms": 1800,
+  "marks": [
+    { "word": "欢迎", "start_ms": 0, "end_ms": 420 },
+    { "word": "来到", "start_ms": 430, "end_ms": 820 }
+  ],
+  "emotion": "neutral"
+}
+```
+
+**播放规则**：
+- 按 `segment_index` 顺序播放
+- 使用 `audio_url` 直接播放（ExoPlayer）
+- 用 `marks` 驱动口型同步
+
 ### 分段规则
 
-1. 不按 token 或单字合成 TTS，避免接口压力和播放碎片感。
-2. 推荐遇到 `，。！？；：` 等标点切分。
-3. 首段超过 800ms 未遇到标点时，可强制切出 8-12 个中文字符作为首段。
-4. 每个 `marks` 时间戳都是该音频片段内的相对时间。
-5. 移动端播放到队列为空且后端流未结束时，应停止口型并等待后续 `tts_segment`。
+1. **情绪边界优先**：LLM 输出 `<emotion="xxx">` 标签时，情绪变化处必须截断
+2. **句子边界次之**：同一情绪内遇到 `，。！？；：` 切分
+3. **参数**：max_chars=60，min_chars=15
+4. **语义保护**：英文、数字、景点名、专有名词尽量不从中间切断
 
 ### 与独立 TTS 接口的关系
 
 | 场景 | 推荐方式 |
 |------|----------|
-| 流式回答（主链路） | 消费 `/api/v1/chat/text/stream` 中的 `tts_segment` |
+| 普通非流式回答 | 调用 `/api/v1/tts/synthesize` |
+| 流式回答 | 消费 `tts_segment` + `tts_segment_ready` |
 | TTS 功能测试 | 调用 `/api/v1/tts/synthesize` |
 | 固定文案缓存预热 | 调用 `/api/v1/tts/synthesize` |
-| 极端离线兜底 | 调用系统 TTS 或 `/api/v1/tts/synthesize` |
+| 流式接口失败降级 | 可回退非流式回答，再调用 `/api/v1/tts/synthesize` |
 
 详细流式方案见：`STREAMING_REFACTOR_PLAN.md`。
 
@@ -185,16 +229,21 @@ val synthesizeResponse = httpClient.post("http://192.168.1.100:8000/api/v1/tts/s
     contentType(ContentType.Application.Json)
     setBody(TTSSynthesizeRequest(
         text = "你好，欢迎来到景灵智导。",
-        voice = "zh-CN-XiaoxiaoNeural"
+        voice = "zh-CN-XiaoxiaoNeural",
+        format = "audio_with_marks"
     ))
 }
 val result = synthesizeResponse.body<ApiResponse<TTSSynthesizeResult>>()
 
 // 3. 播放音频
 val audioUrl = "http://192.168.1.100:8000" + result.data.audio_url
-mediaPlayer.setDataSource(audioUrl)
-mediaPlayer.prepare()
-mediaPlayer.start()
+exoPlayer.setMediaItem(MediaItem.fromUri(audioUrl))
+exoPlayer.prepare()
+exoPlayer.play()
+
+// 4. 流式播放时处理 tts_segment_ready
+// 按 segment_index 顺序播放 audio_url
+// 用 marks 驱动口型同步
 ```
 
 ---
@@ -242,8 +291,9 @@ mediaPlayer.start()
 
 1. **复用音色**: 同一景点讲解推荐固定使用一个语音音色
 2. **文本缓存**: 对于固定文案（如景点介绍），缓存合成结果
-3. **流式播放**: 对于长文本，由后端分段合成并通过 `tts_segment` 下发，移动端排队播放
+3. **流式播放**: 对于长文本，由后端分段合成并通过流式事件下发，移动端排队播放
 4. **参数简化**: 大多数情况下保持默认参数 (rate/volume/pitch 不需要调整)
+5. **按序播放**: 流式场景按 `segment_index` 顺序播放 `tts_segment_ready.audio_url`
 
 ---
 
@@ -271,6 +321,6 @@ mediaPlayer.start()
 - [x] 服务器有外网访问权限 (调用 Microsoft TTS)
 - [x] `/api/v1/tts/voices` 和 `/api/v1/tts/synthesize` 接口可访问
 - [x] 音频文件能正常生成和下载
-- [ ] 流式问答接口可返回 `tts_segment`
-- [ ] 分段音频的 `audio_url` 可被移动端直接播放
-- [ ] 分段 `marks` 与片段音频时长对齐
+- [x] 流式问答接口可返回 `tts_segment`、`tts_segment_ready`
+- [x] 分段音频的 `audio_url` 可被移动端直接播放
+- [x] 分段 `marks` 与片段音频时长对齐

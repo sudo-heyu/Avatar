@@ -53,6 +53,17 @@ void LAppPal::UpdateTime()
 {
     s_currentFrame = GetSystemTime();
     s_deltaTime = s_currentFrame - s_lastFrame;
+    // 限制 deltaTime 最大为 100ms（0.1秒），防止应用暂停恢复后
+    // deltaTime 过大导致 Live2D 物理引擎和动作更新越界崩溃
+    if (s_deltaTime > 0.1)
+    {
+        s_deltaTime = 0.1;
+    }
+    // 防止负数（系统时间回调）
+    if (s_deltaTime < 0.0)
+    {
+        s_deltaTime = 0.0;
+    }
     s_lastFrame = s_currentFrame;
 }
 

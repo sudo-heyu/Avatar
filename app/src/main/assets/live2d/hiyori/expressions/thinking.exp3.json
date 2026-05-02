@@ -15,7 +15,6 @@
     {"Id": "ParamEyeROpen", "Value": -0.15, "Blend": "Add"},
     {"Id": "ParamEyeBallX", "Value": -0.5, "Blend": "Add"},
     {"Id": "ParamEyeBallY", "Value": -0.5, "Blend": "Add"},
-    {"Id": "ParamMouthOpenY", "Value": -0.1, "Blend": "Add"},
     {"Id": "ParamMouthForm", "Value": 0.15, "Blend": "Add"},
     {"Id": "ParamBreath", "Value": 0.15, "Blend": "Add"},
     {"Id": "ParamHairAhoge", "Value": 0.2, "Blend": "Add"}

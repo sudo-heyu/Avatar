@@ -382,7 +382,33 @@ void LAppModel::Update()
         return;
     }
 
-    const csmFloat32 deltaTimeSeconds = LAppPal::GetDeltaTime();
+    // 防御：motionManager が無効な場合は何もしない
+    if (_motionManager == NULL)
+    {
+        LAppPal::PrintLogLn("[APP]Update: _motionManager is NULL, skipping");
+        return;
+    }
+
+    // 防御：_motionData が無効な場合は更新をスキップ
+    // これは motion が解放された後に Update が呼ばれるのを防ぐ
+    if (_motionManager->IsFinished() == false && _motions.GetSize() == 0)
+    {
+        LAppPal::PrintLogLn("[APP]Update: motion data may be invalid, stopping motion");
+        _motionManager->StopAllMotions();
+    }
+
+    csmFloat32 deltaTimeSeconds = LAppPal::GetDeltaTime();
+
+    // 防御：deltaTime の異常値をチェック（二重保護）
+    // NaN、Infinity、または極端に大きい値は 0 にリセット
+    if (deltaTimeSeconds != deltaTimeSeconds || // NaN check
+        deltaTimeSeconds < 0.0f ||
+        deltaTimeSeconds > 0.1f) // 最大 100ms
+    {
+        LAppPal::PrintLogLn("[APP]Update: Invalid deltaTime=%.4f, resetting to 0", deltaTimeSeconds);
+        deltaTimeSeconds = 0.0f;
+    }
+
     _userTimeSeconds += deltaTimeSeconds;
 
     // モーションによるパラメータ更新の有無
@@ -404,13 +430,21 @@ void LAppModel::Update()
     }
     frameCount++;
 
+    // 安全なモーション更新：例外をキャッチしてクラッシュを防ぐ
     if (!_motionManager->IsFinished())
     {
-        _motionUpdated = _motionManager->UpdateMotion(_model, deltaTimeSeconds); // モーションを更新
-        if (_motionUpdated) {
-            // Debug: Log ParamAngleY value after motion update
-            csmFloat32 angleY = _model->GetParameterValue(_idParamAngleY);
-            LAppPal::PrintLogLn("[APP]Motion updated! ParamAngleY=%.2f", angleY);
+        try {
+            _motionUpdated = _motionManager->UpdateMotion(_model, deltaTimeSeconds); // モーションを更新
+            if (_motionUpdated) {
+                // Debug: Log ParamAngleY value after motion update
+                csmFloat32 angleY = _model->GetParameterValue(_idParamAngleY);
+                LAppPal::PrintLogLn("[APP]Motion updated! ParamAngleY=%.2f", angleY);
+            }
+        } catch (...) {
+            // モーション更新中にエラーが発生した場合はモーションを停止
+            LAppPal::PrintLogLn("[APP]Update: Motion update failed, stopping all motions");
+            _motionManager->StopAllMotions();
+            _motionUpdated = false;
         }
     }
     else
