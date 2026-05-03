@@ -9,8 +9,12 @@ package com.example.scenic_avatar_guide_app.core.avatar;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.SharedPreferences;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -98,8 +102,25 @@ public class JniBridgeJava {
     }
 
     public static byte[] LoadFile(String filePath) {
-        // available() returns only an estimate and read() may not fill the buffer in one call.
-        // Read until EOF using a chunked loop to guarantee complete data for compressed assets.
+        // 优先从内部存储读取（已缓存的文件，跳过 APK 解压开销）
+        if (context != null) {
+            File cachedFile = new File(context.getFilesDir(), filePath);
+            if (cachedFile.isFile() && cachedFile.length() > 0) {
+                try (FileInputStream fis = new FileInputStream(cachedFile)) {
+                    ByteArrayOutputStream out = new ByteArrayOutputStream((int) cachedFile.length());
+                    byte[] chunk = new byte[8192];
+                    int bytesRead;
+                    while ((bytesRead = fis.read(chunk)) != -1) {
+                        out.write(chunk, 0, bytesRead);
+                    }
+                    return out.toByteArray();
+                } catch (IOException e) {
+                    // 读取失败则降级到 assets
+                }
+            }
+        }
+
+        // 降级：从 APK assets 读取（available() 仅返回估算值，必须循环读完）
         try (InputStream fileData = context.getAssets().open(filePath)) {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             byte[] chunk = new byte[8192];
@@ -111,6 +132,70 @@ public class JniBridgeJava {
         } catch (IOException e) {
             e.printStackTrace();
             return null;
+        }
+    }
+
+    /**
+     * 将模型资源从 APK assets 提取到内部存储，加快后续启动速度并提高稳定性。
+     * 已提取且版本一致时直接返回（幂等）。应在 IO 线程调用。
+     */
+    public static synchronized void extractModelAssets() {
+        if (context == null) return;
+
+        SharedPreferences prefs = context.getSharedPreferences("live2d_asset_cache", Context.MODE_PRIVATE);
+        int cachedVersion = prefs.getInt("version", -1);
+        int currentVersion = getAppVersionCode();
+
+        File live2dDir = new File(context.getFilesDir(), "live2d");
+        if (cachedVersion == currentVersion && live2dDir.exists()) {
+            return;
+        }
+
+        try {
+            copyAssetDirectory("live2d", live2dDir);
+            prefs.edit().putInt("version", currentVersion).apply();
+        } catch (IOException e) {
+            e.printStackTrace();
+            // 提取失败时静默降级，后续 LoadFile 仍会从 assets 读取
+        }
+    }
+
+    private static int getAppVersionCode() {
+        try {
+            return context.getPackageManager()
+                    .getPackageInfo(context.getPackageName(), 0).versionCode;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static void copyAssetDirectory(String assetPath, File destPath) throws IOException {
+        String[] children = context.getAssets().list(assetPath);
+        if (children != null && children.length > 0) {
+            // 目录：递归处理
+            if (!destPath.exists() && !destPath.mkdirs()) {
+                throw new IOException("Cannot create directory: " + destPath);
+            }
+            for (String child : children) {
+                copyAssetDirectory(assetPath + "/" + child, new File(destPath, child));
+            }
+        } else {
+            // 文件：已存在则跳过（避免重复写入大纹理）
+            if (destPath.isFile() && destPath.length() > 0) {
+                return;
+            }
+            File parent = destPath.getParentFile();
+            if (parent != null && !parent.exists()) {
+                parent.mkdirs();
+            }
+            try (InputStream in = context.getAssets().open(assetPath);
+                 FileOutputStream out = new FileOutputStream(destPath)) {
+                byte[] buffer = new byte[16384];
+                int bytesRead;
+                while ((bytesRead = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, bytesRead);
+                }
+            }
         }
     }
 

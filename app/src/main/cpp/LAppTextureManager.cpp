@@ -41,6 +41,12 @@ LAppTextureManager::TextureInfo* LAppTextureManager::CreateTextureFromPngFile(st
 
     address = LAppPal::LoadFileAsBytes(fileName, &size);
 
+    if (address == nullptr || size == 0)
+    {
+        LAppPal::PrintLogLn("[TextureManager] Failed to load texture file: %s", fileName.c_str());
+        return NULL;
+    }
+
     // png情報を取得する
     png = stbi_load_from_memory(
         address,
@@ -49,6 +55,14 @@ LAppTextureManager::TextureInfo* LAppTextureManager::CreateTextureFromPngFile(st
         &height,
         &channels,
         STBI_rgb_alpha);
+
+    if (png == nullptr)
+    {
+        LAppPal::PrintLogLn("[TextureManager] Failed to decode PNG: %s", fileName.c_str());
+        LAppPal::ReleaseBytes(address);
+        return NULL;
+    }
+
     {
 #ifdef PREMULTIPLIED_ALPHA_ENABLE
         unsigned int* fourBytes = reinterpret_cast<unsigned int*>(png);

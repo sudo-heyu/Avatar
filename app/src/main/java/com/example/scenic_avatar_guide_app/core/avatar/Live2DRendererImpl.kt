@@ -135,6 +135,15 @@ class Live2DRendererImpl(
             initialize()
         }
 
+        // 将模型文件从 APK assets 提取到内部存储，加快后续加载速度
+        // 已提取时幂等返回，首次约耗时 1-3 秒（后台 IO 线程，不阻塞 UI）
+        try {
+            JniBridgeJava.extractModelAssets()
+            Log.d(TAG, "=== extractModelAssets() done ===")
+        } catch (e: Exception) {
+            Log.w(TAG, "=== extractModelAssets() failed, will use APK assets directly ===", e)
+        }
+
         try {
             withTimeout(MODEL_LOAD_TIMEOUT) {
                 val fileData = context.assets.open(modelPath)
@@ -708,9 +717,12 @@ class Live2DRendererImpl(
     }
 
     override fun release() {
-        // 使用 synchronized 确保与 onAfterDrawFrame 同步
+        // 在 synchronized 块内提前设置 isReleased，阻止后续任何新的 JNI 调用入队。
+        // 已在 GL 队列中的 lambda 内部也会检查 isReleased，实际调用被跳过。
+        // 这消除了"GL 队列残留 lambda 在 nativeOnDestroy 之后执行"的竞态窗口。
         synchronized(this) {
             if (!_isInitialized || isReleased) return
+            isReleased = true
         }
 
         try {
@@ -724,15 +736,13 @@ class Live2DRendererImpl(
             surfaceView?.renderMode = android.opengl.GLSurfaceView.RENDERMODE_WHEN_DIRTY
 
             // 使用 CountDownLatch 确保 nativeOnDestroy() 在 GL 线程中同步执行完成
-            // 避免 GL 线程正在执行 nativeOnDrawFrame() 时模型被释放
             if (surfaceView != null) {
                 val latch = java.util.concurrent.CountDownLatch(1)
+                // 直接调用 surfaceView.runOnRenderThread（绕过 Live2DRendererImpl.runOnRenderThread，
+                // 后者已因 isReleased=true 而短路）
                 surfaceView.runOnRenderThread {
                     try {
-                        // 在 GL 线程中先标记释放，阻止后续 JNI 调用
-                        synchronized(this@Live2DRendererImpl) {
-                            isReleased = true
-                        }
+                        // isReleased 已在主线程设置，此处直接执行 Native 清理
                         JniBridgeJava.nativeOnStop()
                         JniBridgeJava.nativeOnDestroy()
                     } catch (e: Exception) {
@@ -744,29 +754,17 @@ class Live2DRendererImpl(
                 // 等待 GL 线程完成释放（最多 5 秒）
                 try {
                     if (!latch.await(5, java.util.concurrent.TimeUnit.SECONDS)) {
-                        Log.w(TAG, "Timeout waiting for GL thread release, forcing cleanup on current thread")
-                        synchronized(this@Live2DRendererImpl) {
-                            isReleased = true
-                        }
-                        try {
-                            JniBridgeJava.nativeOnStop()
-                            JniBridgeJava.nativeOnDestroy()
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Forced native release failed", e)
-                        }
+                        // 超时：GL 线程可能卡住。不在主线程强制调用 nativeOnStop/nativeOnDestroy，
+                        // 避免与 GL 线程并发析构导致 use-after-free。GL 线程最终会执行清理 lambda。
+                        Log.w(TAG, "Timeout waiting for GL thread release — skipping forced cleanup to avoid double-destroy")
                     }
                 } catch (e: InterruptedException) {
                     Log.w(TAG, "Interrupted while waiting for GL thread release")
-                    synchronized(this@Live2DRendererImpl) {
-                        isReleased = true
-                    }
+                    Thread.currentThread().interrupt()
                 }
             } else {
-                // SurfaceView 已释放，GL 线程已退出，fallback 到主线程
+                // SurfaceView 已释放，GL 线程已退出，直接在主线程清理
                 try {
-                    synchronized(this@Live2DRendererImpl) {
-                        isReleased = true
-                    }
                     JniBridgeJava.nativeOnStop()
                     JniBridgeJava.nativeOnDestroy()
                 } catch (e: Exception) {

@@ -45,10 +45,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1112,8 +1118,11 @@ private fun MessageBubble(message: ChatMessage) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (hasContent) {
+                        val annotatedText = remember(message.content) {
+                            parseInlineMarkdown(message.content)
+                        }
                         Text(
-                            text = message.content,
+                            text = annotatedText,
                             fontSize = 14.sp,
                             lineHeight = 20.sp,
                             color = if (isUser) UserBubbleText else AssistantBubbleText,
@@ -1509,4 +1518,116 @@ fun ScenicSelectionDialog(
         },
         shape = RoundedCornerShape(20.dp)
     )
+}
+
+private fun parseInlineMarkdown(text: String): AnnotatedString = buildAnnotatedString {
+    var i = 0
+    while (i < text.length) {
+        when {
+            i + 1 < text.length && text[i] == '*' && text[i + 1] == '*' -> {
+                val end = text.indexOf("**", i + 2)
+                if (end != -1) {
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                        append(text.substring(i + 2, end))
+                    }
+                    i = end + 2
+                } else {
+                    append(text[i])
+                    i++
+                }
+            }
+            i + 1 < text.length && text[i] == '_' && text[i + 1] == '_' -> {
+                val end = text.indexOf("__", i + 2)
+                if (end != -1) {
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                        append(text.substring(i + 2, end))
+                    }
+                    i = end + 2
+                } else {
+                    append(text[i])
+                    i++
+                }
+            }
+            text[i] == '*' -> {
+                val end = text.indexOf('*', i + 1)
+                if (end != -1 && end > i + 1) {
+                    withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+                        append(text.substring(i + 1, end))
+                    }
+                    i = end + 1
+                } else {
+                    append(text[i])
+                    i++
+                }
+            }
+            text[i] == '_' -> {
+                val end = text.indexOf('_', i + 1)
+                if (end != -1 && end > i + 1) {
+                    withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+                        append(text.substring(i + 1, end))
+                    }
+                    i = end + 1
+                } else {
+                    append(text[i])
+                    i++
+                }
+            }
+            text[i] == '`' -> {
+                val end = text.indexOf('`', i + 1)
+                if (end != -1 && end > i + 1) {
+                    withStyle(SpanStyle(
+                        background = Color(0xFFE0E0E0),
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    )) {
+                        append(text.substring(i + 1, end))
+                    }
+                    i = end + 1
+                } else {
+                    append(text[i])
+                    i++
+                }
+            }
+            i + 1 < text.length && text[i] == '~' && text[i + 1] == '~' -> {
+                val end = text.indexOf("~~", i + 2)
+                if (end != -1) {
+                    withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) {
+                        append(text.substring(i + 2, end))
+                    }
+                    i = end + 2
+                } else {
+                    append(text[i])
+                    i++
+                }
+            }
+            i + 1 < text.length && text[i] == '[' -> {
+                val textEnd = text.indexOf(']', i + 1)
+                if (textEnd != -1 && textEnd + 1 < text.length && text[textEnd + 1] == '(') {
+                    val urlEnd = text.indexOf(')', textEnd + 2)
+                    if (urlEnd != -1) {
+                        val linkText = text.substring(i + 1, textEnd)
+                        val linkUrl = text.substring(textEnd + 2, urlEnd)
+                        pushStringAnnotation(tag = "URL", annotation = linkUrl)
+                        withStyle(SpanStyle(
+                            color = Color(0xFF1565C0),
+                            textDecoration = TextDecoration.Underline
+                        )) {
+                            append(linkText)
+                        }
+                        pop()
+                        i = urlEnd + 1
+                    } else {
+                        append(text[i])
+                        i++
+                    }
+                } else {
+                    append(text[i])
+                    i++
+                }
+            }
+            else -> {
+                append(text[i])
+                i++
+            }
+        }
+    }
 }

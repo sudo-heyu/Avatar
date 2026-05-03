@@ -251,6 +251,10 @@ class MainViewModel @Inject constructor(
 
     val scenicAreas = scenicDataSource.loadScenicAreas()
 
+    // 匹配后端误漏的 XML/结构标签（含中文尖括号变体），防止显示给用户
+    // 同时匹配行尾不完整标签，避免打字机效果中途闪现半截标签
+    private val displayTagRegex = Regex("""[<〈][^>]*>|[<〈][^>]*$""", RegexOption.MULTILINE)
+
     // 消息列表
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
@@ -747,12 +751,15 @@ class MainViewModel @Inject constructor(
         val index = currentList.indexOfFirst { it.id == id }
         if (index == -1) return
 
+        // 过滤后端误漏的标签，防止显示给用户
+        val cleanContent = content.replace(displayTagRegex, "")
+
         val current = currentList[index]
         // 只有内容真正变化时才更新，避免不必要的重组
-        if (current.content == content) return
+        if (current.content == cleanContent) return
 
         currentList[index] = current.copy(
-            content = content,
+            content = cleanContent,
             isLoading = true
         )
         _messages.value = currentList
