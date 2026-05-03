@@ -225,7 +225,11 @@ class AvatarPlaybackManager(
     // 后端优化后 marks 可能为 null，需要在入队时预生成，播放时使用
     private val preloadedLipSyncEvents = mutableMapOf<String, MutableList<PhonemeEvent>>()
 
-    // 优先按后端 segment_index 播放。旧后端不返回该字段时退回到 chunk 到达顺序。
+    // 乱序重排缓冲区（segmentIndex -> segment）
+    // 后端并发合成时各段完成顺序不定，需要按 segmentIndex 排序后再入播放队列
+    private val pendingSegments = sortedMapOf<Int, TtsSegmentData>()
+
+    // 下一个期望入队的 segmentIndex（-1 表示不使用 index 排序）
     private var nextExpectedSegmentIndex = 0
 
     // 帧间平滑：记住上一帧的口型值
@@ -491,6 +495,7 @@ class AvatarPlaybackManager(
         currentStreamOffsetMs = 0L
         currentSegmentText = ""
         preloadedLipSyncEvents.clear()
+        pendingSegments.clear()
         nextExpectedSegmentIndex = 0
         streamingTtsQueue.start()
         _mouthState.value = Pair(0f, 0f)
@@ -537,7 +542,36 @@ class AvatarPlaybackManager(
     }
 
     fun enqueueSpeechSegment(segment: TtsSegmentData) {
-        streamingTtsQueue.enqueue(segment)
+        val idx = segment.segmentIndex
+        if (idx == null) {
+            // 旧后端不返回 segmentIndex，按到达顺序直接入队
+            streamingTtsQueue.enqueue(segment)
+            return
+        }
+
+        when {
+            idx == nextExpectedSegmentIndex -> {
+                streamingTtsQueue.enqueue(segment)
+                nextExpectedSegmentIndex++
+                flushPendingSegments()
+            }
+            idx > nextExpectedSegmentIndex -> {
+                Log.d(TAG, "[REORDER] 缓存乱序 segment: idx=$idx, nextExpected=$nextExpectedSegmentIndex")
+                pendingSegments[idx] = segment
+            }
+            else -> {
+                Log.w(TAG, "[REORDER] 忽略重复 segment: idx=$idx, nextExpected=$nextExpectedSegmentIndex")
+            }
+        }
+    }
+
+    private fun flushPendingSegments() {
+        while (pendingSegments.containsKey(nextExpectedSegmentIndex)) {
+            val next = pendingSegments.remove(nextExpectedSegmentIndex)!!
+            Log.d(TAG, "[REORDER] 释放缓存 segment: idx=$nextExpectedSegmentIndex, segmentId=${next.segmentId}")
+            streamingTtsQueue.enqueue(next)
+            nextExpectedSegmentIndex++
+        }
     }
 
     fun finishStreamingInput() {
@@ -615,6 +649,7 @@ class AvatarPlaybackManager(
                 currentStreamOffsetMs = 0L
                 currentSegmentText = ""
                 preloadedLipSyncEvents.clear()
+                pendingSegments.clear()
                 nextExpectedSegmentIndex = 0
             }
             // 重置原子状态
