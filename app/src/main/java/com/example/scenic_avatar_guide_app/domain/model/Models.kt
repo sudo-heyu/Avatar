@@ -336,6 +336,9 @@ data class SessionListResponse(
 @Serializable
 data class SessionListData(
     val total: Int,
+    val page: Int = 1,
+    @SerialName("page_size")
+    val pageSize: Int = 20,
     val sessions: List<SessionInfo>
 )
 
@@ -343,24 +346,37 @@ data class SessionListData(
 data class SessionInfo(
     @SerialName("session_id")
     val sessionId: String,
-    val title: String? = null,
+    @SerialName("user_id")
+    val userId: String? = null,
+    @SerialName("scenic_id")
+    val scenicId: String? = null,
+    @SerialName("spot_id")
+    val spotId: String? = null,
+    @SerialName("device_id")
+    val deviceId: String? = null,
     val status: String,
+    val title: String? = null,
     @SerialName("message_count")
     val messageCount: Int = 0,
+    @SerialName("context_summary")
+    val contextSummary: String? = null,
+    @SerialName("context_entities")
+    val contextEntities: String? = null,
+    @SerialName("first_user_message")
+    val firstUserMessage: String? = null,
     @SerialName("last_message")
     val lastMessage: String? = null,
     @SerialName("last_message_at")
     val lastMessageAt: String? = null,
     @SerialName("created_at")
-    val createdAt: String? = null,
-    @SerialName("first_user_message")
-    val firstUserMessage: String? = null
+    val createdAt: String? = null
 ) {
-    // 显示标题：优先使用第一条用户消息，其次 title，最后默认"新对话"
     fun displayTitle(): String {
-        return firstUserMessage?.takeIf { it.isNotBlank() }
+        val result = firstUserMessage?.takeIf { it.isNotBlank() }
             ?: title?.takeIf { it.isNotBlank() }
             ?: "新对话"
+        android.util.Log.d("SessionInfo", "displayTitle: firstUserMessage=$firstUserMessage, title=$title, result=$result")
+        return result
     }
 }
 
@@ -457,5 +473,58 @@ data class ChatMessage(
     /**
      * 服务器返回的图片 URL
      */
-    val imageUrl: String? = null
+    val imageUrl: String? = null,
+    /**
+     * 后端消息 ID（用于满意度反馈关联）
+     */
+    val backendMessageId: String? = null,
+    /**
+     * 是否已提交满意度反馈
+     */
+    val hasFeedback: Boolean = false
+)
+
+// ==================== 满意度反馈 ====================
+
+@Serializable
+data class ChatFeedbackRequest(
+    @SerialName("scenic_id")
+    val scenicId: String,
+    val rating: Int,
+    @SerialName("session_id")
+    val sessionId: String? = null,
+    @SerialName("user_id")
+    val userId: String? = null,
+    @SerialName("message_id")
+    val messageId: String? = null,
+    @SerialName("is_complaint")
+    val isComplaint: Boolean = false,
+    val comment: String? = null
+)
+
+@Serializable
+data class ChatFeedbackResponse(
+    val code: Int,
+    val message: String,
+    val data: ChatFeedbackData? = null
+)
+
+@Serializable
+data class ChatFeedbackData(
+    @SerialName("feedback_id")
+    val feedbackId: String,
+    @SerialName("scenic_id")
+    val scenicId: String,
+    @SerialName("session_id")
+    val sessionId: String? = null,
+    @SerialName("user_id")
+    val userId: String? = null,
+    @SerialName("message_id")
+    val messageId: String? = null,
+    val rating: Int,
+    @SerialName("is_complaint")
+    val isComplaint: Boolean = false,
+    val comment: String? = null,
+    @SerialName("created_at")
+    val createdAt: String? = null
 )

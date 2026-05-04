@@ -10,12 +10,28 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 
 private const val TAG = "AudioPlayer"
+
+/**
+ * Phase 2: AudioPlayer 事件类型
+ * 用 SharedFlow 替代 var 回调，生命周期由 collector 的 scope 控制
+ */
+sealed class AudioPlayerEvent {
+    object PlayStart : AudioPlayerEvent()
+    object PlayComplete : AudioPlayerEvent()
+    data class PlayError(val message: String) : AudioPlayerEvent()
+    data class MediaItemTransition(val reason: Int, val mediaItem: MediaItem?) : AudioPlayerEvent()
+    data class BufferingStateChanged(val isBuffering: Boolean) : AudioPlayerEvent()
+    data class IsPlayingChanged(val isPlaying: Boolean) : AudioPlayerEvent()
+}
 
 class AudioPlayer(private val context: Context) {
 
@@ -47,22 +63,24 @@ class AudioPlayer(private val context: Context) {
     private val _isBuffering = MutableStateFlow(false)
     val isBuffering: StateFlow<Boolean> = _isBuffering.asStateFlow()
 
-    var onPlayStart: (() -> Unit)? = null
-    var onPlayComplete: (() -> Unit)? = null
-    var onPlayError: ((String) -> Unit)? = null
+    // Phase 2: 用 SharedFlow 替代 var 回调
+    private val _events = MutableSharedFlow<AudioPlayerEvent>(
+        extraBufferCapacity = 16,
+        replay = 1
+    )
+    val events: SharedFlow<AudioPlayerEvent> = _events.asSharedFlow()
+
+    // 保留 onProgressUpdate 用于进度跟踪（高频更新，不适合用 SharedFlow）
     var onProgressUpdate: ((Float) -> Unit)? = null
-    var onMediaItemTransition: ((reason: Int, mediaItem: MediaItem?) -> Unit)? = null
-    var onBufferingStateChanged: ((isBuffering: Boolean) -> Unit)? = null
-    var onIsPlayingChanged: ((isPlaying: Boolean) -> Unit)? = null
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             Log.d(TAG, "onIsPlayingChanged: $isPlaying, currentUrl=$currentUrl")
-            onIsPlayingChanged?.invoke(isPlaying)
+            _events.tryEmit(AudioPlayerEvent.IsPlayingChanged(isPlaying))
             when {
                 isPlaying -> {
                     _isPlaying.value = true
-                    onPlayStart?.invoke()
+                    _events.tryEmit(AudioPlayerEvent.PlayStart)
                     startProgressTracking()
                 }
                 !isPlaying && _isPlaying.value -> {
@@ -86,7 +104,7 @@ class AudioPlayer(private val context: Context) {
             _isBuffering.value = playbackState == Player.STATE_BUFFERING
             if (wasBuffering != _isBuffering.value) {
                 Log.d(TAG, "[BUFFER] 缓冲状态变化: ${_isBuffering.value}")
-                onBufferingStateChanged?.invoke(_isBuffering.value)
+                _events.tryEmit(AudioPlayerEvent.BufferingStateChanged(_isBuffering.value))
             }
 
             when (playbackState) {
@@ -98,7 +116,7 @@ class AudioPlayer(private val context: Context) {
                     _isPlaying.value = false
                     _isBuffering.value = false
                     _progress.value = 0f
-                    onPlayComplete?.invoke()
+                    _events.tryEmit(AudioPlayerEvent.PlayComplete)
                     stopProgressTracking()
                 }
                 Player.STATE_IDLE -> {
@@ -111,18 +129,19 @@ class AudioPlayer(private val context: Context) {
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             Log.e(TAG, "播放错误: ${error.message}", error)
             _isPlaying.value = false
-            onPlayError?.invoke(error.message ?: "播放错误")
+            _events.tryEmit(AudioPlayerEvent.PlayError(error.message ?: "播放错误"))
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             Log.d(TAG, "onMediaItemTransition: reason=$reason, mediaItem=$mediaItem")
-            onMediaItemTransition?.invoke(reason, mediaItem)
+            _events.tryEmit(AudioPlayerEvent.MediaItemTransition(reason, mediaItem))
         }
     }
 
+    // Phase 0 修复 P0-4: 改为真正的 guard，阻断错误调用
     private fun checkMainThread() {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            Log.wtf(TAG, "ExoPlayer 方法必须在主线程调用", Throwable())
+        check(Looper.myLooper() == Looper.getMainLooper()) {
+            "ExoPlayer API 必须在主线程调用，当前线程: ${Thread.currentThread().name}"
         }
     }
 

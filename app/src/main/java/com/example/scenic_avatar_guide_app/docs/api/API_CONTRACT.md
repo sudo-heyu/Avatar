@@ -442,7 +442,7 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
     "latency_ms": 1200,
     "confidence": 0.95,
     "is_fallback": false,
-    
+
     "avatar_action": {
       "expression": {
         "type": "excited",
@@ -456,7 +456,7 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
         {"type": "point_right", "start_offset_ms": 2000}
       ]
     },
-    
+
     "sources": [
       {
         "document_id": "doc_huangshan_faq",
@@ -467,7 +467,7 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
         "snippet": "迎客松位于玉屏楼左侧，是黄山代表性景观之一。"
       }
     ],
-    
+
     "metadata": {
       "intent": "introduction",
       "emotion": "joy",
@@ -475,7 +475,7 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
       "latency_ms": 1200,
       "is_fallback": false
     },
-    
+
     "created_at": "2026-04-28T12:00:00Z"
   }
 }
@@ -985,7 +985,7 @@ enum class AvatarExpression(val value: String) {
     WELCOMING("welcoming");
 
     companion object {
-        fun fromValue(value: String?) = 
+        fun fromValue(value: String?) =
             entries.find { it.value == value } ?: NEUTRAL
     }
 }
@@ -1003,7 +1003,7 @@ enum class AvatarGesture(val value: String) {
     GUIDE("guide");
 
     companion object {
-        fun fromValue(value: String?) = 
+        fun fromValue(value: String?) =
             entries.find { it.value == value } ?: IDLE
     }
 }

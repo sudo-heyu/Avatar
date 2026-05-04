@@ -84,6 +84,12 @@ void LAppDelegate::OnDestroy()
 
 void LAppDelegate::Run()
 {
+    // 安全检查：确保 CubismFramework 已初始化
+    if (!CubismFramework::IsInitialized())
+    {
+        return;
+    }
+
     // 時間更新
     LAppPal::UpdateTime();
 
@@ -95,7 +101,11 @@ void LAppDelegate::Run()
     //描画更新
     if (_view != NULL)
     {
-        _view->Render();
+        try {
+            _view->Render();
+        } catch (...) {
+            LAppPal::PrintLogLn("[APP]Run: Exception in _view->Render(), skipping frame");
+        }
     }
 
     if(_isActive == false)
@@ -136,9 +146,24 @@ void LAppDelegate::OnSurfaceCreate()
         CubismFramework::Initialize();
     }
 
-    LAppLive2DManager* manager = LAppLive2DManager::GetInstance();
-    if (manager->GetModelNum() > 0)
+    // 安全检查：确保 CubismFramework 已初始化后再获取 manager
+    if (!CubismFramework::IsInitialized())
     {
+        LAppPal::PrintLogLn("[APP]OnSurfaceCreate: CubismFramework not initialized, skipping model reload");
+        return;
+    }
+
+    LAppLive2DManager* manager = LAppLive2DManager::GetInstance();
+    if (manager == NULL)
+    {
+        LAppPal::PrintLogLn("[APP]OnSurfaceCreate: Failed to get LAppLive2DManager instance");
+        return;
+    }
+
+    csmUint32 modelNum = manager->GetModelNum();
+    if (modelNum > 0)
+    {
+        LAppPal::PrintLogLn("[APP]OnSurfaceCreate: Reloading renderers for %d models", modelNum);
         // 已有模型时才重建 GL renderer；首次 LoadAssets 优先保证模型创建成功。
         Live2D::Cubism::Framework::Rendering::CubismShader_OpenGLES2::GetInstance()->ReleaseInvalidShaderProgram();
         Live2D::Cubism::Framework::Rendering::CubismShader_OpenGLES2::DeleteInstance();

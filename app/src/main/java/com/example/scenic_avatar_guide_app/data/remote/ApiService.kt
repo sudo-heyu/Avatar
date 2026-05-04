@@ -91,4 +91,10 @@ interface ApiService {
         @Path("session_id") sessionId: String,
         @Query("user_id") userId: String
     ): DeleteSessionResponse
+
+    /**
+     * 满意度反馈上报
+     */
+    @POST("api/v1/chat/feedback")
+    suspend fun submitFeedback(@Body request: ChatFeedbackRequest): ChatFeedbackResponse
 }

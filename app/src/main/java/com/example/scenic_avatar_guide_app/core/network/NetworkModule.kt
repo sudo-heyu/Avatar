@@ -18,6 +18,7 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Qualifier
 import javax.inject.Singleton
 
@@ -89,19 +90,28 @@ object NetworkModule {
         return retrofit.create(ApiService::class.java)
     }
 
+    // Phase 0 修复 P1-4: 使用 AtomicReference 替代 @Volatile + check-then-act
     private class DynamicBaseUrlInterceptor(
         private val settingsDataStore: SettingsDataStore
     ) : Interceptor {
-        // 首次请求后缓存，避免后续每次请求都 runBlocking
-        @Volatile
-        private var resolvedUrl: HttpUrl? = null
+        private val resolvedUrlRef = AtomicReference<HttpUrl?>(null)
 
         override fun intercept(chain: Interceptor.Chain): okhttp3.Response {
             val request = chain.request()
-            val configuredBaseUrl = resolvedUrl
-                ?: runBlocking { settingsDataStore.baseUrl.first() }
+
+            // 原子读取：如果已缓存则直接使用
+            var configuredBaseUrl = resolvedUrlRef.get()
+
+            if (configuredBaseUrl == null) {
+                // 首次请求：阻塞读取 DataStore
+                val url = runBlocking { settingsDataStore.baseUrl.first() }
                     .toHttpUrlOrNull()
-                    ?.also { resolvedUrl = it }
+                if (url != null) {
+                    // compareAndSet 保证多线程只写一次
+                    resolvedUrlRef.compareAndSet(null, url)
+                }
+                configuredBaseUrl = resolvedUrlRef.get()
+            }
 
             if (configuredBaseUrl == null) {
                 return chain.proceed(request)

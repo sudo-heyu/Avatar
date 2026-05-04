@@ -1,17 +1,20 @@
 package com.example.scenic_avatar_guide_app.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -132,11 +135,19 @@ private fun SessionItem(
             )
         }
 
-        IconButton(onClick = onDelete) {
+        Box(
+            modifier = Modifier
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f))
+                .size(36.dp)
+                .clickable(onClick = onDelete),
+            contentAlignment = Alignment.Center
+        ) {
             Icon(
-                Icons.Filled.Delete,
+                Icons.Outlined.Delete,
                 contentDescription = "删除",
-                tint = TextHint
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(20.dp)
             )
         }
     }
@@ -145,16 +156,18 @@ private fun SessionItem(
 private fun formatTime(timeStr: String?): String {
     if (timeStr.isNullOrBlank()) return ""
     return try {
-        val fmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
-        val date = fmt.parse(timeStr) ?: return ""
+        val date = java.time.OffsetDateTime.parse(timeStr).toInstant().toEpochMilli()
         val now = System.currentTimeMillis()
-        val diff = now - date.time
+        val diff = now - date
         when {
             diff < 60_000 -> "刚刚"
             diff < 3_600_000 -> "${diff / 60_000} 分钟前"
             diff < 86_400_000 -> "${diff / 3_600_000} 小时前"
             diff < 604_800_000 -> "${diff / 86_400_000} 天前"
-            else -> SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(date)
+            else -> {
+                val localDate = java.time.Instant.ofEpochMilli(date).atZone(java.time.ZoneId.systemDefault())
+                "${localDate.monthValue}-${localDate.dayOfMonth} ${localDate.hour}:${localDate.minute.toString().padStart(2, '0')}"
+            }
         }
     } catch (_: Exception) {
         ""

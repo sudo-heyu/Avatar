@@ -198,9 +198,11 @@ class Live2DRendererImpl(
             // 缓存嘴部覆盖值，用于每帧强制覆盖 SDK Idle 动画
             overrideMouthOpenY = amplifiedMouthOpen
             overrideMouthForm = scaledMouthForm
-            // 覆盖开关依赖 AvatarState.SPEAKING，而非 mouthOpen>0。
-            // 词间停顿（mouthOpen=0）和说话起始帧均需持续覆盖，防止 Idle 动画 O 型嘴固着。
-            speakingMouthOverride = isSpeaking
+            // 覆盖开关：只允许在此处启用，禁用由 updateState() 在 SPEAKING 结束时负责。
+            // 避免 Compose 重组延迟导致 isSpeaking 尚为 false 时误关闭每帧覆盖。
+            if (isSpeaking || mouthOpen > 0.01f) {
+                speakingMouthOverride = true
+            }
         }
 
         runOnRenderThread {

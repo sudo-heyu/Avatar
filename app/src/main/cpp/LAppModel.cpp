@@ -589,7 +589,6 @@ CubismMotionQueueEntryHandle LAppModel::StartMotionByPath(const csmChar* motionP
     // Check cache first - use motion path as cache key
     csmString cacheKey = csmString(motionPath);
     CubismMotion* motion = static_cast<CubismMotion*>(_motions[cacheKey.GetRawString()]);
-    csmBool autoDelete = false;
 
     if (motion != NULL)
     {
@@ -626,10 +625,16 @@ CubismMotionQueueEntryHandle LAppModel::StartMotionByPath(const csmChar* motionP
         // Cache the motion for future use
         motion->SetEffectIds(_eyeBlinkIds, _lipSyncIds);
         _motions[cacheKey] = motion;
+        // CRITICAL FIX: Do NOT set autoDelete=true for cached motions!
+        // Cached motions must persist in _motions for reuse. Setting autoDelete=true
+        // causes SDK to delete the motion after playback, leaving a dangling pointer
+        // in _motions cache, leading to use-after-free crash on subsequent access.
         LAppPal::PrintLogLn("[APP]Motion cached: [%s]", motionPath);
     }
 
-    CubismMotionQueueEntryHandle handle = _motionManager->StartMotionPriority(motion, autoDelete, priority);
+    // For cached motions, autoDelete must be false to prevent use-after-free.
+    // The motion will be cleaned up in ReleaseMotions() or destructor.
+    CubismMotionQueueEntryHandle handle = _motionManager->StartMotionPriority(motion, false, priority);
     LAppPal::PrintLogLn("[APP]Motion started, IsFinished=%d", _motionManager->IsFinished());
     return handle;
 }
@@ -744,6 +749,15 @@ void LAppModel::SetParameterValue(const csmChar* parameterId, csmFloat32 value, 
         return;
     }
 
+    // 防御：检查参数值是否有效，防止 NaN/Infinity 导致后续动画计算崩溃
+    if (value != value || // NaN check
+        value < -1000.0f || value > 1000.0f || // 极端值检查
+        weight != weight || // NaN check
+        weight <= 0.0f)
+    {
+        return;
+    }
+
     const CubismIdHandle id = CubismFramework::GetIdManager()->GetId(parameterId);
 
     // 检测口型参数并缓存覆盖值（需要锁保护，因为 Update() 在 GL 线程读取）
@@ -818,6 +832,17 @@ void LAppModel::SetRandomExpression()
 
 void LAppModel::ReloadRenderer()
 {
+    // 停止所有正在播放的动作，防止在重建渲染器时访问无效资源
+    if (_motionManager != NULL)
+    {
+        _motionManager->StopAllMotions();
+    }
+
+    // 清除动作缓存，因为 GL 上下文可能已丢失
+    // 动作文件会在下次播放时重新加载
+    ReleaseMotions();
+    LAppPal::PrintLogLn("[APP]ReloadRenderer: Motion cache cleared due to GL context change");
+
     DeleteRenderer();
 
     CreateRenderer(LAppDelegate::GetInstance()->GetWindowWidth(), LAppDelegate::GetInstance()->GetWindowHeight());

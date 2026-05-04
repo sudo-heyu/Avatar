@@ -236,4 +236,39 @@ class GuideRepository @Inject constructor(
     suspend fun clearSession() {
         settingsDataStore.clearSession()
     }
+
+    /**
+     * 提交满意度反馈
+     */
+    suspend fun submitFeedback(
+        rating: Int,
+        messageId: String? = null,
+        isComplaint: Boolean = false,
+        comment: String? = null
+    ): Result<ChatFeedbackData> {
+        return try {
+            val userId = settingsDataStore.userId.first()
+            val scenicId = settingsDataStore.scenicId.first() ?: "lingshan"
+            val sessionId = settingsDataStore.sessionId.first()
+
+            val request = ChatFeedbackRequest(
+                scenicId = scenicId,
+                rating = rating,
+                sessionId = sessionId,
+                userId = userId,
+                messageId = messageId,
+                isComplaint = isComplaint,
+                comment = comment
+            )
+
+            val response = apiService.submitFeedback(request)
+            if (response.code == 0 && response.data != null) {
+                Result.success(response.data)
+            } else {
+                Result.failure(Exception(response.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }

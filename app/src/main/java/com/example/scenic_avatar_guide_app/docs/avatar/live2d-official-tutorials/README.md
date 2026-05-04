@@ -33,6 +33,51 @@
 
 ---
 
+## 项目实践笔记
+
+### Motion 缓存与 autoDelete 设计模式（2026-05-05）
+
+> **重要**：这是项目中实际遇到并修复的一个关键 bug，涉及 Live2D SDK 的 motion 生命周期管理。
+
+#### 问题背景
+
+项目中的 `StartMotionByPath` 函数用于按路径播放 Live2D 动作文件（如点头、摇头）。原实现在缓存未命中时加载 motion 并添加到 `_motions` 缓存，但同时设置了 `autoDelete = true`，导致 motion 播放完成后被 SDK 删除，缓存中留下悬空指针，后续访问触发 SIGSEGV 崩溃。
+
+#### SDK 设计原理
+
+Live2D SDK 通过 `CubismMotionQueueEntry` 管理 motion 播放：
+
+```cpp
+// CubismMotionQueueEntry.cpp
+CubismMotionQueueEntry::~CubismMotionQueueEntry()
+{
+    if (_autoDelete && _motion) {
+        ACubismMotion::Delete(_motion); // autoDelete=true 时删除 motion
+    }
+}
+```
+
+#### 正确用法
+
+| 场景 | 是否缓存 | autoDelete | 生命周期管理 |
+|------|---------|------------|-------------|
+| 临时加载的动作 | 不缓存 | true | SDK 自动删除 |
+| 预加载/缓存的动作 | 缓存 | **false** | 由 `ReleaseMotions()` 清理 |
+
+#### 项目修复
+
+```cpp
+// LAppModel.cpp:StartMotionByPath
+// 对于缓存到 _motions 的 motion，必须设置 autoDelete=false
+_motions[cacheKey] = motion;
+// 不设置 autoDelete=true！
+_motionManager->StartMotionPriority(motion, false, priority);
+```
+
+详见 `docs/threading/THREAD_SAFETY_REFACTOR.md` 附录 C。
+
+---
+
 ## 官方资源链接
 
 - **SDK 手册**: https://docs.live2d.com/cubism-sdk-manual/top/

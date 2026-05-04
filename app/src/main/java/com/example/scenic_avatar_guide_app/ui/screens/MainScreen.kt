@@ -14,6 +14,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
@@ -30,6 +32,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -66,6 +69,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import android.widget.Toast
+import androidx.compose.ui.platform.ClipboardManager
+import androidx.compose.ui.platform.LocalClipboardManager
 import com.example.scenic_avatar_guide_app.R
 import com.example.scenic_avatar_guide_app.ui.theme.*
 import com.example.scenic_avatar_guide_app.ui.components.ArcWaveform
@@ -102,6 +108,9 @@ fun MainScreen(
     val isConversationActive by viewModel.isConversationActive.collectAsStateWithLifecycle()
     val showScenicSelection by viewModel.showScenicSelection.collectAsStateWithLifecycle()
     val scenicAreas = viewModel.scenicAreas
+    val showFeedbackDialog by viewModel.showFeedbackDialog.collectAsStateWithLifecycle()
+    val isSubmittingFeedback by viewModel.isSubmittingFeedback.collectAsStateWithLifecycle()
+    val feedbackResult by viewModel.feedbackResult.collectAsStateWithLifecycle()
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -111,8 +120,22 @@ fun MainScreen(
     var showImagePickerDialog by remember { mutableStateOf(false) }
     var cameraImageUri by remember { mutableStateOf<Uri?>(null) }
 
+    // 用户是否在底部附近（用于判断是否自动滚动）
+    // 当用户上滑查看历史时，不自动滚动；用户滚回底部时恢复自动滚动
+    var isUserAtBottom by remember { mutableStateOf(true) }
+
+    // 用于跟踪最后一条消息的内容变化（打字机效果）
+    var lastMessageContent by remember { mutableStateOf("") }
+
     // 侧边栏状态
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    var sessionListRefreshKey by remember { mutableStateOf(0) }
+    
+    LaunchedEffect(drawerState.isOpen) {
+        if (drawerState.isOpen) {
+            sessionListRefreshKey++
+        }
+    }
 
     var hasAudioPermission by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
@@ -175,21 +198,35 @@ fun MainScreen(
 
     DisposableEffect(Unit) { onDispose { speechHelper.destroy() } }
 
+    // 检测用户滚动状态：判断是否在底部附近
+    // 当用户上滑查看历史时，isUserAtBottom = false，停止自动滚动
+    // 当用户滚回底部时，isUserAtBottom = true，恢复自动滚动
+    LaunchedEffect(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
+        if (messages.isEmpty()) return@LaunchedEffect
+        // 判断是否在底部附近：最后一条消息可见，或距离底部不超过 2 个 item
+        val lastVisibleIndex = listState.firstVisibleItemIndex + listState.layoutInfo.visibleItemsInfo.size - 1
+        val totalItems = messages.size
+        // 如果最后可见项是最后一条或倒数第二条，认为用户在底部
+        isUserAtBottom = lastVisibleIndex >= totalItems - 2
+    }
+
+    // 新消息到来时滚动到底部
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
-            // 使用 scrollToItem 替代 animateScrollToItem，避免滚动动画期间
-            // 与文本高频更新/输入法收起叠加触发字体渲染竞态（Vivo Android 15）
+            isUserAtBottom = true // 新消息时重置为在底部
             coroutineScope.launch { listState.scrollToItem(messages.size - 1) }
         }
     }
 
-    // 输入法弹出/收起时滚动到底部，确保最新消息不被遮挡
-    val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
-    LaunchedEffect(imeBottom) {
-        if (messages.isNotEmpty()) {
-            // 延迟滚动，让重组和输入法动画先完成，减少与文本绘制的竞争
-            delay(200)
-            coroutineScope.launch { listState.scrollToItem(messages.size - 1) }
+    // 打字机效果：当最后一条消息内容变化时，如果用户在底部则跟随滚动
+    LaunchedEffect(messages.lastOrNull()?.content) {
+        val lastMessage = messages.lastOrNull()
+        if (lastMessage != null && !lastMessage.isUser && lastMessage.content != lastMessageContent) {
+            lastMessageContent = lastMessage.content
+            // 只有当用户在底部附近时才自动滚动
+            if (isUserAtBottom && messages.isNotEmpty()) {
+                coroutineScope.launch { listState.scrollToItem(messages.size - 1) }
+            }
         }
     }
 
@@ -202,6 +239,7 @@ fun MainScreen(
         drawerContent = {
             ChatHistoryDrawer(
                 drawerWidth = drawerWidth,
+                refreshKey = sessionListRefreshKey,
                 onSettingsClick = onSettingsClick,
                 onCloseDrawer = { coroutineScope.launch { drawerState.close() } },
                 onSessionSelected = { sessionId ->
@@ -225,6 +263,7 @@ fun MainScreen(
                     .fillMaxSize()
                     .padding(paddingValues)
                     .statusBarsPadding()
+                    .imePadding()
             ) {
                 // 主内容区域：填充整个屏幕，消息列表通过 padding 避开底栏
                 Column(
@@ -246,29 +285,55 @@ fun MainScreen(
                         modifier = Modifier.fillMaxWidth().weight(2f)
                     )
 
-                    // 消息列表：底部留出底栏常态高度的空间
-                    // 使用固定的测试卡片常态高度（约32dp）+ ModeSelector(32dp) + InputSection(60dp) ≈ 124dp
-                    // 加上输入法高度，确保输入法弹出时内容可见
-                    MessageList(
-                        messages = messages,
-                        isLoading = isLoading,
-                        listState = listState,
+                    // 消息列表：底部留出底栏常态高度的空间，固定不随输入法变化
+                    // 使用固定值：测试卡片展开时最大高度(150dp) + ModeSelector(32dp) + InputSection(60dp) + 边距
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(3f)
-                            .padding(bottom = 8.dp + with(density) { WindowInsets.ime.getBottom(density).toDp() }),
-                        bottomPaddingDp = 130.dp // 固定值：测试卡片常态32dp + ModeSelector 32dp + InputSection 60dp + 边距
-                    )
+                    ) {
+                        MessageList(
+                            messages = messages,
+                            isLoading = isLoading,
+                            listState = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            bottomPaddingDp = 250.dp,
+                            onFeedbackClick = { messageId -> viewModel.showFeedbackDialog(messageId) }
+                        )
+
+                        // 滚动到底部按钮：当用户上滑查看历史时显示
+                        if (!isUserAtBottom && messages.isNotEmpty()) {
+                            FloatingActionButton(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        listState.scrollToItem(messages.size - 1)
+                                        isUserAtBottom = true
+                                    }
+                                },
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(bottom = 16.dp)
+                                    .size(40.dp),
+                                containerColor = Primary,
+                                contentColor = Color.White
+                            ) {
+                                Icon(
+                                    Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "滚动到底部",
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                    }
                 }
 
-                // 底栏：随输入法上升，置于输入法上方
+                // 底栏：固定在底部，不随输入法上升
                 // 顺序从上到下：测试卡片 → 功能卡片（模式选择器）→ 输入框
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .navigationBarsPadding()
-                        .imePadding()
                         .background(Surface)
                 ) {
                     // 测试面板：位于最上方
@@ -361,6 +426,23 @@ fun MainScreen(
             onDismiss = { viewModel.dismissScenicSelection() }
         )
     }
+
+    if (showFeedbackDialog) {
+        com.example.scenic_avatar_guide_app.ui.components.FeedbackDialog(
+            onDismiss = { viewModel.dismissFeedbackDialog() },
+            onSubmit = { rating, isComplaint, comment ->
+                viewModel.submitFeedback(rating, isComplaint, comment)
+            },
+            isSubmitting = isSubmittingFeedback
+        )
+    }
+
+    feedbackResult?.let { result ->
+        LaunchedEffect(result) {
+            Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+            viewModel.clearFeedbackResult()
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -400,6 +482,7 @@ private fun TopBar(
 @Composable
 private fun ChatHistoryDrawer(
     drawerWidth: Dp,
+    refreshKey: Int,
     onSettingsClick: () -> Unit,
     onCloseDrawer: () -> Unit,
     onSessionSelected: (String) -> Unit,
@@ -410,7 +493,7 @@ private fun ChatHistoryDrawer(
     val isLoading by viewModel.isLoading.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(refreshKey) {
         viewModel.loadSessions()
     }
 
@@ -578,15 +661,19 @@ private fun SessionDrawerItem(
             )
         }
 
-        IconButton(
-            onClick = onDelete,
-            modifier = Modifier.size(32.dp)
+        Box(
+            modifier = Modifier
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f))
+                .size(28.dp)
+                .clickable(onClick = onDelete),
+            contentAlignment = Alignment.Center
         ) {
             Icon(
-                Icons.Default.Delete,
+                Icons.Outlined.Delete,
                 contentDescription = "删除",
-                modifier = Modifier.size(18.dp),
-                tint = TextHint
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.error
             )
         }
     }
@@ -595,18 +682,21 @@ private fun SessionDrawerItem(
 private fun formatSessionTime(timeStr: String?): String {
     if (timeStr.isNullOrBlank()) return ""
     return try {
-        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.getDefault())
-        val date = fmt.parse(timeStr) ?: return ""
+        val date = java.time.OffsetDateTime.parse(timeStr).toInstant().toEpochMilli()
         val now = System.currentTimeMillis()
-        val diff = now - date.time
+        val diff = now - date
         when {
             diff < 60_000 -> "刚刚"
             diff < 3_600_000 -> "${diff / 60_000} 分钟前"
             diff < 86_400_000 -> "${diff / 3_600_000} 小时前"
             diff < 604_800_000 -> "${diff / 86_400_000} 天前"
-            else -> java.text.SimpleDateFormat("MM-dd", java.util.Locale.getDefault()).format(date)
+            else -> {
+                val localDate = java.time.Instant.ofEpochMilli(date).atZone(java.time.ZoneId.systemDefault())
+                "${localDate.monthValue}-${localDate.dayOfMonth}"
+            }
         }
-    } catch (_: Exception) {
+    } catch (e: Exception) {
+        android.util.Log.e("formatSessionTime", "parse error: $timeStr", e)
         ""
     }
 }
@@ -1068,7 +1158,8 @@ private fun MessageList(
     isLoading: Boolean,
     listState: androidx.compose.foundation.lazy.LazyListState,
     modifier: Modifier = Modifier,
-    bottomPaddingDp: androidx.compose.ui.unit.Dp = 8.dp
+    bottomPaddingDp: androidx.compose.ui.unit.Dp = 8.dp,
+    onFeedbackClick: (String) -> Unit = {}
 ) {
     LazyColumn(
         modifier = modifier.padding(horizontal = 12.dp),
@@ -1081,23 +1172,44 @@ private fun MessageList(
             key = { it.id },
             contentType = { if (it.isUser) "user" else "assistant" }
         ) { message ->
-            MessageBubble(message = message)
+            MessageBubble(message = message, onFeedbackClick = onFeedbackClick)
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageBubble(message: ChatMessage) {
+private fun MessageBubble(message: ChatMessage, onFeedbackClick: (String) -> Unit = {}) {
     val isUser = message.isUser
     val imageUri = message.pendingImageUri ?: message.imageUrl
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    val vibrator = context.getSystemService<Vibrator>()
 
-    // 判断是否需要显示思考动画
     val shouldShowThinkingAnimation = !isUser && message.isLoading
     val hasContent = message.content.isNotBlank()
+    val canShowFeedback = !isUser && !message.isLoading && !message.isError && hasContent
 
-    Row(Modifier.fillMaxWidth(), if (isUser) Arrangement.End else Arrangement.Start) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Bottom
+    ) {
         Surface(
-            modifier = Modifier.widthIn(max = 280.dp),
+            modifier = Modifier
+                .widthIn(max = 280.dp)
+                .combinedClickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onLongClick = {
+                        if (hasContent) {
+                            clipboardManager.setText(AnnotatedString(message.content))
+                            vibrator?.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
+                            Toast.makeText(context, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onClick = {}
+                ),
             shape = RoundedCornerShape(16.dp, 16.dp, if (isUser) 16.dp else 4.dp, if (isUser) 4.dp else 16.dp),
             color = if (isUser) UserBubbleBg else AssistantBubbleBg
         ) {
@@ -1131,12 +1243,19 @@ private fun MessageBubble(message: ChatMessage) {
                         )
                     }
 
-                    // 思考中/流式输出动画（在消息气泡尾部显示）
                     if (shouldShowThinkingAnimation) {
                         ThinkingDotsAnimation()
                     }
                 }
             }
+        }
+
+        if (canShowFeedback) {
+            Spacer(modifier = Modifier.width(4.dp))
+            com.example.scenic_avatar_guide_app.ui.components.FeedbackButton(
+                hasFeedback = message.hasFeedback,
+                onClick = { onFeedbackClick(message.id) }
+            )
         }
     }
 }

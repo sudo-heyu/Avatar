@@ -36,6 +36,8 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
@@ -54,6 +56,9 @@ private const val TAG = "MainViewModel"
  * 3. 控制更新频率防止 Compose 渲染崩溃
  */
 class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope) {
+    // Phase 1 修复: Mutex 保护并发访问
+    private val mutex = Mutex()
+
     // 待显示的文本缓冲区
     private val pendingText = StringBuilder()
 
@@ -110,18 +115,20 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
      * @param messageId 消息 ID
      * @param waitForSync 是否等待 TTS 同步信号（默认 true）
      */
-    fun start(messageId: String, waitForSync: Boolean = true) {
-        stop()
-        currentMessageId = messageId
-        pendingText.clear()
-        displayedText.clear()
-        batchChars = 0
-        isComplete = false
-        canStartDisplay = !waitForSync
-        receivedTtsReady = false
-        currentIntervalMs = 60L
-        lastUpdateTime = System.currentTimeMillis()
-        lastAppendTime = System.currentTimeMillis()
+    suspend fun start(messageId: String, waitForSync: Boolean = true) {
+        mutex.withLock {
+            stop()
+            currentMessageId = messageId
+            pendingText.clear()
+            displayedText.clear()
+            batchChars = 0
+            isComplete = false
+            canStartDisplay = !waitForSync
+            receivedTtsReady = false
+            currentIntervalMs = 60L
+            lastUpdateTime = System.currentTimeMillis()
+            lastAppendTime = System.currentTimeMillis()
+        }
 
         typewriterJob = scope.launch {
             // 等待 TTS 同步信号（首个音频片段开始播放）
@@ -200,7 +207,7 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
     /**
      * 添加待显示文本
      */
-    fun append(text: String) {
+    suspend fun append(text: String) = mutex.withLock {
         pendingText.append(text)
         lastAppendTime = System.currentTimeMillis()
     }
@@ -644,7 +651,11 @@ class MainViewModel @Inject constructor(
                             typewriterController.notifyTtsReady()
                             // 标记消息完成，以最大速度显示剩余文本
                             typewriterController.finish()
-                            updateAssistantMessage(assistantMessageId, isLoading = false)
+                            updateAssistantMessage(
+                                id = assistantMessageId,
+                                isLoading = false,
+                                backendMessageId = currentBackendMessageId
+                            )
                             playbackManager.finishStreamingInput()
                         }
                         is ChatStreamEvent.Aborted -> {
@@ -787,7 +798,8 @@ class MainViewModel @Inject constructor(
         isError: Boolean? = null,
         sources: List<SourceInfo>? = null,
         avatarAction: AvatarAction? = null,
-        routeData: RouteData? = null
+        routeData: RouteData? = null,
+        backendMessageId: String? = null
     ) {
         val currentList = _messages.value.toMutableList()
         val index = currentList.indexOfFirst { it.id == id }
@@ -800,7 +812,8 @@ class MainViewModel @Inject constructor(
             isError = isError ?: current.isError,
             sources = sources ?: current.sources,
             avatarAction = avatarAction ?: current.avatarAction,
-            routeData = routeData ?: current.routeData
+            routeData = routeData ?: current.routeData,
+            backendMessageId = backendMessageId ?: current.backendMessageId
         )
         _messages.value = currentList
     }
@@ -988,6 +1001,80 @@ class MainViewModel @Inject constructor(
      */
     fun setSpeed(speed: Float) {
         playbackManager.setSpeed(speed)
+    }
+
+    // ==================== 满意度反馈功能 ====================
+
+    private val _showFeedbackDialog = MutableStateFlow(false)
+    val showFeedbackDialog: StateFlow<Boolean> = _showFeedbackDialog.asStateFlow()
+
+    private val _feedbackMessageId = MutableStateFlow<String?>(null)
+    val feedbackMessageId: StateFlow<String?> = _feedbackMessageId.asStateFlow()
+
+    private val _isSubmittingFeedback = MutableStateFlow(false)
+    val isSubmittingFeedback: StateFlow<Boolean> = _isSubmittingFeedback.asStateFlow()
+
+    private val _feedbackResult = MutableStateFlow<FeedbackResult?>(null)
+    val feedbackResult: StateFlow<FeedbackResult?> = _feedbackResult.asStateFlow()
+
+    data class FeedbackResult(
+        val success: Boolean,
+        val message: String
+    )
+
+    fun showFeedbackDialog(messageId: String) {
+        _feedbackMessageId.value = messageId
+        _showFeedbackDialog.value = true
+    }
+
+    fun dismissFeedbackDialog() {
+        _showFeedbackDialog.value = false
+        _feedbackMessageId.value = null
+    }
+
+    fun submitFeedback(rating: Int, isComplaint: Boolean, comment: String?) {
+        val messageId = _feedbackMessageId.value ?: return
+        val message = _messages.value.find { it.id == messageId } ?: return
+
+        viewModelScope.launch {
+            _isSubmittingFeedback.value = true
+            
+            val result = repository.submitFeedback(
+                rating = rating,
+                messageId = message.backendMessageId,
+                isComplaint = isComplaint,
+                comment = comment
+            )
+
+            _isSubmittingFeedback.value = false
+
+            result.fold(
+                onSuccess = {
+                    updateMessageFeedbackStatus(messageId, true)
+                    _feedbackResult.value = FeedbackResult(true, "感谢您的反馈！")
+                    dismissFeedbackDialog()
+                    Log.d(TAG, "Feedback submitted successfully: ${it.feedbackId}")
+                },
+                onFailure = { error ->
+                    _feedbackResult.value = FeedbackResult(false, "提交失败：${error.message}")
+                    Log.e(TAG, "Feedback submission failed", error)
+                }
+            )
+        }
+    }
+
+    fun clearFeedbackResult() {
+        _feedbackResult.value = null
+    }
+
+    private fun updateMessageFeedbackStatus(messageId: String, hasFeedback: Boolean) {
+        val currentList = _messages.value.toMutableList()
+        val index = currentList.indexOfFirst { it.id == messageId }
+        if (index != -1) {
+            val current = currentList[index]
+            currentList[index] = current.copy(hasFeedback = hasFeedback)
+            _messages.value = currentList
+        }
     }
 
     // ==================== 语音输入功能 ====================

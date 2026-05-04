@@ -1,6 +1,7 @@
 package com.example.scenic_avatar_guide_app.core.avatar
 
 import android.content.Context
+import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import com.example.scenic_avatar_guide_app.core.audio.AudioPlayer
@@ -40,6 +41,13 @@ class AvatarPlaybackManager(
     private val context: Context,
     private val repository: GuideRepository
 ) {
+
+    // Phase 1 修复: 主线程断言
+    private fun assertMainThread() {
+        check(Looper.myLooper() == Looper.getMainLooper()) {
+            "AvatarPlaybackManager 必须在主线程调用，当前: ${Thread.currentThread().name}"
+        }
+    }
 
     // Avatar 状态
     private val _avatarState = MutableStateFlow(AvatarFullState())
@@ -90,7 +98,7 @@ class AvatarPlaybackManager(
             // 使用同步锁保护 segment 切换
             synchronized(lipSyncLock) {
                 receivedTtsSegment = true
-                isPlaying = true
+                isPlayingRef.set(true)
                 cancelWaitingClose()
                 if (!notifiedFirstSegment) {
                     notifiedFirstSegment = true
@@ -103,8 +111,9 @@ class AvatarPlaybackManager(
                     )
                 }
                 currentSegmentId = segment.segmentId
-                currentStreamOffsetMs = segment.streamAudioOffsetMs?.toLong() ?: 0L
-                currentSegmentText = segment.text ?: ""
+                currentStreamOffsetMs = 0L // audio_url 播放时 marks 已与音频对齐，无需偏移
+                // 清洗文本用于口型生成，去除标签
+                currentSegmentText = sanitizeTtsText(segment.text ?: "")
             }
             // 在同步锁外启动口型同步，避免死锁
             startAudioSyncedLipSync()
@@ -114,15 +123,16 @@ class AvatarPlaybackManager(
         },
         onWaitingForSegment = {
             // 队列为空但流未结束：保持当前口型状态，仅暂停口型同步循环
-            // 不切换到 THINKING 状态，避免 segment 间隙出现明显的口型跳变
+            // Phase 0 修复：避免 synchronized + cancel 死锁
+            val jobsToCancel: List<Job?>
             synchronized(lipSyncLock) {
-                streamingLipSyncJob?.cancel()
+                jobsToCancel = listOf(streamingLipSyncJob, audioPositionSyncJob)
                 streamingLipSyncJob = null
-                audioPositionSyncJob?.cancel()
                 audioPositionSyncJob = null
                 currentSegmentEvents.clear()
                 currentSegmentId = null
             }
+            jobsToCancel.forEach { it?.cancel() }
             // 不强制闭嘴，保持当前口型状态，让下一个 segment 开始时平滑过渡
             _avatarState.update {
                 it.copy(
@@ -134,15 +144,17 @@ class AvatarPlaybackManager(
         },
         onAllComplete = {
             cancelWaitingClose()
+            // Phase 0 修复：避免 synchronized + cancel 死锁
+            val jobsToCancel: List<Job?>
             synchronized(lipSyncLock) {
-                audioPositionSyncJob?.cancel()
+                jobsToCancel = listOf(audioPositionSyncJob, streamingLipSyncJob)
                 audioPositionSyncJob = null
-                streamingLipSyncJob?.cancel()
                 streamingLipSyncJob = null
-                isPlaying = false
+                isPlayingRef.set(false)
                 currentSegmentEvents.clear()
                 currentSegmentId = null
             }
+            jobsToCancel.forEach { it?.cancel() }
             _mouthState.value = Pair(0f, 0f)
             _avatarState.update {
                 it.copy(
@@ -157,15 +169,17 @@ class AvatarPlaybackManager(
         },
         onError = {
             cancelWaitingClose()
+            // Phase 0 修复：避免 synchronized + cancel 死锁
+            val jobsToCancel: List<Job?>
             synchronized(lipSyncLock) {
-                audioPositionSyncJob?.cancel()
+                jobsToCancel = listOf(audioPositionSyncJob, streamingLipSyncJob)
                 audioPositionSyncJob = null
-                streamingLipSyncJob?.cancel()
                 streamingLipSyncJob = null
-                isPlaying = false
+                isPlayingRef.set(false)
                 currentSegmentEvents.clear()
                 currentSegmentId = null
             }
+            jobsToCancel.forEach { it?.cancel() }
             _mouthState.value = Pair(0f, 0f)
             _avatarState.update {
                 it.copy(
@@ -192,8 +206,8 @@ class AvatarPlaybackManager(
     // 当前口型
     private var currentViseme: VisemeType = VisemeType.NEUTRAL
 
-    // 是否正在播放
-    private var isPlaying = false
+    // Phase 1 修复: isPlaying 改为 AtomicBoolean，保证多协程可见性
+    private val isPlayingRef = AtomicBoolean(false)
 
     // 当前播放动作（用于获取 loop 等配置）
     private var currentPlayAction: AvatarPlayAction? = null
@@ -261,6 +275,7 @@ class AvatarPlaybackManager(
      * 设置发音人
      */
     fun setVoice(voiceId: String) {
+        assertMainThread()
         ttsController.setVoice(voiceId)
         _currentVoice.value = RemoteTTSController.AVAILABLE_VOICES.find { it.id == voiceId }
             ?: RemoteTTSController.DEFAULT_VOICE
@@ -270,6 +285,7 @@ class AvatarPlaybackManager(
      * 设置语速 (0.5 - 2.0)
      */
     fun setSpeed(speed: Float) {
+        assertMainThread()
         ttsController.setSpeed(speed)
     }
 
@@ -277,6 +293,7 @@ class AvatarPlaybackManager(
      * 设置音调 (0.5 - 2.0)
      */
     fun setPitch(pitch: Float) {
+        assertMainThread()
         ttsController.setPitch(pitch)
     }
 
@@ -286,7 +303,7 @@ class AvatarPlaybackManager(
     private fun setupTTSCallbacks() {
         ttsController.onSpeakStart = {
             _avatarState.update { it.copy(state = AvatarState.SPEAKING) }
-            isPlaying = true
+            isPlayingRef.set(true)
         }
 
         ttsController.onSpeakComplete = {
@@ -304,7 +321,7 @@ class AvatarPlaybackManager(
                     mouthForm = 0f
                 )
             }
-            isPlaying = false
+            isPlayingRef.set(false)
             currentPlayAction = null
             currentSegmentEvents.clear()
         }
@@ -346,7 +363,7 @@ class AvatarPlaybackManager(
             var samePositionCount = 0
             var frameCount = 0
 
-            while (isActive && isPlaying) {
+            while (isActive && isPlayingRef.get()) {
                 frameCount++
                 val frameStart = System.currentTimeMillis()
 
@@ -406,10 +423,11 @@ class AvatarPlaybackManager(
      * 播放动作和语音
      */
     fun play(action: AvatarPlayAction) {
+        assertMainThread()
         val hasSpeech = !action.text.isNullOrBlank()
         Log.d(TAG, "play: gesture=${action.gesture}, expression=${action.expression}, hasSpeech=$hasSpeech, text=${action.text?.take(20)}, motions=${action.motionQueue.size}")
 
-        if (isPlaying) {
+        if (isPlayingRef.get()) {
             stop()
         }
         streamingTtsQueue.cancel()
@@ -486,6 +504,7 @@ class AvatarPlaybackManager(
         expressionIntensity: Float = 0.7f,
         gesture: AvatarGesture = AvatarGesture.THINKING_POSE
     ) {
+        assertMainThread()
         Log.d(TAG, "[STREAMING] 开始流式播放会话")
         stop()
         receivedTtsSegment = false
@@ -542,6 +561,7 @@ class AvatarPlaybackManager(
     }
 
     fun enqueueSpeechSegment(segment: TtsSegmentData) {
+        assertMainThread()
         val idx = segment.segmentIndex
         if (idx == null) {
             // 旧后端不返回 segmentIndex，按到达顺序直接入队
@@ -575,6 +595,7 @@ class AvatarPlaybackManager(
     }
 
     fun finishStreamingInput() {
+        assertMainThread()
         // 流结束后，将所有因等待缺失 index 而滞留的 segment 按序强制入队
         if (pendingSegments.isNotEmpty()) {
             Log.w(TAG, "[REORDER] finishInput: 强制释放 ${pendingSegments.size} 个滞留 segment")
@@ -594,6 +615,7 @@ class AvatarPlaybackManager(
         loop: Boolean = false,
         speed: Float = 1.0f
     ) {
+        assertMainThread()
         // 优先级检查
         if (priority.ordinal < _avatarState.value.gesturePriority.ordinal) {
             Log.d(TAG, "playGesture ignored: $priority < current ${_avatarState.value.gesturePriority}")
@@ -632,6 +654,7 @@ class AvatarPlaybackManager(
      * 设置表情
      */
     fun setExpression(expression: AvatarExpression, intensity: Float = 0.7f) {
+        assertMainThread()
         _avatarState.update {
             it.copy(
                 expression = expression,
@@ -642,17 +665,23 @@ class AvatarPlaybackManager(
 
     /**
      * 停止播放
+     *
+     * Phase 0 修复：避免 synchronized + cancel 死锁
+     * 持锁期间只做字段赋值，取出 job 引用后离开锁再取消
      */
     fun stop() {
+        assertMainThread()
         runCatching {
             ttsController.stop()
             streamingTtsQueue.cancel()
+
+            // 1. 持锁期间只做字段赋值，取出 job 引用
+            val jobsToCancel: List<Job?>
             synchronized(lipSyncLock) {
-                audioPositionSyncJob?.cancel()
+                jobsToCancel = listOf(audioPositionSyncJob, streamingLipSyncJob)
                 audioPositionSyncJob = null
-                streamingLipSyncJob?.cancel()
                 streamingLipSyncJob = null
-                isPlaying = false
+                isPlayingRef.set(false)
                 currentSegmentEvents.clear()
                 currentSegmentId = null
                 currentStreamOffsetMs = 0L
@@ -661,6 +690,9 @@ class AvatarPlaybackManager(
                 pendingSegments.clear()
                 nextExpectedSegmentIndex = 0
             }
+            // 2. 锁外取消，协程可以自由退出（不需要等锁）
+            jobsToCancel.forEach { it?.cancel() }
+
             // 重置原子状态
             isLipSyncActive.set(false)
             currentLipSyncSegmentId.set(null)
@@ -725,17 +757,20 @@ class AvatarPlaybackManager(
         val marks = segment.marks
         val segmentDuration = segment.durationMs?.toLong() ?: 0L
 
+        // 清洗文本，去除标签（防止标签影响口型生成）
+        val cleanText = sanitizeTtsText(segment.text ?: "")
+
         val events = if (!marks.isNullOrEmpty()) {
             val marksEnd = marks.lastOrNull()?.endMs ?: 0
             Log.d(TAG, "[PRELOAD] ${segment.segmentId}: 后端 marks=${marks.size}, " +
                     "marks范围=0-${marksEnd}ms, 音频时长=${segmentDuration}ms")
             ChinesePhonemeEngine.marksToPhonemeEvents(marks)
         } else {
-            // 无 marks，使用文本估算
-            val estimatedDuration = estimateTextDuration(segment.text)
+            // 无 marks，使用清洗后的文本估算
+            val estimatedDuration = estimateTextDuration(cleanText)
             Log.d(TAG, "[PRELOAD] ${segment.segmentId}: 无 marks，本地估算=${estimatedDuration}ms, 音频时长=${segmentDuration}ms")
             ChinesePhonemeEngine.textToPhonemeEvents(
-                text = segment.text,
+                text = cleanText,
                 totalDurationMs = segmentDuration.takeIf { it > 0 } ?: estimatedDuration
             )
         }
@@ -763,6 +798,9 @@ class AvatarPlaybackManager(
         val marks = segment.marks
         val segmentDuration = segment.durationMs?.toLong() ?: 0L
 
+        // 清洗文本，去除标签
+        val cleanText = sanitizeTtsText(segment.text ?: "")
+
         val events = if (!marks.isNullOrEmpty()) {
             val marksEnd = marks.lastOrNull()?.endMs ?: 0
             Log.d(TAG, "[SEGMENT] ${segment.segmentId}: 后端 marks=${marks.size}, " +
@@ -770,10 +808,10 @@ class AvatarPlaybackManager(
                     "差异=${segmentDuration - marksEnd}ms")
             ChinesePhonemeEngine.marksToPhonemeEvents(marks)
         } else {
-            val estimatedDuration = estimateTextDuration(segment.text)
+            val estimatedDuration = estimateTextDuration(cleanText)
             Log.d(TAG, "[SEGMENT] ${segment.segmentId}: 无 marks，本地估算=${estimatedDuration}ms, 音频时长=${segmentDuration}ms")
             ChinesePhonemeEngine.textToPhonemeEvents(
-                text = segment.text,
+                text = cleanText,
                 totalDurationMs = segmentDuration.takeIf { it > 0 } ?: estimatedDuration
             )
         }
@@ -809,13 +847,18 @@ class AvatarPlaybackManager(
             return
         }
 
-        // 如果 job 已在运行，取消旧的并重置状态（segment 切换时）
+        // Phase 0 修复：如果 job 已在运行，取消旧的并重置状态（segment 切换时）
+        // 先取出 job 引用，在锁外取消，避免死锁
+        val oldJob: Job?
         synchronized(lipSyncLock) {
-            if (audioPositionSyncJob?.isActive == true) {
+            oldJob = if (audioPositionSyncJob?.isActive == true) {
                 Log.d(TAG, "[LIPSYNC] 取消旧 job，启动新 segment 口型同步: $segmentId")
-                audioPositionSyncJob?.cancel()
+                audioPositionSyncJob
+            } else {
+                null
             }
         }
+        oldJob?.cancel()
 
         // 从预生成缓存加载口型事件
         synchronized(lipSyncLock) {
@@ -858,7 +901,7 @@ class AvatarPlaybackManager(
             var frameCount = 0
             var wasBuffering = false
 
-            while (isActive && isPlaying) {
+            while (isActive && isPlayingRef.get()) {
                 // 校验是否仍在处理同一个 segment
                 val currentSegId = currentLipSyncSegmentId.get()
                 if (currentSegId != segmentId) {
@@ -1064,6 +1107,27 @@ class AvatarPlaybackManager(
         _avatarState.update { it.copy(mouthOpen = 0f, mouthForm = 0f) }
     }
 
+    /**
+     * 清洗 TTS 文本：去除 XML/HTML 标签、Markdown 格式等，保留纯文本
+     * 防止后端返回的带标签文本影响口型生成
+     */
+    private fun sanitizeTtsText(text: String): String {
+        return text
+            // 去除 HTML/XML 标签 <...> 和 <...（不完整标签）
+            .replace(Regex("""<[^>]*>?"""), "")
+            // 去除中文尖括号标签 〈...〉 或 〈...（不完整）
+            .replace(Regex("""〈[^〉]*〉?"""), "")
+            // 去除 Markdown 链接 [text](url)
+            .replace(Regex("""\[[^\]]*\]\([^)]*\)"""), "")
+            // 去除 Markdown 格式符号
+            .replace(Regex("""[*_|`>#~-]"""), "")
+            // 去除 URL
+            .replace(Regex("""https?://\S+"""), "")
+            // 合并多余空白
+            .trim()
+            .replace(Regex("""\s+"""), " ")
+    }
+
     private fun estimateTextDuration(text: String): Long {
         return text.sumOf { char ->
             when {
@@ -1154,6 +1218,7 @@ class AvatarPlaybackManager(
      * 4. 释放流式队列（会触发 audioPlayer.release）
      */
     fun release() {
+        assertMainThread()
         runCatching {
             stop()
             scope.cancel()

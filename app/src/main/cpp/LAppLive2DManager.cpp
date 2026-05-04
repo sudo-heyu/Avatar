@@ -204,6 +204,14 @@ void LAppLive2DManager::OnTap(csmFloat32 x, csmFloat32 y)
 void LAppLive2DManager::OnUpdate() const
 {
     std::lock_guard<std::mutex> lock(_managerMutex);
+
+    // 安全检查：确保 CubismFramework 已初始化
+    if (!CubismFramework::IsInitialized())
+    {
+        LAppPal::PrintLogLn("[APP]OnUpdate: CubismFramework not initialized, skipping");
+        return;
+    }
+
     int width = LAppDelegate::GetInstance()->GetWindowWidth();
     int height = LAppDelegate::GetInstance()->GetWindowHeight();
     float aspectRatio = static_cast<float>(width) / static_cast<float>(height);
@@ -264,14 +272,27 @@ void LAppLive2DManager::OnUpdate() const
             projection.MultiplyByMatrix(_viewMatrix);
         }
 
-        // モデル1体描画前コール
-        LAppDelegate::GetInstance()->GetView()->PreModelDraw(*model);
+        // 安全检查：确保 view 存在
+        LAppView* view = LAppDelegate::GetInstance()->GetView();
+        if (view == NULL)
+        {
+            LAppPal::PrintLogLn("[APP]OnUpdate: View is NULL, skipping draw");
+            continue;
+        }
 
-        model->Update();
-        model->Draw(projection);///< 参照渡しなのでprojectionは変質する
+        // モデル1体描画前コール
+        view->PreModelDraw(*model);
+
+        try {
+            model->Update();
+            model->Draw(projection);///< 参照渡しなのでprojectionは変質する
+        } catch (...) {
+            LAppPal::PrintLogLn("[APP]OnUpdate: Exception in model update/draw, stopping motion");
+            // 继续处理下一个模型
+        }
 
         // モデル1体描画後コール
-        LAppDelegate::GetInstance()->GetView()->PostModelDraw(*model);
+        view->PostModelDraw(*model);
     }
 
     // モデルで使用するオフスクリーン管理の終了処理

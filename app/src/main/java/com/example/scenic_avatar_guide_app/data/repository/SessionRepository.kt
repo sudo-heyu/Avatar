@@ -35,6 +35,9 @@ class SessionRepository @Inject constructor(
                 pageSize = 20
             )
             if (response.code == 0) {
+                response.data.sessions.forEach { session ->
+                    Log.d(TAG, "Session: id=${session.sessionId}, title=${session.title}, firstUserMessage=${session.firstUserMessage}, lastMessageAt=${session.lastMessageAt}")
+                }
                 Result.success(response.data.sessions)
             } else {
                 Log.w(TAG, "getSessionList failed: ${response.message}")

@@ -207,6 +207,15 @@ extern "C"
             return;
         }
 
+        // 防御：检查参数值是否有效，防止 NaN/Infinity 导致后续动画计算崩溃
+        if (value != value || // NaN check
+            value < -1000.0f || value > 1000.0f || // 极端值检查
+            weight != weight || // NaN check
+            weight <= 0.0f)
+        {
+            return;
+        }
+
         std::lock_guard<std::mutex> lock(s_renderMutex);
         const char* rawParameterId = env->GetStringUTFChars(parameterId, nullptr);
         LAppLive2DManager::GetInstance()->SetParameter(rawParameterId, value, weight);

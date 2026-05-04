@@ -3,6 +3,7 @@ package com.example.scenic_avatar_guide_app.core.tts
 import android.content.Context
 import android.util.Log
 import com.example.scenic_avatar_guide_app.core.audio.AudioPlayer
+import com.example.scenic_avatar_guide_app.core.audio.AudioPlayerEvent
 import com.example.scenic_avatar_guide_app.core.avatar.ChinesePhonemeEngine
 import com.example.scenic_avatar_guide_app.data.repository.GuideRepository
 import kotlinx.coroutines.*
@@ -32,6 +33,7 @@ class RemoteTTSController(
     }
 
     private val audioPlayer = AudioPlayer(context)
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     private var currentVoiceId = DEFAULT_VOICE.id
     private var currentSpeed = 1.0f
@@ -53,50 +55,66 @@ class RemoteTTSController(
     private var pendingPhonemeEvents: List<PhonemeEvent>? = null
 
     init {
-        setupAudioPlayerCallbacks()
-    }
-
-    private fun setupAudioPlayerCallbacks() {
-        audioPlayer.onPlayStart = {
-            Log.d(TAG, "[TTS] 音频播放开始")
-            isSpeaking = true
-            onSpeakStart?.invoke()
-
-            // 音频开始时，启动预计算好的口型动画
-            pendingPhonemeEvents?.let { events ->
-                val eventCount = events.size
-                val lastEvent = events.lastOrNull()
-                Log.d(TAG, "[TTS] 触发口型事件: count=$eventCount, 时间范围=0-${lastEvent?.endMs}ms")
-                onPhonemeEvents?.invoke(events)
-
-                // 向后兼容：逐个回调旧接口
-                lipSyncJob?.cancel()
-                lipSyncJob = CoroutineScope(Dispatchers.Main).launch {
-                    val playStartTime = System.currentTimeMillis()
-                    events.forEach { event ->
-                        if (!isActive) return@launch
-                        val elapsed = System.currentTimeMillis() - playStartTime
-                        val waitTime = event.startMs - elapsed
-                        if (waitTime > 0) delay(waitTime)
-                        onPhonemeCallback?.invoke(event)
+        // Phase 2: 用 Flow collect 替代 var 回调
+        scope.launch {
+            audioPlayer.events.collect { event ->
+                when (event) {
+                    is AudioPlayerEvent.PlayStart -> {
+                        handlePlayStart()
                     }
+                    is AudioPlayerEvent.PlayComplete -> {
+                        handlePlayComplete()
+                    }
+                    is AudioPlayerEvent.PlayError -> {
+                        handlePlayError(event.message)
+                    }
+                    else -> {}
                 }
             }
         }
-        audioPlayer.onPlayComplete = {
-            Log.d(TAG, "[TTS] 音频播放完成, duration=${audioPlayer.getDuration()}ms")
-            isSpeaking = false
+    }
+
+    private fun handlePlayStart() {
+        Log.d(TAG, "[TTS] 音频播放开始")
+        isSpeaking = true
+        onSpeakStart?.invoke()
+
+        // 音频开始时，启动预计算好的口型动画
+        pendingPhonemeEvents?.let { events ->
+            val eventCount = events.size
+            val lastEvent = events.lastOrNull()
+            Log.d(TAG, "[TTS] 触发口型事件: count=$eventCount, 时间范围=0-${lastEvent?.endMs}ms")
+            onPhonemeEvents?.invoke(events)
+
+            // 向后兼容：逐个回调旧接口
             lipSyncJob?.cancel()
-            pendingPhonemeEvents = null
-            onSpeakComplete?.invoke()
+            lipSyncJob = CoroutineScope(Dispatchers.Main).launch {
+                val playStartTime = System.currentTimeMillis()
+                events.forEach { event ->
+                    if (!isActive) return@launch
+                    val elapsed = System.currentTimeMillis() - playStartTime
+                    val waitTime = event.startMs - elapsed
+                    if (waitTime > 0) delay(waitTime)
+                    onPhonemeCallback?.invoke(event)
+                }
+            }
         }
-        audioPlayer.onPlayError = { error ->
-            Log.e(TAG, "音频播放错误: $error")
-            isSpeaking = false
-            lipSyncJob?.cancel()
-            pendingPhonemeEvents = null
-            onSpeakComplete?.invoke()
-        }
+    }
+
+    private fun handlePlayComplete() {
+        Log.d(TAG, "[TTS] 音频播放完成, duration=${audioPlayer.getDuration()}ms")
+        isSpeaking = false
+        lipSyncJob?.cancel()
+        pendingPhonemeEvents = null
+        onSpeakComplete?.invoke()
+    }
+
+    private fun handlePlayError(error: String) {
+        Log.e(TAG, "音频播放错误: $error")
+        isSpeaking = false
+        lipSyncJob?.cancel()
+        pendingPhonemeEvents = null
+        onSpeakComplete?.invoke()
     }
 
     override fun speak(text: String) {
@@ -159,6 +177,7 @@ class RemoteTTSController(
 
     override fun release() {
         stop()
+        scope.cancel()
         audioPlayer.release()
     }
 
