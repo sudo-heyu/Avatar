@@ -575,6 +575,15 @@ class AvatarPlaybackManager(
     }
 
     fun finishStreamingInput() {
+        // 流结束后，将所有因等待缺失 index 而滞留的 segment 按序强制入队
+        if (pendingSegments.isNotEmpty()) {
+            Log.w(TAG, "[REORDER] finishInput: 强制释放 ${pendingSegments.size} 个滞留 segment")
+            for ((idx, segment) in pendingSegments) {
+                Log.w(TAG, "[REORDER] 强制入队 idx=$idx, segmentId=${segment.segmentId}")
+                streamingTtsQueue.enqueue(segment)
+            }
+            pendingSegments.clear()
+        }
         streamingTtsQueue.finishInput()
     }
 

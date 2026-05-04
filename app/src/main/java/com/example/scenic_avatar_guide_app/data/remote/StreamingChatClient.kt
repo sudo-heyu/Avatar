@@ -42,9 +42,9 @@ class StreamingChatClient @Inject constructor(
         val jsonString = json.encodeToString(request)
         Log.d(TAG, "请求体: $jsonString")
 
-        val requestBody = jsonString
-            .toRequestBody("application/json".toMediaType())
+        val requestBody = jsonString.toRequestBody("application/json".toMediaType())
 
+        // URL 中的 host/scheme/port 由 DynamicBaseUrlInterceptor 运行时替换
         val httpRequest = Request.Builder()
             .url("${SettingsDataStore.DEFAULT_BASE_URL}api/v1/chat/text/stream")
             .post(requestBody)

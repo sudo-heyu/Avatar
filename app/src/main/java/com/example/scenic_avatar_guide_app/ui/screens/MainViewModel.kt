@@ -550,6 +550,8 @@ class MainViewModel @Inject constructor(
             var receivedText = false
             var latestAvatarAction: AvatarAction? = null
             var latestMetadata: ResponseMetadata? = null
+            // 记录已经由 TtsSegment 直接入队的 segmentId，避免 TtsSegmentReady 重复入队
+            val enqueuedByTtsSegment = mutableSetOf<String>()
 
             try {
                 repository.sendTextMessageStream(
@@ -574,11 +576,24 @@ class MainViewModel @Inject constructor(
                             typewriterController.append(event.delta)
                         }
                         is ChatStreamEvent.TtsSegment -> {
-                            Log.d(TAG, "[LATENCY] TtsSegment 预通知: segmentId=${event.segment.segmentId}, time=${System.currentTimeMillis()}")
+                            val seg = event.segment
+                            if (!seg.audioUrl.isNullOrBlank()) {
+                                // 后端直接在预通知里附带了音频 URL，立即入队
+                                enqueuedByTtsSegment.add(seg.segmentId)
+                                playbackManager.enqueueSpeechSegment(seg)
+                                Log.d(TAG, "[LATENCY] TtsSegment 直接入队: segmentId=${seg.segmentId}, audioUrl=${seg.audioUrl}")
+                            } else {
+                                Log.d(TAG, "[LATENCY] TtsSegment 预通知（无音频URL）: segmentId=${seg.segmentId}")
+                            }
                         }
                         is ChatStreamEvent.TtsSegmentReady -> {
-                            Log.d(TAG, "[LATENCY] TtsSegmentReady 播放: segmentId=${event.segment.segmentId}, audioUrl=${event.segment.audioUrl}, durationMs=${event.segment.durationMs}")
-                            playbackManager.enqueueSpeechSegment(event.segment)
+                            val seg = event.segment
+                            if (seg.segmentId in enqueuedByTtsSegment) {
+                                Log.d(TAG, "[LATENCY] TtsSegmentReady 跳过（已由 TtsSegment 入队）: segmentId=${seg.segmentId}")
+                            } else {
+                                Log.d(TAG, "[LATENCY] TtsSegmentReady 播放: segmentId=${seg.segmentId}, audioUrl=${seg.audioUrl}, durationMs=${seg.durationMs}")
+                                playbackManager.enqueueSpeechSegment(seg)
+                            }
                         }
                         is ChatStreamEvent.AvatarActionDelta -> {
                             Log.d(TAG, "AvatarActionDelta: expression=${event.action.expression?.type}")

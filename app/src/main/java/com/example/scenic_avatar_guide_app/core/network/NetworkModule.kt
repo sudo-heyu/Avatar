@@ -9,6 +9,7 @@ import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -91,11 +92,16 @@ object NetworkModule {
     private class DynamicBaseUrlInterceptor(
         private val settingsDataStore: SettingsDataStore
     ) : Interceptor {
+        // 首次请求后缓存，避免后续每次请求都 runBlocking
+        @Volatile
+        private var resolvedUrl: HttpUrl? = null
+
         override fun intercept(chain: Interceptor.Chain): okhttp3.Response {
             val request = chain.request()
-            val configuredBaseUrl = runBlocking {
-                settingsDataStore.baseUrl.first()
-            }.toHttpUrlOrNull()
+            val configuredBaseUrl = resolvedUrl
+                ?: runBlocking { settingsDataStore.baseUrl.first() }
+                    .toHttpUrlOrNull()
+                    ?.also { resolvedUrl = it }
 
             if (configuredBaseUrl == null) {
                 return chain.proceed(request)
@@ -109,11 +115,7 @@ object NetworkModule {
 
             android.util.Log.d("DynamicBaseUrl", "URL替换: ${request.url} -> $newUrl")
 
-            return chain.proceed(
-                request.newBuilder()
-                    .url(newUrl)
-                    .build()
-            )
+            return chain.proceed(request.newBuilder().url(newUrl).build())
         }
     }
 }

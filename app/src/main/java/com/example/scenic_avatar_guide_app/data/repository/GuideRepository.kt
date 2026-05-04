@@ -25,9 +25,6 @@ class GuideRepository @Inject constructor(
     private val settingsDataStore: SettingsDataStore
 ) {
 
-    // 内存缓存 baseUrl，避免每次 buildAudioUrl 都读 DataStore
-    @Volatile
-    private var cachedBaseUrl: String? = null
     /**
      * 健康检查
      */
@@ -226,13 +223,10 @@ class GuideRepository @Inject constructor(
 
     /**
      * 拼接完整音频 URL
-     * 使用内存缓存的 baseUrl，避免每次 segment 入队都串行读 DataStore
      */
     suspend fun buildAudioUrl(relativePath: String): String {
         if (relativePath.startsWith("http")) return relativePath
-        val baseUrl = cachedBaseUrl
-            ?: settingsDataStore.baseUrl.first()?.also { cachedBaseUrl = it }
-            ?: SettingsDataStore.DEFAULT_BASE_URL
+        val baseUrl = settingsDataStore.baseUrl.first()
         return "${baseUrl.removeSuffix("/")}/${relativePath.removePrefix("/")}"
     }
 
