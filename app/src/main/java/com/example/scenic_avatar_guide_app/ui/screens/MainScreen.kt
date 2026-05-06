@@ -105,7 +105,6 @@ import java.util.Locale
 private const val LONG_TEXT_MARKDOWN_LIMIT = 1200
 private const val TEXT_RENDER_CHUNK_SIZE = 700
 private val FallbackBottomReserve = 152.dp
-private val FallbackBottomReserveWithTestPanel = 192.dp
 private val MessageToFunctionCardGap = 8.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -152,8 +151,6 @@ fun MainScreen(
     val navigationBottomPx = WindowInsets.navigationBars.getBottom(density)
     val fixedBottomBarHeight = if (bottomControlsContentHeightPx > 0) {
         with(density) { (bottomControlsContentHeightPx + navigationBottomPx).toDp() } + MessageToFunctionCardGap
-    } else if (showTestPanel) {
-        FallbackBottomReserveWithTestPanel
     } else {
         FallbackBottomReserve
     }
@@ -449,7 +446,7 @@ fun MainScreen(
                 }
 
                 // 底栏：随输入法上升；主内容区不响应 IME，保持数字人和消息区域位置固定
-                // 顺序从上到下：测试卡片 → 功能卡片（模式选择器）→ 输入框
+                // 测试卡片在稳定控制区之外单独渲染，不参与 Spacer 高度计算
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -460,12 +457,9 @@ fun MainScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .onSizeChanged { size ->
-                                bottomControlsContentHeightPx = size.height
-                            }
                             .background(Surface)
                     ) {
-                        // 测试面板：位于最上方
+                        // 测试面板：位于最上方，但不参与稳定高度测量，出现/消失不影响消息区和数字人区
                         if (showTestPanel) {
                             CompactTestPanel(
                                 onActionClick = { action -> viewModel.playTestAction(action) },
@@ -473,63 +467,72 @@ fun MainScreen(
                             )
                         }
 
-                        // 功能卡片：模式选择器
-                        ModeSelector(currentMode, { viewModel.switchMode(it) }, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp))
-
-                        if (voiceInputMode && isRecording) {
-                            CancelZone(
-                                isCancelZone = isCancelZone,
-                                modifier = Modifier.fillMaxWidth().height(48.dp)
-                            )
-                        }
-
-                        if (voiceInputMode && isRecording) {
-                            VoiceWaveformSection(
-                                volumeLevel = volumeLevel,
-                                isCancelZone = isCancelZone,
-                                modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp)
-                            )
-                        }
-
-                        // 输入框：位于最下方
-                        if (voiceInputMode) {
-                            VoiceInputButton(
-                                isRecording = isRecording,
-                                isCancelZone = isCancelZone,
-                                onCancelZoneChange = { isCancelZone = it },
-                                onVoiceStart = { speechHelper.startListening() },
-                                onVoiceStop = { speechHelper.stopListening() },
-                                onCancel = { speechHelper.cancel(); viewModel.exitVoiceInputMode() },
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
-                            )
-                        } else {
-                            InputSection(
-                                mode = currentMode, inputText = inputText, isLoading = isLoading,
-                                isConversationActive = isConversationActive,
-                                pendingImageUri = pendingImageUri,
-                                onInputChange = { viewModel.updateInputText(it) },
-                                onSend = { viewModel.sendMessage() },
-                                onAbort = { viewModel.abortConversation() },
-                                onVoiceClick = {
-                                    if (hasAudioPermission) viewModel.enterVoiceInputMode()
-                                    else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                },
-                                onCameraInput = { showImagePickerDialog = true },
-                                onClearImage = { viewModel.clearPendingImage() },
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
-                            )
-                        }
-
-                        // AI 生成内容提示
-                        Text(
-                            text = "内容由AI生成",
-                            fontSize = 10.sp,
-                            color = TextHint,
+                        // 稳定控制区：只测量这部分高度作为 Spacer 依据
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 2.dp, bottom = 4.dp),
-                            textAlign = TextAlign.Center
-                        )
+                                .onSizeChanged { size ->
+                                    bottomControlsContentHeightPx = size.height
+                                }
+                        ) {
+                            // 功能卡片：模式选择器
+                            ModeSelector(currentMode, { viewModel.switchMode(it) }, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp))
+
+                            if (voiceInputMode && isRecording) {
+                                CancelZone(
+                                    isCancelZone = isCancelZone,
+                                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                                )
+                            }
+
+                            if (voiceInputMode && isRecording) {
+                                VoiceWaveformSection(
+                                    volumeLevel = volumeLevel,
+                                    isCancelZone = isCancelZone,
+                                    modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp)
+                                )
+                            }
+
+                            // 输入框：位于最下方
+                            if (voiceInputMode) {
+                                VoiceInputButton(
+                                    isRecording = isRecording,
+                                    isCancelZone = isCancelZone,
+                                    onCancelZoneChange = { isCancelZone = it },
+                                    onVoiceStart = { speechHelper.startListening() },
+                                    onVoiceStop = { speechHelper.stopListening() },
+                                    onCancel = { speechHelper.cancel(); viewModel.exitVoiceInputMode() },
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
+                                )
+                            } else {
+                                InputSection(
+                                    mode = currentMode, inputText = inputText, isLoading = isLoading,
+                                    isConversationActive = isConversationActive,
+                                    pendingImageUri = pendingImageUri,
+                                    onInputChange = { viewModel.updateInputText(it) },
+                                    onSend = { viewModel.sendMessage() },
+                                    onAbort = { viewModel.abortConversation() },
+                                    onVoiceClick = {
+                                        if (hasAudioPermission) viewModel.enterVoiceInputMode()
+                                        else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    },
+                                    onCameraInput = { showImagePickerDialog = true },
+                                    onClearImage = { viewModel.clearPendingImage() },
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+                                )
+                            }
+
+                            // AI 生成内容提示
+                            Text(
+                                text = "内容由AI生成",
+                                fontSize = 10.sp,
+                                color = TextHint,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 2.dp, bottom = 4.dp),
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
                 }
             }

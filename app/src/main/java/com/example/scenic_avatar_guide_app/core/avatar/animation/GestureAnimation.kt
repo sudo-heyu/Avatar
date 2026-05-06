@@ -11,7 +11,7 @@ import com.example.scenic_avatar_guide_app.domain.model.AvatarGesture
 data class GestureKeyframe(
     val durationMs: Long,
     val params: GestureParams,
-    val easing: EasingType = EasingType.EASE_IN_OUT_CUBIC
+    val easing: EasingType = EasingType.EASE_IN_OUT_QUAD
 )
 
 /**

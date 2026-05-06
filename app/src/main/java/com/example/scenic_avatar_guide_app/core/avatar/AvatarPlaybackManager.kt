@@ -313,6 +313,15 @@ class AvatarPlaybackManager(
         ttsController.onSpeakStart = {
             _avatarState.update { it.copy(state = AvatarState.SPEAKING) }
             isPlayingRef.set(true)
+            // 音频真正开始播放，现在才启动动作序列和表情时间轴，确保与 TTS 对齐
+            currentPlayAction?.let { action ->
+                if (action.expressionTimeline.isNotEmpty()) {
+                    playExpressionTimeline(action.expressionTimeline)
+                }
+                if (action.motionQueue.isNotEmpty()) {
+                    playMotionQueue(action.motionQueue)
+                }
+            }
         }
 
         ttsController.onSpeakComplete = {
@@ -476,12 +485,16 @@ class AvatarPlaybackManager(
             )
         }
 
-        if (action.expressionTimeline.isNotEmpty()) {
-            playExpressionTimeline(action.expressionTimeline)
-        }
-
-        if (action.motionQueue.isNotEmpty()) {
-            playMotionQueue(action.motionQueue)
+        // 有 TTS 的 combo：motionQueue 和 expressionTimeline 推迟到音频真正开始时触发，
+        // 确保动作/表情时间轴与 TTS 播放保持同步。
+        // 无 TTS 的 combo（纯表情/动作）：立即触发，行为不变。
+        if (!hasSpeech) {
+            if (action.expressionTimeline.isNotEmpty()) {
+                playExpressionTimeline(action.expressionTimeline)
+            }
+            if (action.motionQueue.isNotEmpty()) {
+                playMotionQueue(action.motionQueue)
+            }
         }
 
         action.text?.let { text ->
