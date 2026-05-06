@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 // import com.example.scenic_avatar_guide_app.core.network.NetworkModule
@@ -303,26 +304,57 @@ fun SettingsScreen(
 
     // 退出登录确认对话框
     if (showLogoutConfirm) {
-        AlertDialog(
-            onDismissRequest = { showLogoutConfirm = false },
-            title = { Text("确认退出登录？") },
-            text = { Text("退出后将清除当前会话，并切换为游客模式。") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.logout()
-                        showLogoutConfirm = false
-                    }
+        Dialog(onDismissRequest = { showLogoutConfirm = false }) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(24.dp)
+                        .fillMaxWidth()
                 ) {
-                    Text("确认退出", color = Error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showLogoutConfirm = false }) {
-                    Text("取消")
+                    Text(
+                        text = "确认退出登录？",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "退出后将清除当前会话，并切换为游客模式。",
+                        fontSize = 14.sp,
+                        color = TextSecondary,
+                        lineHeight = 20.sp
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(
+                        onClick = {
+                            viewModel.logout()
+                            showLogoutConfirm = false
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Error)
+                    ) {
+                        Text("确认退出", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = { showLogoutConfirm = false },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("取消", fontSize = 15.sp, color = TextSecondary)
+                    }
                 }
             }
-        )
+        }
     }
 }
 

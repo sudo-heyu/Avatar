@@ -773,7 +773,7 @@ private fun ChatHistoryDrawer(
                 // 左侧：头像 + 用户名/登录按钮
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { onAuthClick() }
+                    modifier = Modifier.clickable(enabled = !isAuthenticated) { onAuthClick() }
                 ) {
                     Image(
                         painter = painterResource(id = R.mipmap.ic_launcher_foreground),

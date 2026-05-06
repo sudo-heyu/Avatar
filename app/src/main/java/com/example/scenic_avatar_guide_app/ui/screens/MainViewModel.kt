@@ -693,15 +693,12 @@ class MainViewModel @Inject constructor(
 
             // 判断是否需要在欢迎界面创建新会话：
             // 1. sessionId 为空 → 创建新会话
-            // 2. isFreshStart=true 且是欢迎界面（只有欢迎消息）→ 创建新会话
+            // 2. isFreshStart=true → 用户在当前界面尚未发送过消息，创建新会话
             //    这处理了用户刚进入应用直接发送消息的场景
-            val isWelcomeScreen = _messages.value.size <= 1 &&
-                _messages.value.all { !it.isUser && !it.isLoading && !it.isError }
-            val shouldCreateNewSession = sessionId.isNullOrBlank() ||
-                (isFreshStart && isWelcomeScreen)
+            val shouldCreateNewSession = sessionId.isNullOrBlank() || isFreshStart
 
             if (shouldCreateNewSession) {
-                Log.d(TAG, "sendMessageToBackend: 创建新会话 (sessionId=$sessionId, isFreshStart=$isFreshStart, isWelcomeScreen=$isWelcomeScreen)")
+                Log.d(TAG, "sendMessageToBackend: 创建新会话 (sessionId=$sessionId, isFreshStart=$isFreshStart)")
                 val newSessionId = createNewSession().getOrNull()
                 if (newSessionId == null) {
                     _isLoading.value = false
@@ -857,6 +854,8 @@ class MainViewModel @Inject constructor(
                                 backendMessageId = currentBackendMessageId
                             )
                             playbackManager.finishStreamingInput()
+                            // 对话完成后通知侧边栏刷新，使 firstUserMessage 及时更新
+                            _sessionListNeedsRefresh.value++
                         }
                         ChatStreamEvent.PrematurelyEnded -> {
                             Log.w(TAG, "流式响应提前结束，准备自动续写")
