@@ -312,6 +312,10 @@ class MainViewModel @Inject constructor(
     private val _isAuthLoading = MutableStateFlow(false)
     val isAuthLoading: StateFlow<Boolean> = _isAuthLoading.asStateFlow()
 
+    // 会话列表需要刷新的事件计数器（供 MainScreen 监听以触发侧边栏刷新）
+    private val _sessionListNeedsRefresh = MutableStateFlow(0)
+    val sessionListNeedsRefresh: StateFlow<Int> = _sessionListNeedsRefresh.asStateFlow()
+
     // 匹配后端误漏的 XML/结构标签（含中文尖括号变体），防止显示给用户
     // 同时匹配行尾不完整标签，避免打字机效果中途闪现半截标签
     private val displayTagRegex = Regex("""[<〈][^>]*>|[<〈][^>]*$""", RegexOption.MULTILINE)
@@ -399,6 +403,10 @@ class MainViewModel @Inject constructor(
 
     // 会话ID
     private var sessionId: String? = null
+
+    // 标记：当前是否是从应用启动直接进入的欢迎界面（未通过侧边栏切换会话）
+    // 用于判断是否需要在发送消息时创建新会话
+    private var isFreshStart: Boolean = true
 
     // 当前助手消息 ID，用于中止请求
     private var currentAssistantMessageId: String? = null
@@ -608,14 +616,21 @@ class MainViewModel @Inject constructor(
     }
 
     /**
-     * 验证本地存储的 sessionId 在后端是否真实有效
-     * 无效时自动清除 DataStore，避免后续请求全部失败
+     * 验证本地存储的 sessionId 在后端是否真实有效。
+     * 若 session 存在但消息为空（用户未实际发送过消息），同样视为无效并丢弃，
+     * 避免侧边栏积累"新对话"之类的空历史记录。
      */
     private suspend fun validateSession(storedSessionId: String): String? {
         return sessionRepository.getSessionDetail(storedSessionId).fold(
-            onSuccess = {
-                Log.d(TAG, "validateSession: $storedSessionId is valid")
-                storedSessionId
+            onSuccess = { detail ->
+                if (detail.messages.isNotEmpty()) {
+                    Log.d(TAG, "validateSession: $storedSessionId is valid with ${detail.messages.size} messages")
+                    storedSessionId
+                } else {
+                    Log.d(TAG, "validateSession: $storedSessionId is empty, discarding")
+                    settingsDataStore.clearSession()
+                    null
+                }
             },
             onFailure = { error ->
                 Log.w(TAG, "validateSession: $storedSessionId invalid, clearing. Cause: ${error.message}")
@@ -633,6 +648,7 @@ class MainViewModel @Inject constructor(
             onSuccess = { response ->
                 sessionId = response.sessionId
                 settingsDataStore.setSessionId(response.sessionId)
+                _sessionListNeedsRefresh.value++
                 Result.success(response.sessionId)
             },
             onFailure = { error ->
@@ -675,7 +691,17 @@ class MainViewModel @Inject constructor(
             _avatarState.value = AvatarState.THINKING
             playbackManager.startStreaming()
 
-            if (sessionId.isNullOrBlank()) {
+            // 判断是否需要在欢迎界面创建新会话：
+            // 1. sessionId 为空 → 创建新会话
+            // 2. isFreshStart=true 且是欢迎界面（只有欢迎消息）→ 创建新会话
+            //    这处理了用户刚进入应用直接发送消息的场景
+            val isWelcomeScreen = _messages.value.size <= 1 &&
+                _messages.value.all { !it.isUser && !it.isLoading && !it.isError }
+            val shouldCreateNewSession = sessionId.isNullOrBlank() ||
+                (isFreshStart && isWelcomeScreen)
+
+            if (shouldCreateNewSession) {
+                Log.d(TAG, "sendMessageToBackend: 创建新会话 (sessionId=$sessionId, isFreshStart=$isFreshStart, isWelcomeScreen=$isWelcomeScreen)")
                 val newSessionId = createNewSession().getOrNull()
                 if (newSessionId == null) {
                     _isLoading.value = false
@@ -686,6 +712,8 @@ class MainViewModel @Inject constructor(
                     return@launch
                 }
                 sessionId = newSessionId
+                // 成功创建会话后，标记不再是 fresh start
+                isFreshStart = false
             }
 
             var imageUrl: String? = null
@@ -1148,6 +1176,8 @@ class MainViewModel @Inject constructor(
     fun switchToSession(sessionId: String) {
         cancelCurrentStream()
         this.sessionId = sessionId
+        // 用户主动切换会话，标记不再是 fresh start
+        isFreshStart = false
 
         viewModelScope.launch {
             settingsDataStore.setSessionId(sessionId)
@@ -1198,6 +1228,9 @@ class MainViewModel @Inject constructor(
         currentAssistantMessageId = null
         currentBackendMessageId = null
         sessionId = null
+        // 用户点击新建对话，标记为 fresh start，期望下次发送消息时创建新会话
+        isFreshStart = true
+        _sessionListNeedsRefresh.value++
         viewModelScope.launch {
             settingsDataStore.clearSession()
             addMessage("您好！我是景灵智导，很高兴为您服务。请问有什么可以帮助您？", isUser = false)

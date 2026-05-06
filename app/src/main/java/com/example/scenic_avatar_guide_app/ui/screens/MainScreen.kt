@@ -9,7 +9,15 @@ import android.os.Vibrator
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -96,8 +104,8 @@ import java.util.Locale
 
 private const val LONG_TEXT_MARKDOWN_LIMIT = 1200
 private const val TEXT_RENDER_CHUNK_SIZE = 700
-private val FallbackBottomReserve = 116.dp
-private val FallbackBottomReserveWithTestPanel = 156.dp
+private val FallbackBottomReserve = 152.dp
+private val FallbackBottomReserveWithTestPanel = 192.dp
 private val MessageToFunctionCardGap = 8.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -166,7 +174,15 @@ fun MainScreen(
     // 侧边栏状态
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     var sessionListRefreshKey by remember { mutableStateOf(0) }
-    
+
+    val sessionListNeedsRefresh by viewModel.sessionListNeedsRefresh.collectAsStateWithLifecycle()
+
+    LaunchedEffect(sessionListNeedsRefresh) {
+        if (sessionListNeedsRefresh > 0) {
+            sessionListRefreshKey++
+        }
+    }
+
     LaunchedEffect(drawerState.isOpen) {
         if (drawerState.isOpen) {
             sessionListRefreshKey++
@@ -451,7 +467,7 @@ fun MainScreen(
                         }
 
                         // 功能卡片：模式选择器
-                        ModeSelector(currentMode, { viewModel.switchMode(it) }, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp))
+                        ModeSelector(currentMode, { viewModel.switchMode(it) }, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp))
 
                         if (voiceInputMode && isRecording) {
                             CancelZone(
@@ -496,6 +512,17 @@ fun MainScreen(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
                             )
                         }
+
+                        // AI 生成内容提示
+                        Text(
+                            text = "内容由AI生成",
+                            fontSize = 10.sp,
+                            color = TextHint,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 2.dp, bottom = 4.dp),
+                            textAlign = TextAlign.Center
+                        )
                     }
                 }
             }
@@ -573,7 +600,33 @@ private fun TopBar(
         title = { Text("景灵智导", fontWeight = FontWeight.Bold) },
         navigationIcon = {
             IconButton(onMenuClick) {
-                Icon(Icons.Default.Menu, "打开侧边栏", tint = Color.White)
+                Column(
+                    horizontalAlignment = Alignment.Start,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(4.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(24.dp)
+                            .height(2.5.dp)
+                            .clip(RoundedCornerShape(1.5.dp))
+                            .background(Color.White)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(18.dp)
+                            .height(2.5.dp)
+                            .clip(RoundedCornerShape(1.5.dp))
+                            .background(Color.White)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(12.dp)
+                            .height(2.5.dp)
+                            .clip(RoundedCornerShape(1.5.dp))
+                            .background(Color.White)
+                    )
+                }
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(containerColor = Primary, titleContentColor = Color.White),
@@ -1292,12 +1345,66 @@ private fun CancelZone(
 
 @Composable
 private fun ModeSelector(currentMode: InteractionMode, onModeChange: (InteractionMode) -> Unit, modifier: Modifier = Modifier) {
-    val modes = listOf(InteractionMode.Chat to "聊天问答", InteractionMode.Route to "路线规划")
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        modes.forEach { (mode, label) ->
+    val modes = listOf(
+        InteractionMode.Chat to "聊天问答" to Icons.Default.Chat,
+        InteractionMode.Route to "路线规划" to Icons.Default.Map
+    )
+
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        modes.forEach { (modeAndLabel, icon) ->
+            val (mode, label) = modeAndLabel
             val isSelected = currentMode == mode
-            Box(Modifier.weight(1f).height(24.dp).clip(RoundedCornerShape(12.dp)).background(if (isSelected) Primary else SurfaceVariant).clickable { onModeChange(mode) }, contentAlignment = Alignment.Center) {
-                Text(label, fontSize = 11.sp, color = if (isSelected) Color.White else TextPrimary, fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal)
+
+            val backgroundColor by animateColorAsState(
+                targetValue = if (isSelected) Primary else Color.White,
+                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
+                label = "bgColor"
+            )
+
+            val contentColor by animateColorAsState(
+                targetValue = if (isSelected) Color.White else TextPrimary,
+                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
+                label = "contentColor"
+            )
+
+            val iconTint by animateColorAsState(
+                targetValue = if (isSelected) Color.White else Primary,
+                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
+                label = "iconTint"
+            )
+
+            Card(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(40.dp)
+                    .clickable { onModeChange(mode) },
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = backgroundColor),
+                elevation = CardDefaults.cardElevation(
+                    defaultElevation = if (isSelected) 4.dp else 1.dp
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 10.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = iconTint
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = label,
+                        fontSize = 13.sp,
+                        color = contentColor,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                    )
+                }
             }
         }
     }

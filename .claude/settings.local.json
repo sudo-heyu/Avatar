@@ -178,7 +178,9 @@
       "Bash(findstr node *)",
       "Bash(JAVA_HOME=\"F:/Software/AndroidStudio/jbr\" C:/Users/xumin/.jbang/bin/jbang run *)",
       "mcp__gradle__gradle",
-      "Bash(./gradlew compileDebugKotlin --console=plain)"
+      "Bash(./gradlew compileDebugKotlin --console=plain)",
+      "Bash(cd /d E:\\\\scenic_avatar_guide_app)",
+      "Bash(.\\\\gradlew assembleDebug --no-daemon)"
     ]
   },
   "enabledMcpjsonServers": [
