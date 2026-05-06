@@ -134,6 +134,7 @@ fun MainScreen(
     val authUsername by viewModel.authUsername.collectAsStateWithLifecycle()
     val isAuthLoading by viewModel.isAuthLoading.collectAsStateWithLifecycle()
     val authError by viewModel.authError.collectAsStateWithLifecycle()
+    val currentVoice by viewModel.currentVoice.collectAsStateWithLifecycle()
     val showFeedbackDialog by viewModel.showFeedbackDialog.collectAsStateWithLifecycle()
     val isSubmittingFeedback by viewModel.isSubmittingFeedback.collectAsStateWithLifecycle()
     val feedbackResult by viewModel.feedbackResult.collectAsStateWithLifecycle()
@@ -145,6 +146,8 @@ fun MainScreen(
     var isCancelZone by remember { mutableStateOf(false) }
     var showImagePickerDialog by remember { mutableStateOf(false) }
     var cameraImageUri by remember { mutableStateOf<Uri?>(null) }
+    var showVoiceDialog by remember { mutableStateOf(false) }
+    var showLogoutConfirm by remember { mutableStateOf(false) }
     var bottomControlsContentHeightPx by remember { mutableIntStateOf(0) }
     val navigationBottomPx = WindowInsets.navigationBars.getBottom(density)
     val fixedBottomBarHeight = if (bottomControlsContentHeightPx > 0) {
@@ -373,7 +376,11 @@ fun MainScreen(
                     TopBar(
                         onMenuClick = { coroutineScope.launch { drawerState.open() } },
                         showTestPanel = showTestPanel,
-                        onToggleTestPanel = { viewModel.toggleTestPanel() }
+                        onToggleTestPanel = { viewModel.toggleTestPanel() },
+                        onVoiceClick = { showVoiceDialog = true },
+                        onScenicClick = { viewModel.showScenicSelectionDialog() },
+                        onLogoutClick = { showLogoutConfirm = true },
+                        isAuthenticated = isAuthenticated
                     )
 
                     // 数字人区域：在主内容区域内按比例分配
@@ -571,6 +578,68 @@ fun MainScreen(
         )
     }
 
+    if (showVoiceDialog) {
+        VoiceSelectionDialog(
+            voices = viewModel.getAvailableVoices(),
+            currentVoiceId = currentVoice.id,
+            onVoiceSelected = { voiceId ->
+                viewModel.setVoice(voiceId)
+                showVoiceDialog = false
+            },
+            onDismiss = { showVoiceDialog = false }
+        )
+    }
+
+    if (showLogoutConfirm) {
+        AlertDialog(
+            onDismissRequest = { showLogoutConfirm = false },
+            title = {
+                Text(
+                    "确认退出登录？",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = TextPrimary
+                )
+            },
+            text = {
+                Text(
+                    "退出后将清除当前会话，并切换为游客模式。",
+                    fontSize = 14.sp,
+                    color = TextSecondary,
+                    lineHeight = 20.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showLogoutConfirm = false
+                        viewModel.logout()
+                        Toast.makeText(context, "已退出登录", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Error)
+                ) {
+                    Text("确认退出", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showLogoutConfirm = false },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("取消", fontSize = 15.sp, color = TextSecondary)
+                }
+            },
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+
     if (showFeedbackDialog) {
         com.example.scenic_avatar_guide_app.ui.components.FeedbackDialog(
             onDismiss = { viewModel.dismissFeedbackDialog() },
@@ -593,8 +662,13 @@ fun MainScreen(
 private fun TopBar(
     onMenuClick: () -> Unit,
     showTestPanel: Boolean,
-    onToggleTestPanel: () -> Unit
+    onToggleTestPanel: () -> Unit,
+    onVoiceClick: () -> Unit,
+    onScenicClick: () -> Unit,
+    onLogoutClick: () -> Unit,
+    isAuthenticated: Boolean
 ) {
+    var showMenu by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -646,16 +720,104 @@ private fun TopBar(
             textAlign = TextAlign.Center
         )
 
-        IconButton(
-            onClick = onToggleTestPanel,
-            modifier = Modifier.size(40.dp)
-        ) {
-            Icon(
-                imageVector = if (showTestPanel) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                contentDescription = if (showTestPanel) "隐藏测试卡片" else "显示测试卡片",
-                tint = TextPrimary,
-                modifier = Modifier.size(20.dp)
-            )
+        Box {
+            IconButton(
+                onClick = { showMenu = true },
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "更多选项",
+                    tint = TextSecondary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false },
+                modifier = Modifier.width(196.dp),
+                containerColor = Color.White,
+                shape = RoundedCornerShape(12.dp),
+                shadowElevation = 8.dp
+            ) {
+                DropdownMenuItem(
+                    text = { Text("音色选择", fontSize = 14.sp, color = TextPrimary) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.RecordVoiceOver,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = Primary
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        onVoiceClick()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("景点位置", fontSize = 14.sp, color = TextPrimary) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Landscape,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = Primary
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        onScenicClick()
+                    }
+                )
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                    color = SurfaceVariant
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            if (showTestPanel) "隐藏测试面板" else "显示测试面板",
+                            fontSize = 14.sp,
+                            color = TextPrimary
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = if (showTestPanel) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = TextSecondary
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        onToggleTestPanel()
+                    }
+                )
+                if (isAuthenticated) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                        color = SurfaceVariant
+                    )
+                    DropdownMenuItem(
+                        text = { Text("退出登录", fontSize = 14.sp, color = Error) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Logout,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = Error
+                            )
+                        },
+                        onClick = {
+                            showMenu = false
+                            onLogoutClick()
+                        }
+                    )
+                }
+            }
         }
     }
 }
@@ -1946,6 +2108,86 @@ fun ScenicSelectionDialog(
             TextButton(onClick = { if (selectedScenicId == null) onDismiss() else selectedScenicId = null }) {
                 Text(if (selectedScenicId == null) "取消" else "返回")
             }
+        },
+        shape = RoundedCornerShape(20.dp)
+    )
+}
+
+@Composable
+private fun VoiceSelectionDialog(
+    voices: List<com.example.scenic_avatar_guide_app.core.tts.VoiceInfo>,
+    currentVoiceId: String,
+    onVoiceSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = Primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("选择音色", fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column {
+                voices.forEach { voice ->
+                    val isSelected = voice.id == currentVoiceId
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onVoiceSelected(voice.id) },
+                        color = if (isSelected) Primary.copy(alpha = 0.1f) else Color.Transparent
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Face,
+                                contentDescription = null,
+                                modifier = Modifier.size(22.dp),
+                                tint = if (isSelected) Primary else TextSecondary
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = voice.displayName,
+                                    fontSize = 15.sp,
+                                    fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+                                    color = if (isSelected) Primary else TextPrimary
+                                )
+                                Text(
+                                    text = voice.description,
+                                    fontSize = 12.sp,
+                                    color = TextHint
+                                )
+                            }
+                            if (isSelected) {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = "已选择",
+                                    tint = Primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                    if (voice != voices.last()) {
+                        HorizontalDivider(
+                            color = SurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
         },
         shape = RoundedCornerShape(20.dp)
     )

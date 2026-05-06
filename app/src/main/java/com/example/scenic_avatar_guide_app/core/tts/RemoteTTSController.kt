@@ -24,9 +24,7 @@ class RemoteTTSController(
         // 预置 Edge-TTS 中文音色（第一阶段写死，避免额外网络请求）
         val AVAILABLE_VOICES = listOf(
             VoiceInfo("zh-CN-XiaoxiaoNeural", "晓晓", "亲和女声", Gender.FEMALE, VoiceStyle.FRIENDLY),
-            VoiceInfo("zh-CN-XiaoyiNeural", "晓伊", "活泼女声", Gender.FEMALE, VoiceStyle.GENTLE),
-            VoiceInfo("zh-CN-YunyangNeural", "云扬", "稳重男声", Gender.MALE, VoiceStyle.PROFESSIONAL),
-            VoiceInfo("zh-CN-YunjianNeural", "云健", "新闻男声", Gender.MALE, VoiceStyle.NEWS)
+            VoiceInfo("zh-CN-XiaoyiNeural", "晓伊", "活泼女声", Gender.FEMALE, VoiceStyle.GENTLE)
         )
 
         val DEFAULT_VOICE = AVAILABLE_VOICES[0]

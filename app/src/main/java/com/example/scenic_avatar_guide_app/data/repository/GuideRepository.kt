@@ -58,6 +58,8 @@ class GuideRepository @Inject constructor(
             val scenicId = settingsDataStore.scenicId.first() ?: "lingshan"
             val spotId = settingsDataStore.spotId.first()
 
+            Log.d("GuideRepository", "createSession: userId=$userId, scenicId=$scenicId, spotId=$spotId, deviceId=$deviceId")
+
             val request = SessionCreateRequest(
                 userId = userId,
                 scenicId = scenicId,
@@ -66,12 +68,13 @@ class GuideRepository @Inject constructor(
             )
 
             val response = apiService.createSession(request)
+            Log.d("GuideRepository", "createSession response: code=${response.code}, message=${response.message}")
             if (response.code == 0) {
                 // 保存 session_id
                 settingsDataStore.setSessionId(response.data.sessionId)
                 Result.success(response.data)
             } else {
-                Result.failure(Exception(response.message))
+                Result.failure(Exception("后端返回错误: ${response.message} (code=${response.code})"))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -97,6 +100,12 @@ class GuideRepository @Inject constructor(
         val rate = settingsDataStore.rate.first()
         val volume = settingsDataStore.volume.first()
         val pitch = settingsDataStore.pitch.first()
+
+        Log.d("GuideRepository", "spotId=$spotId, scenicId=$scenicId, userId=$userId")
+        if (spotId == null) {
+            Log.e("GuideRepository", "spotId 为空，无法发送流式消息")
+            return flowOf(ChatStreamEvent.Error(message = "景点位置未选择"))
+        }
 
         Log.d("GuideRepository", "用户选择的发音人: $voiceId, rate=$rate, volume=$volume, pitch=$pitch")
 

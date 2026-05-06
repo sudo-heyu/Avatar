@@ -180,7 +180,10 @@
       "mcp__gradle__gradle",
       "Bash(./gradlew compileDebugKotlin --console=plain)",
       "Bash(cd /d E:\\\\scenic_avatar_guide_app)",
-      "Bash(.\\\\gradlew assembleDebug --no-daemon)"
+      "Bash(.\\\\gradlew assembleDebug --no-daemon)",
+      "mcp__fadcat__get_devices",
+      "mcp__fadcat__clear_logcat",
+      "mcp__fadcat__get_logcat_stream"
     ]
   },
   "enabledMcpjsonServers": [

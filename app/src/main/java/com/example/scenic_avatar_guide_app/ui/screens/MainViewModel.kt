@@ -465,6 +465,10 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    fun showScenicSelectionDialog() {
+        _showScenicSelection.value = true
+    }
+
     fun dismissScenicSelection() {
         _showScenicSelection.value = false
     }
@@ -884,10 +888,11 @@ class MainViewModel @Inject constructor(
                             _isConversationActive.value = false
                             typewriterController.flush()
                             playbackManager.stop()
+                            val errorDetail = event.message ?: "未知错误"
                             updateAssistantMessage(
                                 id = assistantMessageId,
                                 content = currentMessageContent(assistantMessageId)
-                                    .ifBlank { "抱歉，服务暂时不可用，请稍后再试。" },
+                                    .ifBlank { "[服务错误] $errorDetail" },
                                 isLoading = false,
                                 isError = true
                             )
@@ -930,16 +935,17 @@ class MainViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "流式请求异常", e)
+                Log.e(TAG, "流式请求异常: ${e::class.simpleName}: ${e.message}", e)
                 _isLoading.value = false
                 _isConversationActive.value = false
                 typewriterController.notifyTtsReady()
                 typewriterController.flush()
                 playbackManager.stop()
+                val errorDetail = "[${e::class.simpleName}] ${e.message ?: "连接异常"}"
                 updateAssistantMessage(
                     id = assistantMessageId,
                     content = currentMessageContent(assistantMessageId)
-                        .ifBlank { "抱歉，服务暂时不可用，请稍后再试。" },
+                        .ifBlank { errorDetail },
                     isLoading = false,
                     isError = true
                 )

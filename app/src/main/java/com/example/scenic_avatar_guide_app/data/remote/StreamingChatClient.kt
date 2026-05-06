@@ -69,6 +69,7 @@ class StreamingChatClient @Inject constructor(
 
                     val source = response.body?.source()
                     if (source == null) {
+                        Log.w(TAG, "流式响应 body 为空")
                         trySend(ChatStreamEvent.Error(message = "流式响应为空"))
                         return@use
                     }
@@ -76,9 +77,13 @@ class StreamingChatClient @Inject constructor(
                     val sseDataLines = mutableListOf<String>()
                     var currentEventType: String? = null
                     var sawTerminalEvent = false
+                    var lineCount = 0
                     while (!source.exhausted()) {
                         val line = source.readUtf8Line() ?: continue
-                        Log.d(TAG, "收到原始行: $line")
+                        lineCount++
+                        if (lineCount <= 20) {
+                            Log.d(TAG, "收到原始行[$lineCount]: $line")
+                        }
                         val event = parseStreamLine(
                             rawLine = line,
                             sseDataLines = sseDataLines,
@@ -92,8 +97,10 @@ class StreamingChatClient @Inject constructor(
                             trySend(event)
                         }
                     }
+                    Log.d(TAG, "流式响应读取结束, 共 $lineCount 行, sawTerminalEvent=$sawTerminalEvent, isCanceled=${call.isCanceled()}")
 
                     flushSseData(sseDataLines, currentEventType)?.let {
+                        Log.d(TAG, "EOF 时 flush 出事件: ${it::class.simpleName}")
                         sawTerminalEvent = sawTerminalEvent || it.isTerminalStreamEvent()
                         trySend(it)
                     }
@@ -103,9 +110,9 @@ class StreamingChatClient @Inject constructor(
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "流式请求异常", e)
+                Log.e(TAG, "流式请求异常: ${e::class.simpleName}: ${e.message}", e)
                 if (!call.isCanceled()) {
-                    trySend(ChatStreamEvent.Error(message = e.message ?: "流式请求失败"))
+                    trySend(ChatStreamEvent.Error(message = "[${e::class.simpleName}] ${e.message ?: "流式请求失败"}"))
                 }
             } finally {
                 close()

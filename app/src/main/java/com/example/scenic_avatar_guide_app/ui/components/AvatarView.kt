@@ -213,7 +213,7 @@ fun AvatarView(
 
     Box(
         modifier = modifier
-            .background(Brush.verticalGradient(colors = listOf(Primary, PrimaryLight))),
+            .background(Color.White),
         contentAlignment = Alignment.Center
     ) {
         // Live2D 层：就绪后渲染
@@ -242,7 +242,7 @@ fun AvatarView(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Brush.verticalGradient(colors = listOf(Primary, PrimaryLight))),
+                    .background(Color.White),
                 contentAlignment = Alignment.Center
             ) {
                 if (composition != null) {
