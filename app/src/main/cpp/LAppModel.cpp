@@ -282,11 +282,9 @@ void LAppModel::SetupModel(ICubismModelSetting* setting)
 
     _model->SaveParameters();
 
-    for (csmInt32 i = 0; i < _modelSetting->GetMotionGroupCount(); i++)
-    {
-        const csmChar* group = _modelSetting->GetMotionGroupName(i);
-        PreloadMotionGroup(group);
-    }
+    // Do not preload native Cubism motions. Runtime gestures are driven by
+    // Kotlin parameter animations to avoid CubismMotion::DoUpdateParameters
+    // native crashes observed on Android 15/vivo devices.
 
     _motionManager->StopAllMotions();
 
@@ -389,14 +387,6 @@ void LAppModel::Update()
         return;
     }
 
-    // 防御：_motionData が無効な場合は更新をスキップ
-    // これは motion が解放された後に Update が呼ばれるのを防ぐ
-    if (_motionManager->IsFinished() == false && _motions.GetSize() == 0)
-    {
-        LAppPal::PrintLogLn("[APP]Update: motion data may be invalid, stopping motion");
-        _motionManager->StopAllMotions();
-    }
-
     csmFloat32 deltaTimeSeconds = LAppPal::GetDeltaTime();
 
     // 防御：deltaTime の異常値をチェック（二重保護）
@@ -430,22 +420,14 @@ void LAppModel::Update()
     }
     frameCount++;
 
-    // 安全なモーション更新：例外をキャッチしてクラッシュを防ぐ
+    // Native Cubism motions are disabled. The crash reports point to
+    // CubismMotion::DoUpdateParameters from this manager on GLThread, so never
+    // let queued motions update even if an old JNI/native path enqueued one.
     if (!_motionManager->IsFinished())
     {
-        try {
-            _motionUpdated = _motionManager->UpdateMotion(_model, deltaTimeSeconds); // モーションを更新
-            if (_motionUpdated) {
-                // Debug: Log ParamAngleY value after motion update
-                csmFloat32 angleY = _model->GetParameterValue(_idParamAngleY);
-                LAppPal::PrintLogLn("[APP]Motion updated! ParamAngleY=%.2f", angleY);
-            }
-        } catch (...) {
-            // モーション更新中にエラーが発生した場合はモーションを停止
-            LAppPal::PrintLogLn("[APP]Update: Motion update failed, stopping all motions");
-            _motionManager->StopAllMotions();
-            _motionUpdated = false;
-        }
+        LAppPal::PrintLogLn("[APP]Update: native motions disabled, stopping queued motions");
+        _motionManager->StopAllMotions();
+        _motionUpdated = false;
     }
     else
     {
@@ -501,184 +483,27 @@ void LAppModel::Update()
 
 CubismMotionQueueEntryHandle LAppModel::StartMotion(const csmChar* group, csmInt32 no, csmInt32 priority, ACubismMotion::FinishedMotionCallback onFinishedMotionHandler, ACubismMotion::BeganMotionCallback onBeganMotionHandler)
 {
-    if (priority == PriorityForce)
-    {
-        _motionManager->SetReservePriority(priority);
-    }
-    else if (!_motionManager->ReserveMotion(priority))
-    {
-        if (_debugMode)
-        {
-            LAppPal::PrintLogLn("[APP]can't start motion.");
-        }
-        return InvalidMotionQueueEntryHandleValue;
-    }
-
-    const csmString fileName = _modelSetting->GetMotionFileName(group, no);
-
-    //ex) idle_0
-    csmString name = Utils::CubismString::GetFormatedString("%s_%d", group, no);
-    CubismMotion* motion = static_cast<CubismMotion*>(_motions[name.GetRawString()]);
-    csmBool autoDelete = false;
-
-    if (motion == NULL)
-    {
-        csmString path = fileName;
-        path = _modelHomeDir + path;
-
-        csmByte* buffer;
-        csmSizeInt size;
-        buffer = CreateBuffer(path.GetRawString(), &size);
-        motion = static_cast<CubismMotion*>(LoadMotion(buffer, size, NULL, onFinishedMotionHandler, onBeganMotionHandler, _modelSetting, group, no));
-
-        if (motion)
-        {
-            motion->SetEffectIds(_eyeBlinkIds, _lipSyncIds);
-            autoDelete = true; // 終了時にメモリから削除
-        }
-
-        DeleteBuffer(buffer, path.GetRawString());
-    }
-    else
-    {
-        motion->SetBeganMotionHandler(onBeganMotionHandler);
-        motion->SetFinishedMotionHandler(onFinishedMotionHandler);
-    }
-
-    //voice
-    csmString voice = _modelSetting->GetMotionSoundFileName(group, no);
-    if (strcmp(voice.GetRawString(), "") != 0)
-    {
-        csmString path = voice;
-        path = _modelHomeDir + path;
-    }
-
-    if (_debugMode)
-    {
-        LAppPal::PrintLogLn("[APP]start motion: [%s_%d]", group, no);
-    }
-    return  _motionManager->StartMotionPriority(motion, autoDelete, priority);
+    LAppPal::PrintLogLn("[APP]StartMotion skipped: native Cubism motions disabled");
+    return InvalidMotionQueueEntryHandleValue;
 }
 
 CubismMotionQueueEntryHandle LAppModel::StartRandomMotion(const csmChar* group, csmInt32 priority, ACubismMotion::FinishedMotionCallback onFinishedMotionHandler, ACubismMotion::BeganMotionCallback onBeganMotionHandler)
 {
-    if (_modelSetting->GetMotionCount(group) == 0)
-    {
-        return InvalidMotionQueueEntryHandleValue;
-    }
-
-    csmInt32 no = rand() % _modelSetting->GetMotionCount(group);
-
-    return StartMotion(group, no, priority, onFinishedMotionHandler, onBeganMotionHandler);
+    LAppPal::PrintLogLn("[APP]StartRandomMotion skipped: native Cubism motions disabled");
+    return InvalidMotionQueueEntryHandleValue;
 }
 
 CubismMotionQueueEntryHandle LAppModel::StartMotionByPath(const csmChar* motionPath, csmInt32 priority, ACubismMotion::FinishedMotionCallback onFinishedMotionHandler, ACubismMotion::BeganMotionCallback onBeganMotionHandler)
 {
-    LAppPal::PrintLogLn("[APP]StartMotionByPath: [%s], priority=%d", motionPath, priority);
-
-    if (priority == PriorityForce)
-    {
-        _motionManager->SetReservePriority(priority);
-    }
-    else if (!_motionManager->ReserveMotion(priority))
-    {
-        LAppPal::PrintLogLn("[APP]can't start motion (reserve failed)");
-        return InvalidMotionQueueEntryHandleValue;
-    }
-
-    // Check cache first - use motion path as cache key
-    csmString cacheKey = csmString(motionPath);
-    CubismMotion* motion = static_cast<CubismMotion*>(_motions[cacheKey.GetRawString()]);
-
-    if (motion != NULL)
-    {
-        // Cache hit - reuse cached motion
-        LAppPal::PrintLogLn("[APP]Motion cache hit: [%s]", motionPath);
-        motion->SetBeganMotionHandler(onBeganMotionHandler);
-        motion->SetFinishedMotionHandler(onFinishedMotionHandler);
-    }
-    else
-    {
-        // Cache miss - load motion file
-        LAppPal::PrintLogLn("[APP]Motion cache miss, loading: [%s]", motionPath);
-
-        csmByte* buffer;
-        csmSizeInt size;
-        buffer = CreateBuffer(motionPath, &size);
-
-        if (buffer == NULL || size == 0)
-        {
-            LAppPal::PrintLogLn("[APP]failed to load motion file: [%s], size=%d", motionPath, size);
-            return InvalidMotionQueueEntryHandleValue;
-        }
-
-        motion = static_cast<CubismMotion*>(LoadMotion(buffer, size, cacheKey.GetRawString(), onFinishedMotionHandler, onBeganMotionHandler, NULL, NULL, -1, false));
-
-        DeleteBuffer(buffer, motionPath);
-
-        if (motion == NULL)
-        {
-            LAppPal::PrintLogLn("[APP]failed to parse motion: [%s]", motionPath);
-            return InvalidMotionQueueEntryHandleValue;
-        }
-
-        // Cache the motion for future use
-        motion->SetEffectIds(_eyeBlinkIds, _lipSyncIds);
-        _motions[cacheKey] = motion;
-        // CRITICAL FIX: Do NOT set autoDelete=true for cached motions!
-        // Cached motions must persist in _motions for reuse. Setting autoDelete=true
-        // causes SDK to delete the motion after playback, leaving a dangling pointer
-        // in _motions cache, leading to use-after-free crash on subsequent access.
-        LAppPal::PrintLogLn("[APP]Motion cached: [%s]", motionPath);
-    }
-
-    // For cached motions, autoDelete must be false to prevent use-after-free.
-    // The motion will be cleaned up in ReleaseMotions() or destructor.
-    CubismMotionQueueEntryHandle handle = _motionManager->StartMotionPriority(motion, false, priority);
-    LAppPal::PrintLogLn("[APP]Motion started, IsFinished=%d", _motionManager->IsFinished());
-    return handle;
+    LAppPal::PrintLogLn("[APP]StartMotionByPath skipped: native Cubism motions disabled");
+    return InvalidMotionQueueEntryHandleValue;
 }
 
 void LAppModel::PreloadMotionByPath(const csmChar* motionPath)
 {
-    LAppPal::PrintLogLn("[APP]PreloadMotionByPath: [%s]", motionPath);
-
-    // Use motion path as cache key
-    csmString cacheKey = csmString(motionPath);
-
-    // Check if already cached
-    if (_motions[cacheKey.GetRawString()] != NULL)
-    {
-        LAppPal::PrintLogLn("[APP]Motion already cached: [%s]", motionPath);
-        return;
-    }
-
-    // Load motion file
-    csmByte* buffer;
-    csmSizeInt size;
-    buffer = CreateBuffer(motionPath, &size);
-
-    if (buffer == NULL || size == 0)
-    {
-        LAppPal::PrintLogLn("[APP]Preload failed: [%s], size=%d", motionPath, size);
-        return;
-    }
-
-    // Parse motion (no callbacks for preload)
-    CubismMotion* motion = static_cast<CubismMotion*>(LoadMotion(buffer, size, cacheKey.GetRawString(), NULL, NULL, NULL, NULL, -1, false));
-
-    DeleteBuffer(buffer, motionPath);
-
-    if (motion == NULL)
-    {
-        LAppPal::PrintLogLn("[APP]Preload parse failed: [%s]", motionPath);
-        return;
-    }
-
-    // Cache the motion
-    motion->SetEffectIds(_eyeBlinkIds, _lipSyncIds);
-    _motions[cacheKey] = motion;
-    LAppPal::PrintLogLn("[APP]Motion preloaded and cached: [%s]", motionPath);
+    // Deliberately no-op. Caching ACubismMotion instances is unsafe when motions
+    // can overlap during fade-out. See StartMotionByPath for the crash scenario.
+    LAppPal::PrintLogLn("[APP]PreloadMotionByPath skipped for stability: [%s]", motionPath);
 }
 
 void LAppModel::DoDraw()

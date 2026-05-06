@@ -196,7 +196,9 @@ void LAppLive2DManager::OnTap(csmFloat32 x, csmFloat32 y)
             {
                 LAppPal::PrintLogLn("[APP]hit area: [%s]", HitAreaNameBody);
             }
-            model->StartRandomMotion(MotionGroupTapBody, PriorityNormal, FinishedMotion, BeganMotion);
+            // Native Cubism motions are disabled for stability on Android 15/vivo
+            // devices where CubismMotion::DoUpdateParameters crashes on GLThread.
+            // Gestures are driven from Kotlin parameter animations instead.
         }
     }
 }

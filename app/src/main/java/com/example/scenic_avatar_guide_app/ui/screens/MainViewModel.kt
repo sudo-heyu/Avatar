@@ -45,6 +45,8 @@ import javax.inject.Inject
 import android.util.Log
 
 private const val TAG = "MainViewModel"
+private const val MAX_MESSAGES = 100
+private const val MAX_STREAM_CONTINUATION_ATTEMPTS = 3
 
 /**
  * 打字机效果控制器
@@ -77,23 +79,27 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
     // 是否允许开始显示（等待 TTS 同步信号）
     private var canStartDisplay = false
 
-    // 打字速度：正常模式下每次取出的字符数
-    private val charsPerTick = 2
+    // 打字速度：每次从缓冲区取出的字符数。提高取出数量、降低 UI 提交频率，
+    // 避免长回复期间频繁触发 Compose 文本重绘。
+    private val normalCharsPerTick = 8
+    private val completeCharsPerTick = 40
+    private val longTextCharsPerTick = 64
 
     // 打字间隔（毫秒）- 根据接收速度动态调整
-    private var currentIntervalMs = 60L
+    private var currentIntervalMs = 80L
 
     // 最小间隔（快速模式）
-    private val minIntervalMs = 30L
+    private val minIntervalMs = 50L
 
     // 最大间隔（慢速模式）
-    private val maxIntervalMs = 80L
+    private val maxIntervalMs = 110L
 
     // 批量更新阈值
     private var batchChars = 0
 
-    // 最小更新间隔（毫秒）- 防止高频更新导致 Compose 渲染崩溃
-    private val minUpdateIntervalMs = 80L
+    // 最小 UI 更新间隔（毫秒）- 控制 Compose Text 重绘频率，同时避免回复显得断续。
+    private val minUpdateIntervalMs = 180L
+    private val longTextUpdateIntervalMs = 320L
 
     // 上次更新时间
     private var lastUpdateTime = 0L
@@ -125,7 +131,7 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
             isComplete = false
             canStartDisplay = !waitForSync
             receivedTtsReady = false
-            currentIntervalMs = 60L
+            currentIntervalMs = 80L
             lastUpdateTime = System.currentTimeMillis()
             lastAppendTime = System.currentTimeMillis()
         }
@@ -150,48 +156,70 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
             }
 
             while (isActive) {
-                if (pendingText.isNotEmpty()) {
-                    // 根据 TTS 接收速度动态调整显示速度
-                    val timeSinceAppend = System.currentTimeMillis() - lastAppendTime
-                    currentIntervalMs = when {
-                        isComplete -> minIntervalMs  // 文本已全部到达，快速显示
-                        timeSinceAppend < 100 -> maxIntervalMs  // 快速接收中，稍慢显示
-                        timeSinceAppend < 300 -> 60L  // 正常接收
-                        else -> minIntervalMs  // 接收慢了，快速追赶
-                    }
-
-                    // 每次取出多个字符显示
-                    val charsToTake = minOf(charsPerTick, pendingText.length)
-                    for (i in 0 until charsToTake) {
-                        if (pendingText.isEmpty()) break
-                        val char = pendingText[0]
-                        pendingText.deleteCharAt(0)
-                        displayedText.append(char)
-                        batchChars++
-                    }
-
-                    // 批量 flush：累积3个字符 OR 距离上次更新超过80ms
-                    val now = System.currentTimeMillis()
-                    val timeSinceLastUpdate = now - lastUpdateTime
-                    if (batchChars >= 3 || timeSinceLastUpdate >= minUpdateIntervalMs) {
-                        currentMessageId?.let { id ->
-                            onTextUpdate?.invoke(id, displayedText.toString())
+                var emitId: String? = null
+                var emitText: String? = null
+                var shouldFinish = false
+                val delayMs = mutex.withLock {
+                    if (pendingText.isNotEmpty()) {
+                        val now = System.currentTimeMillis()
+                        val totalBufferedLength = displayedText.length + pendingText.length
+                        val timeSinceAppend = now - lastAppendTime
+                        currentIntervalMs = when {
+                            totalBufferedLength > 1600 -> minIntervalMs
+                            isComplete -> minIntervalMs
+                            timeSinceAppend < 120 -> maxIntervalMs
+                            timeSinceAppend < 400 -> 80L
+                            else -> minIntervalMs
                         }
-                        batchChars = 0
-                        lastUpdateTime = now
-                    }
-                } else if (isComplete) {
-                    // 消息完成且已显示完毕
-                    if (batchChars > 0) {
-                        currentMessageId?.let { id ->
-                            onTextUpdate?.invoke(id, displayedText.toString())
+
+                        val charsToTake = minOf(
+                            when {
+                                totalBufferedLength > 1600 -> longTextCharsPerTick
+                                isComplete -> completeCharsPerTick
+                                else -> normalCharsPerTick
+                            },
+                            pendingText.length
+                        )
+                        val nextChunk = pendingText.substring(0, charsToTake)
+                        pendingText.delete(0, charsToTake)
+                        displayedText.append(nextChunk)
+                        batchChars += nextChunk.length
+
+                        val timeSinceLastUpdate = now - lastUpdateTime
+                        val minBatchChars = when {
+                            displayedText.length > 1600 -> 120
+                            displayedText.length > 900 -> 64
+                            else -> 24
                         }
-                        batchChars = 0
+                        val minInterval = when {
+                            displayedText.length > 900 -> longTextUpdateIntervalMs
+                            else -> minUpdateIntervalMs
+                        }
+                        if (batchChars >= minBatchChars || timeSinceLastUpdate >= minInterval) {
+                            emitId = currentMessageId
+                            emitText = displayedText.toString()
+                            batchChars = 0
+                            lastUpdateTime = now
+                        }
+                    } else if (isComplete) {
+                        if (batchChars > 0) {
+                            emitId = currentMessageId
+                            emitText = displayedText.toString()
+                            batchChars = 0
+                        }
+                        shouldFinish = true
                     }
+                    currentIntervalMs
+                }
+
+                if (emitId != null && emitText != null) {
+                    onTextUpdate?.invoke(emitId!!, emitText!!)
+                }
+                if (shouldFinish) {
                     return@launch
                 }
 
-                delay(currentIntervalMs)
+                delay(delayMs)
             }
         }
     }
@@ -222,14 +250,22 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
     /**
      * 立即显示所有剩余文本（用于取消等场景）
      */
-    fun flush() {
-        currentMessageId?.let { id ->
-            val allText = displayedText.toString() + pendingText.toString()
-            onTextUpdate?.invoke(id, allText)
-            displayedText.clear()
-            displayedText.append(allText)
-            pendingText.clear()
-            batchChars = 0
+    suspend fun flush() {
+        var emitId: String? = null
+        var emitText: String? = null
+        mutex.withLock {
+            currentMessageId?.let { id ->
+                val allText = displayedText.toString() + pendingText.toString()
+                emitId = id
+                emitText = allText
+                displayedText.clear()
+                displayedText.append(allText)
+                pendingText.clear()
+                batchChars = 0
+            }
+        }
+        if (emitId != null && emitText != null) {
+            onTextUpdate?.invoke(emitId!!, emitText!!)
         }
     }
 
@@ -332,6 +368,14 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 设置渲染器状态重置回调
+     * 当 AvatarView 中的 Live2DRenderer 就绪时调用，用于解决 StateFlow 合并跳过 IDLE 问题
+     */
+    fun setResetSpeakingStateCallback(callback: () -> Unit) {
+        playbackManager.onResetSpeakingState = callback
+    }
+
     // 口型状态（直接暴露，绕过 Compose 状态层，避免高频更新触发重组）
     val mouthState: StateFlow<Pair<Float, Float>> = playbackManager.mouthState
 
@@ -352,6 +396,7 @@ class MainViewModel @Inject constructor(
     }
 
     init {
+        ensureUserId()
         viewModelScope.launch {
             val scenicId = settingsDataStore.scenicId.first()
             val spotId = settingsDataStore.spotId.first()
@@ -395,10 +440,13 @@ class MainViewModel @Inject constructor(
                 }
                 // 当状态变为 IDLE 且当前有活跃对话时，重置状态
                 // 不依赖 lastState 追踪，避免状态变化过快导致 Flow 合并后丢失中间状态
-                if (state.state == AvatarState.IDLE && _isConversationActive.value) {
+                val streamStillRunning = currentStreamJob?.isActive == true || _isLoading.value
+                if (state.state == AvatarState.IDLE && _isConversationActive.value && !streamStillRunning) {
                     Log.d(TAG, "observeAvatarState: 播放完成，重置 isConversationActive")
                     _isConversationActive.value = false
                     currentAssistantMessageId = null
+                } else if (state.state == AvatarState.IDLE && _isConversationActive.value) {
+                    Log.d(TAG, "observeAvatarState: 忽略流式回复中的临时 IDLE")
                 }
                 _avatarFullState.value = state
                 _avatarState.value = state.state
@@ -429,18 +477,29 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             val storedSessionId = settingsDataStore.sessionId.first()
 
-            // 验证现有 session 是否有效（清除旧版可能残留的本地假 ID）
             val validSessionId = if (!storedSessionId.isNullOrBlank()) {
                 validateSession(storedSessionId)
             } else null
 
-            sessionId = validSessionId ?: createNewSession().getOrNull()
-            if (sessionId.isNullOrBlank()) {
-                addMessage("会话初始化失败，请检查网络连接", isUser = false, isError = true)
-                return@launch
+            sessionId = validSessionId
+            if (validSessionId != null) {
+                settingsDataStore.setSessionId(validSessionId)
+            } else {
+                settingsDataStore.clearSession()
             }
+
             if (_messages.value.isEmpty()) {
                 addMessage("您好！我是景灵智导，很高兴为您服务。请问有什么可以帮助您？", isUser = false)
+            }
+        }
+    }
+
+    private fun ensureUserId() {
+        viewModelScope.launch {
+            val userId = settingsDataStore.userId.first()
+            if (userId == null) {
+                val newUserId = "guest_${java.util.UUID.randomUUID().toString().replace("-", "").take(16)}"
+                settingsDataStore.setUserId(newUserId)
             }
         }
     }
@@ -517,6 +576,7 @@ class MainViewModel @Inject constructor(
                 val newSessionId = createNewSession().getOrNull()
                 if (newSessionId == null) {
                     _isLoading.value = false
+                    _isConversationActive.value = false
                     _avatarState.value = AvatarState.IDLE
                     playbackManager.stop()
                     addMessage("会话创建失败，请检查网络后重试", isUser = false, isError = true)
@@ -532,6 +592,7 @@ class MainViewModel @Inject constructor(
                     onSuccess = { imageUrl = it },
                     onFailure = {
                         _isLoading.value = false
+                        _isConversationActive.value = false
                         _avatarState.value = AvatarState.IDLE
                         playbackManager.stop()
                         addMessage("图片上传失败，请重试", isUser = false)
@@ -555,18 +616,25 @@ class MainViewModel @Inject constructor(
 
             var receivedAnyEvent = false
             var receivedText = false
+            var receivedDone = false
             var latestAvatarAction: AvatarAction? = null
             var latestMetadata: ResponseMetadata? = null
             // 记录已经由 TtsSegment 直接入队的 segmentId，避免 TtsSegmentReady 重复入队
             val enqueuedByTtsSegment = mutableSetOf<String>()
 
             try {
-                repository.sendTextMessageStream(
-                    sessionId = sessionId ?: "",
-                    message = text,
-                    mode = mode,
-                    imageUrl = imageUrl
-                ).collect { event ->
+                var continuationAttempts = 0
+                var requestMessage = text
+                var requestImageUrl = imageUrl
+
+                while (isActive && _isLoading.value) {
+                    var prematureStreamEnd = false
+                    repository.sendTextMessageStream(
+                        sessionId = sessionId ?: "",
+                        message = requestMessage,
+                        mode = mode,
+                        imageUrl = requestImageUrl
+                    ).collect { event ->
                     val hadAnyEvent = receivedAnyEvent
                     receivedAnyEvent = true
                     Log.d(TAG, "收到流式事件: ${event::class.simpleName}")
@@ -646,6 +714,7 @@ class MainViewModel @Inject constructor(
                         }
                         ChatStreamEvent.Done -> {
                             Log.d(TAG, "Done")
+                            receivedDone = true
                             _isLoading.value = false
                             // 保底：如果没有收到 TTS 片段，也让打字机开始
                             typewriterController.notifyTtsReady()
@@ -657,6 +726,12 @@ class MainViewModel @Inject constructor(
                                 backendMessageId = currentBackendMessageId
                             )
                             playbackManager.finishStreamingInput()
+                        }
+                        ChatStreamEvent.PrematurelyEnded -> {
+                            Log.w(TAG, "流式响应提前结束，准备自动续写")
+                            prematureStreamEnd = true
+                            typewriterController.notifyTtsReady()
+                            typewriterController.flush()
                         }
                         is ChatStreamEvent.Aborted -> {
                             Log.d(TAG, "Aborted: messageId=${event.messageId}, sessionId=${event.sessionId}, reason=${event.reason}")
@@ -676,6 +751,7 @@ class MainViewModel @Inject constructor(
                             Log.e(TAG, "Error: code=${event.code}, message=${event.message}")
                             typewriterController.notifyTtsReady()
                             _isLoading.value = false
+                            _isConversationActive.value = false
                             typewriterController.flush()
                             playbackManager.stop()
                             updateAssistantMessage(
@@ -688,19 +764,45 @@ class MainViewModel @Inject constructor(
                         }
                     }
                 }
+                    if (receivedDone || !_isLoading.value) {
+                        break
+                    }
+                    if (prematureStreamEnd && receivedText && continuationAttempts < MAX_STREAM_CONTINUATION_ATTEMPTS) {
+                        continuationAttempts += 1
+                        requestMessage = buildContinuationPrompt(currentMessageContent(assistantMessageId))
+                        requestImageUrl = null
+                        Log.w(TAG, "第 $continuationAttempts 次自动续写流式回复")
+                        continue
+                    }
+                    break
+                }
                 if (_isLoading.value) {
+                    Log.w(
+                        TAG,
+                        "流式响应未收到 Done 就结束: receivedAnyEvent=$receivedAnyEvent, " +
+                            "receivedText=$receivedText, receivedDone=$receivedDone, " +
+                            "continuationAttempts=$continuationAttempts"
+                    )
                     _isLoading.value = false
+                    _isConversationActive.value = false
                     // 保底：如果没有收到 TTS 片段，也让打字机开始
                     typewriterController.notifyTtsReady()
-                    typewriterController.finish()
-                    updateAssistantMessage(assistantMessageId, isLoading = false)
-                    playbackManager.finishStreamingInput()
+                    typewriterController.flush()
+                    playbackManager.stop()
+                    updateAssistantMessage(
+                        id = assistantMessageId,
+                        content = currentMessageContent(assistantMessageId)
+                            .ifBlank { "回复连接中断，请检查网络或服务器后重试。" },
+                        isLoading = false,
+                        isError = true
+                    )
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "流式请求异常", e)
                 _isLoading.value = false
+                _isConversationActive.value = false
                 typewriterController.notifyTtsReady()
                 typewriterController.flush()
                 playbackManager.stop()
@@ -712,6 +814,18 @@ class MainViewModel @Inject constructor(
                     isError = true
                 )
             }
+        }
+    }
+
+    private fun buildContinuationPrompt(currentAnswer: String): String {
+        val tail = currentAnswer
+            .takeLast(160)
+            .replace("\n", " ")
+            .trim()
+        return if (tail.isBlank()) {
+            "上一条回复在生成过程中断了。请直接继续完成上一条回复，不要重复已经说过的内容，不要重新开头。"
+        } else {
+            "上一条回复在以下内容后中断：\"$tail\"。请从中断处继续完成上一条回复，不要重复已经说过的内容，不要重新开头。"
         }
     }
 
@@ -750,6 +864,10 @@ class MainViewModel @Inject constructor(
             pendingImageUri = pendingImageUri,
             imageUrl = imageUrl
         ))
+        // N4: 防止长会话 OOM，保留最新 MAX_MESSAGES 条
+        if (currentList.size > MAX_MESSAGES) {
+            currentList.subList(0, currentList.size - MAX_MESSAGES).clear()
+        }
         _messages.value = currentList
         return id
     }
@@ -784,9 +902,9 @@ class MainViewModel @Inject constructor(
         // 只有内容真正变化时才更新，避免不必要的重组
         if (current.content == cleanContent) return
 
+        // 不覆盖 isLoading，保持当前值（由 Done/Error/Aborted 事件控制）
         currentList[index] = current.copy(
-            content = cleanContent,
-            isLoading = true
+            content = cleanContent
         )
         _messages.value = currentList
     }

@@ -78,6 +78,9 @@ import kotlinx.coroutines.launch
  * 口型同步优化：
  * mouthState 直接通过 StateFlow 传递给渲染器，绕过 Compose 状态层，
  * 避免高频更新触发 Compose 重组导致 HWUI 崩溃。
+ *
+ * @param onRendererReady 渲染器初始化完成后的回调，提供渲染器引用
+ *         用于设置外部状态重置回调，解决 StateFlow 合并跳过 IDLE 问题
  */
 @Composable
 fun AvatarView(
@@ -86,7 +89,8 @@ fun AvatarView(
     fullState: AvatarFullState? = null,
     mouthState: StateFlow<Pair<Float, Float>>? = null,
     enableLive2D: Boolean = true,
-    showUpperBodyOnly: Boolean = false
+    showUpperBodyOnly: Boolean = false,
+    onRendererReady: ((Live2DRendererImpl) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -131,6 +135,10 @@ fun AvatarView(
                 renderer = newRenderer
                 Log.d("AvatarView", "Live2D init success=$isLive2DReady")
                 fullState?.let { state -> newRenderer.updateState(state) }
+                // 通知外部渲染器已就绪，用于设置状态重置回调
+                if (result.isSuccess) {
+                    onRendererReady?.invoke(newRenderer)
+                }
             } catch (e: Exception) {
                 Log.e("AvatarView", "Live2D init failed", e)
                 isLive2DReady = false

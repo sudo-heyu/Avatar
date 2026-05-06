@@ -146,7 +146,43 @@
       "PowerShell(.\\\\gradlew assembleDebug 2>&1 | Select-Object -Last 40)",
       "PowerShell(.\\\\gradlew assembleDebug 2>&1 | Select-Object -Last 30)",
       "Bash(Select-Object -First 20)",
-      "Bash(Format-Table FullName)"
+      "Bash(Format-Table FullName)",
+      "Bash(gradle --version)",
+      "Read(//d/Environment/platform-tools/**)",
+      "Bash(echo \"adb not found at D:\\\\\\\\Environment\\\\\\\\platform-tools\")",
+      "Bash(echo \"adb not found at F:\\\\\\\\Software\\\\\\\\AndroidStudioSDK\\\\\\\\platform-tools\")",
+      "Bash(claude mcp *)",
+      "Bash(pip3 --version)",
+      "Bash(pip --version)",
+      "Bash(pip3 install *)",
+      "Bash(where python *)",
+      "Bash(PYTHONPATH=\"C:/Users/xumin/fadcat\" /f/Software/anaconda/python -m src.mcp --help)",
+      "Bash(MSYS_NO_PATHCONV=1 adb shell screencap -p /sdcard/screen_test.png)",
+      "Bash(MSYS_NO_PATHCONV=1 adb pull /sdcard/screen_test.png C:/Users/xumin/screen_test.png)",
+      "Bash(/f/Software/AndroidStudio/jbr/bin/java.exe *)",
+      "PowerShell(iex \"& { $\\(Invoke-WebRequest -useb https://ps.jbang.dev\\) } app setup\" 2>&1)",
+      "Bash(~/.jbang/bin/jbang jdk *)",
+      "Bash(~/.jbang/bin/jbang run *)",
+      "Bash(./gradlew tasks *)",
+      "Bash(MSYS_NO_PATHCONV=1 adb logcat -d -t 500)",
+      "Bash(MSYS_NO_PATHCONV=1 adb logcat -d)",
+      "Bash(F:/Software/anaconda/python -c ' *)",
+      "Bash(pidof com.example.scenic_avatar_guide_app)",
+      "Bash(MSYS_NO_PATHCONV=1 adb shell *)",
+      "Bash(npx -y android-mcp-server --version)",
+      "Bash(echo \"EXIT CODE: $?\")",
+      "Bash(C:/Users/xumin/.jbang/bin/jbang run *)",
+      "Bash(npx --yes android-mcp-server)",
+      "Bash(echo \"PID: $!\")",
+      "Bash(tasklist)",
+      "Bash(findstr node *)",
+      "Bash(JAVA_HOME=\"F:/Software/AndroidStudio/jbr\" C:/Users/xumin/.jbang/bin/jbang run *)",
+      "mcp__gradle__gradle"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "android",
+    "fadcat",
+    "gradle"
+  ]
 }

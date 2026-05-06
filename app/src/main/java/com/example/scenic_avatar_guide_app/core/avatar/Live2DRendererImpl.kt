@@ -100,8 +100,8 @@ class Live2DRendererImpl(
     private var speakingMouthOverride = false
     @Volatile
     private var isSpeaking = false
-    private var overrideMouthOpenY = 0f
-    private var overrideMouthForm = 0f
+    @Volatile private var overrideMouthOpenY = 0f
+    @Volatile private var overrideMouthForm = 0f
 
     // 上一帧时间
     private var lastFrameTime: Long = 0
@@ -283,26 +283,34 @@ class Live2DRendererImpl(
                 return
             }
         }
-        Log.d(TAG, "transitionToGesture: $currentGesture -> $gesture, durationMs=$durationMs, nativePlaying=$nativeMotionPlaying")
-
-        // 如果正在播放原生动作，记录待执行的动作并确保动画循环在运行
         if (nativeMotionPlaying) {
-            // 检查是否卡住了（超过动作时长的 2 倍）
+            Log.w(TAG, "Clearing stale native motion state before parameter gesture: $gesture")
+            nativeMotionPlaying = false
+            pendingGestureAfterNative = null
+            sdkMotionFinished = false
+        }
+        Log.d(TAG, "transitionToGesture: $currentGesture -> $gesture, durationMs=$durationMs")
+
+        /*
+        Native Cubism motions are disabled. Keep this old queueing behavior here
+        only as documentation of the previous flow; do not route gestures through
+        CubismMotionManager because it crashes inside DoUpdateParameters on some
+        Android 15/vivo devices.
+        if (nativeMotionPlaying) {
             val elapsed = System.currentTimeMillis() - nativeMotionStartTime
             if (elapsed > nativeMotionDurationMs * 2) {
                 Log.w(TAG, "Native motion appears stuck (elapsed=$elapsed > ${nativeMotionDurationMs * 2}), forcing reset")
                 nativeMotionPlaying = false
                 pendingGestureAfterNative = null
-                // 继续执行新动作
             } else {
                 Log.d(TAG, "Native motion playing, queueing: $gesture")
                 pendingGestureAfterNative = gesture
                 pendingTransitionMsAfterNative = durationMs
-                // 确保动画循环在运行，以便检测原生动作完成
                 startAnimationUpdate()
                 return
             }
         }
+        */
 
         transitionToGestureInternal(gesture, durationMs)
     }
@@ -325,135 +333,54 @@ class Live2DRendererImpl(
             return
         }
 
-        val motionPath = getMotionPathForGesture(gesture)
-
-        if (motionPath != null) {
-            // 有原生动作文件：直接播放
-            playNativeMotion(motionPath, gesture)
+        val animation = GestureAnimation.fromGesture(gesture)
+        if (animation != null) {
+            Log.d(TAG, "Using keyframe animation for: $gesture")
+            val fromParams = motionTransitionManager.getCurrentParams()
+            gestureAnimationPlayer.play(animation, fromParams)
+            currentGesture = gesture
         } else {
-            // 无原生动作文件：使用关键帧动画或直接过渡
-            val animation = GestureAnimation.fromGesture(gesture)
-            if (animation != null) {
-                Log.d(TAG, "Using keyframe animation for: $gesture")
-                val fromParams = motionTransitionManager.getCurrentParams()
-                gestureAnimationPlayer.play(animation, fromParams)
-                currentGesture = gesture
-            } else {
-                // 直接使用过渡管理器
-                Log.d(TAG, "Using motion transition for: $gesture")
-                val targetParams = GestureParams.fromGesture(gesture)
-                motionTransitionManager.transitionTo(gesture, targetParams, durationMs)
-                currentGesture = gesture
-            }
+            Log.d(TAG, "Using parameter transition for: $gesture")
+            val targetParams = GestureParams.fromGesture(gesture)
+            motionTransitionManager.transitionTo(gesture, targetParams, durationMs)
+            currentGesture = gesture
         }
 
         startAnimationUpdate()
     }
 
     /**
-     * 播放官方 Idle 动作组（动态待机动画）
-     * 使用 priority=1（Idle），SDK 会自动循环播放
+     * 回到代码驱动的 Idle 参数层。
+     *
+     * 不再启动官方 Cubism motion。部分 Android 15/vivo 设备会在
+     * CubismMotion::DoUpdateParameters 的 GLThread 原生路径中崩溃；
+     * 为稳定性，动作层统一由 Kotlin 参数动画驱动。
      */
     private fun playIdleMotion() {
         synchronized(this) {
             if (isReleased || !_isModelLoaded) return
         }
-        Log.d(TAG, "playIdleMotion: starting official Idle motion group")
+        Log.d(TAG, "playIdleMotion: using parameter idle, native motions disabled")
         currentGesture = AvatarGesture.IDLE
         nativeMotionPlaying = false
         gestureAnimationPlayer.stop()
-        motionTransitionManager.reset()
-
-        // 停止动画更新循环，让 SDK 完全控制参数
-        // Idle 动画由 SDK 管理，不需要我们手动更新参数
-        animationUpdateActive = false
+        motionTransitionManager.transitionTo(
+            AvatarGesture.IDLE,
+            GestureParams.IDLE,
+            DEFAULT_TRANSITION_MS
+        )
 
         runOnRenderThread {
             synchronized(this@Live2DRendererImpl) {
                 if (isReleased || !_isModelLoaded) return@runOnRenderThread
             }
             try {
-                // priority 1 = Idle，SDK 会自动淡入并循环
-                JniBridgeJava.nativeStartRandomMotion("Idle", 1)
+                applyGestureParamsDirect(GestureParams.IDLE)
             } catch (e: Exception) {
-                Log.w(TAG, "playIdleMotion JNI call failed", e)
-            } catch (e: Error) {
-                Log.e(TAG, "playIdleMotion native error", e)
+                Log.w(TAG, "playIdleMotion parameter reset failed", e)
             }
         }
-    }
-
-    /**
-     * 播放原生 Live2D 动作
-     */
-    private fun playNativeMotion(motionPath: String, gesture: AvatarGesture) {
-        synchronized(this) {
-            if (isReleased || !_isModelLoaded) return
-        }
-        Log.i(TAG, "=== playNativeMotion START: path=$motionPath, gesture=$gesture ===")
-
-        currentGesture = gesture
-        sdkMotionFinished = false
-
-        // 估算动作时长
-        nativeMotionDurationMs = estimateMotionDuration(motionPath)
-        Log.d(TAG, "Estimated motion duration: $nativeMotionDurationMs ms")
-
-        // 标记原生动作开始
-        nativeMotionPlaying = true
-        nativeMotionStartTime = System.currentTimeMillis()
-
-        // 在渲染线程播放原生动作
-        runOnRenderThread {
-            synchronized(this@Live2DRendererImpl) {
-                if (isReleased || !_isModelLoaded) return@runOnRenderThread
-            }
-            Log.i(TAG, "=== Calling nativeStartMotionByPath: $motionPath ===")
-            try {
-                JniBridgeJava.nativeStartMotionByPath(motionPath, 3) // priority 3 = Force
-            } catch (e: Exception) {
-                Log.w(TAG, "playNativeMotion JNI call failed", e)
-                nativeMotionPlaying = false
-            } catch (e: Error) {
-                Log.e(TAG, "playNativeMotion native error", e)
-                nativeMotionPlaying = false
-            }
-            Log.i(TAG, "=== nativeStartMotionByPath returned ===")
-        }
-
-        Log.i(TAG, "=== playNativeMotion END ===")
-    }
-
-    private fun estimateMotionDuration(motionPath: String): Long = when {
-        motionPath.contains("nod") -> 1200L
-        motionPath.contains("shake") -> 1400L
-        motionPath.contains("wave") -> 1400L
-        motionPath.contains("welcome") -> 2000L
-        motionPath.contains("look_left") -> 1300L
-        motionPath.contains("look_right") -> 1300L
-        motionPath.contains("point_forward") -> 1500L
-        motionPath.contains("bow") -> 1800L
-        motionPath.contains("thinking") -> 3000L
-        motionPath.contains("guide") -> 1600L
-        motionPath.contains("look_up") -> 1800L
-        motionPath.contains("listen") -> 1800L
-        else -> 1000L
-    }
-
-    private fun getMotionPathForGesture(gesture: AvatarGesture): String? = when (gesture) {
-        AvatarGesture.NOD -> "live2d/hiyori/motions/Hiyori_nod.motion3.json"
-        AvatarGesture.SHAKE -> "live2d/hiyori/motions/Hiyori_shake.motion3.json"
-        AvatarGesture.WAVE -> "live2d/hiyori/motions/Hiyori_wave.motion3.json"
-        AvatarGesture.WELCOME_GESTURE -> "live2d/hiyori/motions/Hiyori_welcome.motion3.json"
-        AvatarGesture.POINT_LEFT -> "live2d/hiyori/motions/Hiyori_look_left.motion3.json"
-        AvatarGesture.POINT_RIGHT -> "live2d/hiyori/motions/Hiyori_look_right.motion3.json"
-        AvatarGesture.POINT_FORWARD -> "live2d/hiyori/motions/Hiyori_point_forward.motion3.json"
-        AvatarGesture.BOW -> "live2d/hiyori/motions/Hiyori_bow.motion3.json"
-        AvatarGesture.THINKING_POSE -> "live2d/hiyori/motions/Hiyori_thinking.motion3.json"
-        AvatarGesture.GUIDE -> "live2d/hiyori/motions/Hiyori_guide.motion3.json"
-        AvatarGesture.LOOK_UP -> "live2d/hiyori/motions/Hiyori_look_up.motion3.json"
-        AvatarGesture.LISTEN -> "live2d/hiyori/motions/Hiyori_listen.motion3.json"
-        else -> null
+        startAnimationUpdate()
     }
 
     fun setSmoothTransitionEnabled(enabled: Boolean) {
@@ -499,47 +426,12 @@ class Live2DRendererImpl(
 
         var needsContinue = false
 
-        // 1. 处理原生动作
+        // 1. 原生 Cubism motion 已禁用。若旧状态残留，立即清理，避免
+        // 继续查询/驱动 CubismMotionManager。
         if (nativeMotionPlaying) {
-            val elapsed = currentTime - nativeMotionStartTime
-
-            // 在渲染线程检查 SDK 动作完成状态（线程安全）
-            // 使用时间判断作为主要完成条件，避免频繁的跨线程调用
-            val timeBasedFinished = elapsed >= nativeMotionDurationMs
-
-            if (timeBasedFinished || sdkMotionFinished) {
-                Log.i(TAG, "Native motion completed: elapsed=$elapsed, duration=$nativeMotionDurationMs, sdkFinished=$sdkMotionFinished")
-                nativeMotionPlaying = false
-                sdkMotionFinished = false
-
-                // 重置眼睛参数，确保自动眨眼系统能正常接管
-                runOnRenderThread {
-                    JniBridgeJava.nativeSetParameter(Live2DParams.EYE_L_OPEN, 1.0f, 1.0f)
-                    JniBridgeJava.nativeSetParameter(Live2DParams.EYE_R_OPEN, 1.0f, 1.0f)
-                    Log.d(TAG, "Eye parameters reset to 1.0 after native motion")
-                }
-
-                if (pendingGestureAfterNative != null) {
-                    Log.d(TAG, "Processing pending gesture: ${pendingGestureAfterNative}")
-                    val pending = pendingGestureAfterNative!!
-                    val pendingMs = pendingTransitionMsAfterNative
-                    pendingGestureAfterNative = null
-                    // 直接处理，不调用 transitionToGesture 避免队列化
-                    transitionToGestureInternal(pending, pendingMs)
-                    return
-                } else {
-                    // 动作完成后播放官方 Idle 动作组（动态待机）
-                    playIdleMotion()
-                }
-            } else {
-                // 原生动作仍在播放，在渲染线程异步检查 SDK 状态
-                runOnRenderThread {
-                    if (JniBridgeJava.nativeIsMotionFinished()) {
-                        sdkMotionFinished = true
-                    }
-                }
-                needsContinue = true
-            }
+            nativeMotionPlaying = false
+            pendingGestureAfterNative = null
+            sdkMotionFinished = false
         }
 
         // 2. 更新关键帧动画
@@ -718,6 +610,21 @@ class Live2DRendererImpl(
         }
     }
 
+    override fun resetSpeakingState() {
+        synchronized(this) {
+            if (isReleased) return
+            // 同步重置说话状态标志，不依赖 StateFlow 异步链
+            // 解决 StateFlow 合并跳过 IDLE 状态导致的状态泄漏问题
+            isSpeaking = false
+            speakingMouthOverride = false
+            overrideMouthOpenY = 0f
+            overrideMouthForm = 0f
+            Log.d(TAG, "resetSpeakingState: 说话状态已重置")
+        }
+        // 同步闭嘴，确保渲染层立即生效
+        setMouth(0f, 0f)
+    }
+
     override fun release() {
         // 在 synchronized 块内提前设置 isReleased，阻止后续任何新的 JNI 调用入队。
         // 已在 GL 队列中的 lambda 内部也会检查 isReleased，实际调用被跳过。
@@ -855,24 +762,7 @@ class Live2DRendererImpl(
     }
 
     private fun preloadCommonMotions() {
-        Log.d(TAG, "=== preloadCommonMotions() START ===")
-        val commonMotions = listOf(
-            "live2d/hiyori/motions/Hiyori_nod.motion3.json",
-            "live2d/hiyori/motions/Hiyori_shake.motion3.json"
-        )
-        runOnRenderThread {
-            synchronized(this@Live2DRendererImpl) {
-                if (isReleased || !_isModelLoaded) return@runOnRenderThread
-            }
-            commonMotions.forEach { path ->
-                try {
-                    JniBridgeJava.nativePreloadMotionByPath(path)
-                    Log.d(TAG, "Preloaded motion: $path")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to preload motion: $path", e)
-                }
-            }
-        }
+        Log.d(TAG, "preloadCommonMotions skipped: native Cubism motions disabled")
     }
 
     private fun expressionFromEnum(expression: AvatarExpression): String = expression.value

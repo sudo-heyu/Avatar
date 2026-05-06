@@ -130,6 +130,13 @@ interface Live2DRenderer {
     fun setUpperBodyMode(enabled: Boolean)
 
     /**
+     * 重置说话状态
+     * 同步清除 speakingMouthOverride 和 isSpeaking 标志，并闭嘴
+     * 用于 stop() 时直接重置渲染器状态，不依赖 StateFlow 异步链
+     */
+    fun resetSpeakingState()
+
+    /**
      * 释放资源
      */
     fun release()

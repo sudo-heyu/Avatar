@@ -37,7 +37,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:windowSoftInputMode="adjustResize"
+            android:windowSoftInputMode="adjustNothing"
             android:theme="@style/Theme.Scenic_avatar_guide_app">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

@@ -77,6 +77,9 @@ class AvatarPlaybackManager(
     // 第一个片段开始播放的回调（用于与打字机同步启动）
     var onFirstSegmentStart: (() -> Unit)? = null
 
+    // 说话状态重置回调（用于同步重置渲染器状态，解决 StateFlow 合并跳过 IDLE 问题）
+    var onResetSpeakingState: (() -> Unit)? = null
+
     // 流式 TTS 分段播放队列
     private val streamingAudioPlayer = AudioPlayer(context)
 
@@ -668,47 +671,55 @@ class AvatarPlaybackManager(
      *
      * Phase 0 修复：避免 synchronized + cancel 死锁
      * 持锁期间只做字段赋值，取出 job 引用后离开锁再取消
+     * Phase 4 修复：去掉顶层 runCatching，确保某步失败不跳过后续清理
      */
     fun stop() {
         assertMainThread()
-        runCatching {
-            ttsController.stop()
-            streamingTtsQueue.cancel()
 
-            // 1. 持锁期间只做字段赋值，取出 job 引用
-            val jobsToCancel: List<Job?>
-            synchronized(lipSyncLock) {
-                jobsToCancel = listOf(audioPositionSyncJob, streamingLipSyncJob)
-                audioPositionSyncJob = null
-                streamingLipSyncJob = null
-                isPlayingRef.set(false)
-                currentSegmentEvents.clear()
-                currentSegmentId = null
-                currentStreamOffsetMs = 0L
-                currentSegmentText = ""
-                preloadedLipSyncEvents.clear()
-                pendingSegments.clear()
-                nextExpectedSegmentIndex = 0
-            }
-            // 2. 锁外取消，协程可以自由退出（不需要等锁）
-            jobsToCancel.forEach { it?.cancel() }
+        // 步骤 1：停止 TTS 控制器
+        runCatching { ttsController.stop() }
+            .onFailure { Log.w(TAG, "ttsController.stop() failed: ${it.message}") }
 
-            // 重置原子状态
-            isLipSyncActive.set(false)
-            currentLipSyncSegmentId.set(null)
-            motionQueueJob?.cancel()
-            motionQueueJob = null
-            expressionTimelineJob?.cancel()
-            expressionTimelineJob = null
-            cancelWaitingClose()
-            currentPlayAction = null
-            _mouthState.value = Pair(0f, 0f)
-            _avatarState.update {
-                AvatarFullState()
-            }
-        }.onFailure {
-            Log.w(TAG, "stop failed: ${it.message}")
+        // 步骤 2：停止流式队列
+        runCatching { streamingTtsQueue.cancel() }
+            .onFailure { Log.w(TAG, "streamingTtsQueue.cancel() failed: ${it.message}") }
+
+        // 步骤 3：持锁期间只做字段赋值，取出 job 引用
+        val jobsToCancel: List<Job?>
+        synchronized(lipSyncLock) {
+            jobsToCancel = listOf(audioPositionSyncJob, streamingLipSyncJob)
+            audioPositionSyncJob = null
+            streamingLipSyncJob = null
+            isPlayingRef.set(false)
+            currentSegmentEvents.clear()
+            currentSegmentId = null
+            currentStreamOffsetMs = 0L
+            currentSegmentText = ""
+            preloadedLipSyncEvents.clear()
+            pendingSegments.clear()
+            nextExpectedSegmentIndex = 0
         }
+
+        // 步骤 4：锁外取消协程
+        jobsToCancel.forEach { it?.cancel() }
+
+        // 步骤 5：重置原子状态
+        isLipSyncActive.set(false)
+        currentLipSyncSegmentId.set(null)
+        motionQueueJob?.cancel()
+        motionQueueJob = null
+        expressionTimelineJob?.cancel()
+        expressionTimelineJob = null
+        cancelWaitingClose()
+        currentPlayAction = null
+        _mouthState.value = Pair(0f, 0f)
+
+        // 步骤 6：更新 StateFlow（可能被合并）
+        _avatarState.update { AvatarFullState() }
+
+        // 步骤 7：同步重置渲染器说话状态（不依赖 StateFlow 异步链）
+        // 解决 StateFlow 合并跳过 IDLE 状态导致的状态泄漏问题
+        onResetSpeakingState?.invoke()
     }
 
     private fun cancelWaitingClose() {

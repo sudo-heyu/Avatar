@@ -23,6 +23,9 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -72,18 +75,32 @@ class StreamingChatClient @Inject constructor(
 
                     val sseDataLines = mutableListOf<String>()
                     var currentEventType: String? = null
+                    var sawTerminalEvent = false
                     while (!source.exhausted()) {
                         val line = source.readUtf8Line() ?: continue
                         Log.d(TAG, "收到原始行: $line")
-                        val event = parseStreamLine(line, sseDataLines) { currentEventType = it }
+                        val event = parseStreamLine(
+                            rawLine = line,
+                            sseDataLines = sseDataLines,
+                            eventType = currentEventType,
+                            onEventType = { currentEventType = it },
+                            onEventFlushed = { currentEventType = null }
+                        )
                         if (event != null) {
                             Log.d(TAG, "解析事件: ${event::class.simpleName}, eventType=$currentEventType")
-                            currentEventType = null
+                            sawTerminalEvent = sawTerminalEvent || event.isTerminalStreamEvent()
                             trySend(event)
                         }
                     }
 
-                    flushSseData(sseDataLines)?.let { trySend(it) }
+                    flushSseData(sseDataLines, currentEventType)?.let {
+                        sawTerminalEvent = sawTerminalEvent || it.isTerminalStreamEvent()
+                        trySend(it)
+                    }
+                    if (!sawTerminalEvent && !call.isCanceled()) {
+                        Log.w(TAG, "流式响应 EOF 但未收到 done/aborted/error 终止事件")
+                        trySend(ChatStreamEvent.PrematurelyEnded)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "流式请求异常", e)
@@ -101,14 +118,26 @@ class StreamingChatClient @Inject constructor(
         }
     }
 
+    private fun ChatStreamEvent.isTerminalStreamEvent(): Boolean {
+        return this is ChatStreamEvent.Done ||
+            this is ChatStreamEvent.PrematurelyEnded ||
+            this is ChatStreamEvent.Aborted ||
+            this is ChatStreamEvent.Error
+    }
+
     private fun parseStreamLine(
         rawLine: String,
         sseDataLines: MutableList<String>,
-        onEventType: (String) -> Unit = {}
+        eventType: String? = null,
+        onEventType: (String) -> Unit = {},
+        onEventFlushed: () -> Unit = {}
     ): ChatStreamEvent? {
         val line = rawLine.trimEnd()
         if (line.isBlank()) {
-            return flushSseData(sseDataLines)
+            val hadData = sseDataLines.isNotEmpty()
+            return flushSseData(sseDataLines, eventType).also {
+                if (hadData) onEventFlushed()
+            }
         }
         if (line.startsWith(":")) return null
         if (line.startsWith("event:")) {
@@ -122,34 +151,51 @@ class StreamingChatClient @Inject constructor(
             return null
         }
         if (line.startsWith("{")) {
-            return decodeEvent(line)
+            return decodeEvent(line, eventType)
         }
         return null
     }
 
-    private fun flushSseData(sseDataLines: MutableList<String>): ChatStreamEvent? {
+    private fun flushSseData(
+        sseDataLines: MutableList<String>,
+        eventType: String? = null
+    ): ChatStreamEvent? {
         if (sseDataLines.isEmpty()) return null
         val payload = sseDataLines.joinToString(separator = "\n")
         sseDataLines.clear()
-        return decodeEvent(payload)
+        return decodeEvent(payload, eventType)
     }
 
-    private fun decodeEvent(payload: String): ChatStreamEvent? {
+    private fun decodeEvent(payload: String, eventType: String? = null): ChatStreamEvent? {
+        if (payload == "[DONE]") {
+            return ChatStreamEvent.Done
+        }
+
         val envelope = runCatching {
             json.decodeFromString(ChatStreamEnvelope.serializer(), payload)
         }.getOrElse { e ->
-            return ChatStreamEvent.Error(message = "流式事件解析失败: ${e.message}")
+            if (eventType == "text_delta") {
+                return ChatStreamEvent.TextDelta(payload)
+            }
+            Log.w(TAG, "跳过无法解析的流式事件: eventType=$eventType, payload=${payload.take(160)}", e)
+            return null
         }
 
-        Log.d(TAG, "decodeEvent: type=${envelope.type}, segmentId=${envelope.segmentId}, hasData=${envelope.data != null}")
+        val type = envelope.type ?: eventType
+        if (type.isNullOrBlank()) {
+            Log.w(TAG, "跳过缺少 type/event 的流式事件: payload=${payload.take(160)}")
+            return null
+        }
 
-        return when (envelope.type) {
+        Log.d(TAG, "decodeEvent: type=$type, segmentId=${envelope.segmentId}, hasData=${envelope.data != null}")
+
+        return when (type) {
             "message_start" -> ChatStreamEvent.MessageStart(
                 messageId = envelope.messageId,
                 sessionId = envelope.sessionId,
                 createdAt = envelope.createdAt
             )
-            "text_delta" -> envelope.delta
+            "text_delta" -> decodeTextDelta(envelope)
                 ?.let { ChatStreamEvent.TextDelta(it) }
             "tts_segment", "segment_tts", "segmenttts" -> decodeTtsSegment(envelope)
                 ?.let { ChatStreamEvent.TtsSegment(it) }
@@ -177,6 +223,17 @@ class StreamingChatClient @Inject constructor(
             "error" -> ChatStreamEvent.Error(envelope.code, envelope.message ?: "流式响应错误")
             else -> null
         }
+    }
+
+    private fun decodeTextDelta(envelope: ChatStreamEnvelope): String? {
+        envelope.delta?.let { return it }
+        val data = envelope.data ?: return null
+        return runCatching {
+            val obj = data.jsonObject
+            obj["delta"]?.jsonPrimitive?.contentOrNull
+                ?: obj["text"]?.jsonPrimitive?.contentOrNull
+                ?: obj["content"]?.jsonPrimitive?.contentOrNull
+        }.getOrNull()
     }
 
     private fun decodeTtsSegment(envelope: ChatStreamEnvelope): TtsSegmentData? {
@@ -226,7 +283,7 @@ class StreamingChatClient @Inject constructor(
 
 @Serializable
 private data class ChatStreamEnvelope(
-    val type: String,
+    val type: String? = null,
     @SerialName("message_id")
     val messageId: String? = null,
     @SerialName("session_id")

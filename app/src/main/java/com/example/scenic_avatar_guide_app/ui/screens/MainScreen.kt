@@ -18,6 +18,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -32,17 +33,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -81,12 +85,19 @@ import com.example.scenic_avatar_guide_app.domain.model.AvatarState
 import com.example.scenic_avatar_guide_app.core.speech.SpeechRecognizerHelper
 import com.example.scenic_avatar_guide_app.core.avatar.TestAvatarActions
 import com.example.scenic_avatar_guide_app.core.avatar.AvatarPlayAction
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private const val LONG_TEXT_MARKDOWN_LIMIT = 1200
+private const val TEXT_RENDER_CHUNK_SIZE = 700
+private val FallbackBottomReserve = 116.dp
+private val FallbackBottomReserveWithTestPanel = 156.dp
+private val MessageToFunctionCardGap = 8.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -119,10 +130,21 @@ fun MainScreen(
     var isCancelZone by remember { mutableStateOf(false) }
     var showImagePickerDialog by remember { mutableStateOf(false) }
     var cameraImageUri by remember { mutableStateOf<Uri?>(null) }
+    var bottomControlsContentHeightPx by remember { mutableIntStateOf(0) }
+    val navigationBottomPx = WindowInsets.navigationBars.getBottom(density)
+    val fixedBottomBarHeight = if (bottomControlsContentHeightPx > 0) {
+        with(density) { (bottomControlsContentHeightPx + navigationBottomPx).toDp() } + MessageToFunctionCardGap
+    } else if (showTestPanel) {
+        FallbackBottomReserveWithTestPanel
+    } else {
+        FallbackBottomReserve
+    }
 
     // 用户是否在底部附近（用于判断是否自动滚动）
     // 当用户上滑查看历史时，不自动滚动；用户滚回底部时恢复自动滚动
     var isUserAtBottom by remember { mutableStateOf(true) }
+    var autoScrollEnabled by remember { mutableStateOf(true) }
+    var isProgrammaticScroll by remember { mutableStateOf(false) }
 
     // 用于跟踪最后一条消息的内容变化（打字机效果）
     var lastMessageContent by remember { mutableStateOf("") }
@@ -198,23 +220,66 @@ fun MainScreen(
 
     DisposableEffect(Unit) { onDispose { speechHelper.destroy() } }
 
-    // 检测用户滚动状态：判断是否在底部附近
-    // 当用户上滑查看历史时，isUserAtBottom = false，停止自动滚动
-    // 当用户滚回底部时，isUserAtBottom = true，恢复自动滚动
-    LaunchedEffect(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
-        if (messages.isEmpty()) return@LaunchedEffect
-        // 判断是否在底部附近：最后一条消息可见，或距离底部不超过 2 个 item
-        val lastVisibleIndex = listState.firstVisibleItemIndex + listState.layoutInfo.visibleItemsInfo.size - 1
-        val totalItems = messages.size
-        // 如果最后可见项是最后一条或倒数第二条，认为用户在底部
-        isUserAtBottom = lastVisibleIndex >= totalItems - 2
+    var autoScrollJob by remember { mutableStateOf<Job?>(null) }
+
+    fun isMessageListAtBottom(): Boolean {
+        if (messages.isEmpty()) return true
+        val layoutInfo = listState.layoutInfo
+        val lastItem = layoutInfo.visibleItemsInfo.lastOrNull { it.index == messages.lastIndex }
+            ?: return false
+        return lastItem.offset + lastItem.size <= layoutInfo.viewportEndOffset + 12
+    }
+
+    suspend fun alignLastMessageToBottom() {
+        if (messages.isEmpty()) return
+        val lastIndex = messages.lastIndex
+        var layoutInfo = listState.layoutInfo
+        var lastItem = layoutInfo.visibleItemsInfo.lastOrNull { it.index == lastIndex }
+
+        if (lastItem == null) {
+            listState.scrollToItem(lastIndex)
+            delay(16)
+            layoutInfo = listState.layoutInfo
+            lastItem = layoutInfo.visibleItemsInfo.lastOrNull { it.index == lastIndex }
+        }
+
+        val visibleLastItem = lastItem ?: return
+        val delta = visibleLastItem.offset + visibleLastItem.size - layoutInfo.viewportEndOffset + 8
+        if (delta > 1) {
+            listState.scrollBy(delta.toFloat())
+        }
+    }
+
+    // 滚动到底部，确保最新内容可见
+    val scrollToBottom = {
+        autoScrollJob?.cancel()
+        autoScrollJob = coroutineScope.launch {
+            isProgrammaticScroll = true
+            try {
+                alignLastMessageToBottom()
+            } finally {
+                isProgrammaticScroll = false
+            }
+        }
+    }
+
+    LaunchedEffect(listState, messages.size) {
+        snapshotFlow { listState.isScrollInProgress to isMessageListAtBottom() }
+            .collect { (isScrolling, isAtBottom) ->
+                isUserAtBottom = isAtBottom
+                if (isScrolling && !isProgrammaticScroll && !isAtBottom) {
+                    autoScrollEnabled = false
+                    autoScrollJob?.cancel()
+                } else if (isAtBottom) {
+                    autoScrollEnabled = true
+                }
+            }
     }
 
     // 新消息到来时滚动到底部
     LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            isUserAtBottom = true // 新消息时重置为在底部
-            coroutineScope.launch { listState.scrollToItem(messages.size - 1) }
+        if (messages.isNotEmpty() && autoScrollEnabled) {
+            scrollToBottom()
         }
     }
 
@@ -224,8 +289,8 @@ fun MainScreen(
         if (lastMessage != null && !lastMessage.isUser && lastMessage.content != lastMessageContent) {
             lastMessageContent = lastMessage.content
             // 只有当用户在底部附近时才自动滚动
-            if (isUserAtBottom && messages.isNotEmpty()) {
-                coroutineScope.launch { listState.scrollToItem(messages.size - 1) }
+            if (autoScrollEnabled && messages.isNotEmpty()) {
+                scrollToBottom()
             }
         }
     }
@@ -263,15 +328,14 @@ fun MainScreen(
                     .fillMaxSize()
                     .padding(paddingValues)
                     .statusBarsPadding()
-                    .imePadding()
             ) {
-                // 主内容区域：填充整个屏幕，消息列表通过 padding 避开底栏
+                // 主内容区域不读取、不测量 IME。底部 Spacer 使用底栏内容的静态高度，
+                // 让消息区域真实截止在固定功能卡片上方，而不是判定到整页底部。
                 Column(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     TopBar(
                         onMenuClick = { coroutineScope.launch { drawerState.open() } },
-                        onNewChat = { viewModel.startNewSession() },
                         showTestPanel = showTestPanel,
                         onToggleTestPanel = { viewModel.toggleTestPanel() }
                     )
@@ -282,11 +346,16 @@ fun MainScreen(
                         fullState = avatarFullState,
                         mouthState = viewModel.mouthState,
                         showUpperBodyOnly = true,
+                        onRendererReady = { renderer ->
+                            // 设置渲染器状态重置回调，解决 StateFlow 合并跳过 IDLE 问题
+                            viewModel.setResetSpeakingStateCallback {
+                                renderer.resetSpeakingState()
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth().weight(2f)
                     )
 
-                    // 消息列表：底部留出底栏常态高度的空间，固定不随输入法变化
-                    // 使用固定值：测试卡片展开时最大高度(150dp) + ModeSelector(32dp) + InputSection(60dp) + 边距
+                    // 消息列表：只为底栏常态高度留白；输入法弹出不额外压缩消息区域
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -297,7 +366,11 @@ fun MainScreen(
                             isLoading = isLoading,
                             listState = listState,
                             modifier = Modifier.fillMaxSize(),
-                            bottomPaddingDp = 250.dp,
+                            bottomPaddingDp = 8.dp,
+                            onUserInteraction = {
+                                autoScrollEnabled = false
+                                autoScrollJob?.cancel()
+                            },
                             onFeedbackClick = { messageId -> viewModel.showFeedbackDialog(messageId) }
                         )
 
@@ -305,10 +378,9 @@ fun MainScreen(
                         if (!isUserAtBottom && messages.isNotEmpty()) {
                             FloatingActionButton(
                                 onClick = {
-                                    coroutineScope.launch {
-                                        listState.scrollToItem(messages.size - 1)
-                                        isUserAtBottom = true
-                                    }
+                                    autoScrollEnabled = true
+                                    isUserAtBottom = true
+                                    scrollToBottom()
                                 },
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
@@ -325,19 +397,33 @@ fun MainScreen(
                             }
                         }
                     }
+
+                    Spacer(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(fixedBottomBarHeight)
+                    )
                 }
 
-                // 底栏：固定在底部，不随输入法上升
+                // 底栏：随输入法上升；主内容区不响应 IME，保持数字人和消息区域位置固定
                 // 顺序从上到下：测试卡片 → 功能卡片（模式选择器）→ 输入框
-                Column(
+                Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .navigationBarsPadding()
-                        .background(Surface)
+                        .imePadding()
                 ) {
-                    // 测试面板：位于最上方
-                    if (showTestPanel) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onSizeChanged { size ->
+                                bottomControlsContentHeightPx = size.height
+                            }
+                            .background(Surface)
+                    ) {
+                        // 测试面板：位于最上方
+                        if (showTestPanel) {
                             CompactTestPanel(
                                 onActionClick = { action -> viewModel.playTestAction(action) },
                                 modifier = Modifier.fillMaxWidth()
@@ -393,6 +479,7 @@ fun MainScreen(
                     }
                 }
             }
+        }
     }
 
     if (showImagePickerDialog) {
@@ -449,7 +536,6 @@ fun MainScreen(
 @Composable
 private fun TopBar(
     onMenuClick: () -> Unit,
-    onNewChat: () -> Unit,
     showTestPanel: Boolean,
     onToggleTestPanel: () -> Unit
 ) {
@@ -468,9 +554,6 @@ private fun TopBar(
                     contentDescription = if (showTestPanel) "隐藏测试卡片" else "显示测试卡片",
                     tint = Color.White
                 )
-            }
-            IconButton(onNewChat) {
-                Icon(Icons.Default.Add, "新会话", tint = Color.White)
             }
         }
     )
@@ -526,8 +609,9 @@ private fun ChatHistoryDrawer(
                 )
                 IconButton(onClick = onNewSession) {
                     Icon(
-                        Icons.Default.Add,
+                        painter = painterResource(id = R.drawable.create_session),
                         contentDescription = "新建对话",
+                        modifier = Modifier.size(24.dp),
                         tint = Primary
                     )
                 }
@@ -565,14 +649,19 @@ private fun ChatHistoryDrawer(
                         )
                         Spacer(Modifier.height(16.dp))
                         Button(onClick = onNewSession) {
-                            Icon(Icons.Default.Add, contentDescription = null)
+                            Icon(
+                                painter = painterResource(id = R.drawable.create_session),
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
                             Spacer(Modifier.width(8.dp))
                             Text("新建对话")
                         }
                     }
                 } else {
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(0.dp)
                     ) {
                         items(sessions, key = { it.sessionId }) { session ->
                             SessionDrawerItem(
@@ -633,6 +722,7 @@ private fun ChatHistoryDrawer(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SessionDrawerItem(
     session: com.example.scenic_avatar_guide_app.domain.model.SessionInfo,
@@ -642,38 +732,26 @@ private fun SessionDrawerItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 12.dp),
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onDelete
+            )
+            .padding(vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = session.displayTitle(),
-                fontSize = 15.sp,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                color = TextSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = formatSessionTime(session.lastMessageAt),
-                fontSize = 13.sp,
-                color = TextHint
-            )
-        }
-
-        Box(
-            modifier = Modifier
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f))
-                .size(28.dp)
-                .clickable(onClick = onDelete),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                Icons.Outlined.Delete,
-                contentDescription = "删除",
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.error
+                text = formatSessionTime(session.lastMessageAt ?: session.createdAt),
+                fontSize = 12.sp,
+                color = TextHint.copy(alpha = 0.85f)
             )
         }
     }
@@ -707,13 +785,15 @@ private fun AvatarSection(
     fullState: com.example.scenic_avatar_guide_app.domain.model.AvatarFullState,
     mouthState: kotlinx.coroutines.flow.StateFlow<Pair<Float, Float>>,
     modifier: Modifier = Modifier,
-    showUpperBodyOnly: Boolean = false
+    showUpperBodyOnly: Boolean = false,
+    onRendererReady: ((com.example.scenic_avatar_guide_app.core.avatar.Live2DRendererImpl) -> Unit)? = null
 ) {
     AvatarView(
         avatarState = avatarState,
         fullState = fullState,
         mouthState = mouthState,
         showUpperBodyOnly = showUpperBodyOnly,
+        onRendererReady = onRendererReady,
         modifier = modifier
     )
 }
@@ -1159,10 +1239,26 @@ private fun MessageList(
     listState: androidx.compose.foundation.lazy.LazyListState,
     modifier: Modifier = Modifier,
     bottomPaddingDp: androidx.compose.ui.unit.Dp = 8.dp,
+    onUserInteraction: () -> Unit = {},
     onFeedbackClick: (String) -> Unit = {}
 ) {
+    val lastAssistantMessageId by remember(messages) {
+        derivedStateOf { messages.findLast { !it.isUser }?.id }
+    }
+    val userScrollConnection = remember(onUserInteraction) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput && available.y != 0f) {
+                    onUserInteraction()
+                }
+                return Offset.Zero
+            }
+        }
+    }
     LazyColumn(
-        modifier = modifier.padding(horizontal = 12.dp),
+        modifier = modifier
+            .nestedScroll(userScrollConnection)
+            .padding(horizontal = 12.dp),
         state = listState,
         contentPadding = PaddingValues(top = 8.dp, bottom = bottomPaddingDp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1172,23 +1268,35 @@ private fun MessageList(
             key = { it.id },
             contentType = { if (it.isUser) "user" else "assistant" }
         ) { message ->
-            MessageBubble(message = message, onFeedbackClick = onFeedbackClick)
+            val isLastAssistant = message.id == lastAssistantMessageId
+            MessageBubble(
+                message = message,
+                isLastAssistant = isLastAssistant,
+                onFeedbackClick = onFeedbackClick
+            )
         }
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageBubble(message: ChatMessage, onFeedbackClick: (String) -> Unit = {}) {
+private fun MessageBubble(
+    message: ChatMessage,
+    isLastAssistant: Boolean = false,
+    onFeedbackClick: (String) -> Unit = {}
+) {
     val isUser = message.isUser
     val imageUri = message.pendingImageUri ?: message.imageUrl
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val vibrator = context.getSystemService<Vibrator>()
 
+    val contentToShow by remember(message.content) {
+        derivedStateOf { message.content.trimEnd() }
+    }
     val shouldShowThinkingAnimation = !isUser && message.isLoading
-    val hasContent = message.content.isNotBlank()
-    val canShowFeedback = !isUser && !message.isLoading && !message.isError && hasContent
+    val hasContent = contentToShow.isNotBlank()
+    val canShowFeedback = isLastAssistant && !isUser && !message.isLoading && !message.isError && hasContent
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1203,7 +1311,7 @@ private fun MessageBubble(message: ChatMessage, onFeedbackClick: (String) -> Uni
                     indication = null,
                     onLongClick = {
                         if (hasContent) {
-                            clipboardManager.setText(AnnotatedString(message.content))
+                            clipboardManager.setText(AnnotatedString(contentToShow))
                             vibrator?.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
                             Toast.makeText(context, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
                         }
@@ -1230,17 +1338,25 @@ private fun MessageBubble(message: ChatMessage, onFeedbackClick: (String) -> Uni
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (hasContent) {
-                        val annotatedText = remember(message.content) {
-                            parseInlineMarkdown(message.content)
+                        val safeContent = remember(contentToShow) {
+                            sanitizeRenderableText(contentToShow)
                         }
-                        Text(
-                            text = annotatedText,
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp,
-                            color = if (isUser) UserBubbleText else AssistantBubbleText,
-                            maxLines = 100,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        if (safeContent.length > LONG_TEXT_MARKDOWN_LIMIT) {
+                            ChunkedMessageText(
+                                text = safeContent,
+                                color = if (isUser) UserBubbleText else AssistantBubbleText
+                            )
+                        } else {
+                            val annotatedText = remember(safeContent) {
+                                parseInlineMarkdown(safeContent)
+                            }
+                            Text(
+                                text = annotatedText,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                                color = if (isUser) UserBubbleText else AssistantBubbleText
+                            )
+                        }
                     }
 
                     if (shouldShowThinkingAnimation) {
@@ -1637,6 +1753,80 @@ fun ScenicSelectionDialog(
         },
         shape = RoundedCornerShape(20.dp)
     )
+}
+
+@Composable
+private fun ChunkedMessageText(
+    text: String,
+    color: Color
+) {
+    val chunks = remember(text) { chunkTextForRendering(text, TEXT_RENDER_CHUNK_SIZE) }
+    Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+        chunks.forEach { chunk ->
+            Text(
+                text = chunk,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                color = color,
+                softWrap = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+private fun sanitizeRenderableText(text: String): String {
+    val output = StringBuilder(text.length)
+    var index = 0
+    while (index < text.length) {
+        val char = text[index]
+        when {
+            char == '\n' || char == '\t' -> output.append(char)
+            char.isISOControl() -> {}
+            char.isHighSurrogate() -> {
+                if (index + 1 < text.length && text[index + 1].isLowSurrogate()) {
+                    output.append(char)
+                    output.append(text[index + 1])
+                    index++
+                } else {
+                    output.append('\uFFFD')
+                }
+            }
+            char.isLowSurrogate() -> output.append('\uFFFD')
+            else -> output.append(char)
+        }
+        index++
+    }
+    return output.toString()
+}
+
+private fun chunkTextForRendering(text: String, chunkSize: Int): List<String> {
+    if (text.length <= chunkSize) return listOf(text)
+    val chunks = mutableListOf<String>()
+    var start = 0
+    while (start < text.length) {
+        val maxEnd = minOf(start + chunkSize, text.length)
+        val newlineEnd = text.lastIndexOf('\n', maxEnd - 1).takeIf { it > start + chunkSize / 2 }
+        val punctuationEnd = findLastBreakBefore(text, start, maxEnd)
+        val end = when {
+            maxEnd == text.length -> maxEnd
+            newlineEnd != null -> newlineEnd + 1
+            punctuationEnd != -1 -> punctuationEnd + 1
+            else -> maxEnd
+        }
+        chunks += text.substring(start, end)
+        start = end
+    }
+    return chunks
+}
+
+private fun findLastBreakBefore(text: String, start: Int, end: Int): Int {
+    for (index in end - 1 downTo start + 1) {
+        when (text[index]) {
+            '。', '！', '？', '；', '.', '!', '?', ';', '，', ',' -> return index
+        }
+    }
+    return -1
 }
 
 private fun parseInlineMarkdown(text: String): AnnotatedString = buildAnnotatedString {

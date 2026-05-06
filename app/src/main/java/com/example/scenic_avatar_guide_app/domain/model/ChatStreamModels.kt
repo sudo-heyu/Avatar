@@ -40,6 +40,8 @@ sealed interface ChatStreamEvent {
 
     data object Done : ChatStreamEvent
 
+    data object PrematurelyEnded : ChatStreamEvent
+
     data class Aborted(
         val messageId: String?,
         val sessionId: String?,

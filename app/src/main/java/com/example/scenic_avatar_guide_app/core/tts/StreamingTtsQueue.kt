@@ -14,17 +14,32 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 private const val TAG = "StreamingTtsQueue"
 
+// Phase 3: 显式状态机，替代 active+inputFinished+currentPlayingIndex 三个散落字段
+sealed class PlaybackState {
+    object Idle : PlaybackState()
+    data class Receiving(val playingIndex: Int) : PlaybackState()   // 还在接收 segment
+    data class Draining(val playingIndex: Int) : PlaybackState()    // 已 finishInput，等待播完
+
+    val isActive: Boolean get() = this !is Idle
+    val currentIndex: Int get() = when (this) {
+        is Receiving -> playingIndex
+        is Draining -> playingIndex
+        else -> -1
+    }
+}
+
 /**
  * 流式 TTS 分段播放队列。
  *
- * Phase 1 修复: 线程契约
- * 所有公开方法（enqueue、finishInput、cancel、start）必须从主线程调用。
- * 内部协程使用 Dispatchers.Main scope，状态字段无需额外同步。
+ * Phase 1 修复: 线程契约 — 所有公开方法必须从主线程调用。
+ * Phase 2 修复: Flow collect 替代 var 回调。
+ * Phase 3 修复: PlaybackState 密封类替代多标志。
+ * N1 修复: trySend 返回值检查。
+ * N2 修复: sessionEpoch 计数器，丢弃跨会话陈旧事件。
  */
 class StreamingTtsQueue(
     private val audioPlayer: AudioPlayer,
@@ -37,7 +52,6 @@ class StreamingTtsQueue(
     private val onError: (Throwable) -> Unit,
     private val onBufferingStateChanged: ((Boolean) -> Unit)? = null
 ) {
-    // Phase 1 修复: 主线程断言
     private fun assertMainThread() {
         check(Looper.myLooper() == Looper.getMainLooper()) {
             "StreamingTtsQueue 必须在主线程调用，当前: ${Thread.currentThread().name}"
@@ -45,47 +59,35 @@ class StreamingTtsQueue(
     }
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-
     private val segmentChannel = Channel<TtsSegmentData>(20)
 
+    // N2: 会话 epoch，cancel()/start() 时递增，使上一轮未消费事件失效
+    private val sessionEpoch = AtomicInteger(0)
+
     private val segmentList = mutableListOf<TtsSegmentData>()
-    private var currentPlayingIndex = -1
-    private var inputFinished = false
-    private var active = false
+    private var playbackState: PlaybackState = PlaybackState.Idle
     private var segmentStartTime = 0L
     private var nextEnqueueIndex = 0
-
-    // 状态保护：防止回调重入和竞态条件
-    private val isTransitioning = AtomicBoolean(false)
-    private val isCompleting = AtomicBoolean(false)
     private val pendingSegmentIndex = AtomicInteger(-1)
+    private var acceptedSegmentCount = 0
+    private var processedSegmentCount = 0
 
     init {
-        // Phase 2: 用 Flow collect 替代 var 回调
-        // 生命周期由 scope 控制，scope 取消时自动停止收集
+        // Phase 2: Flow collect 事件收集
         scope.launch {
             audioPlayer.events.collect { event ->
+                val capturedEpoch = sessionEpoch.get()
                 when (event) {
-                    is AudioPlayerEvent.MediaItemTransition -> {
-                        handleMediaItemTransition(event.reason, event.mediaItem)
-                    }
-                    is AudioPlayerEvent.PlayComplete -> {
-                        handlePlayComplete()
-                    }
-                    is AudioPlayerEvent.PlayError -> {
-                        handleError(event.message)
-                    }
-                    is AudioPlayerEvent.BufferingStateChanged -> {
-                        if (active) {
-                            onBufferingStateChanged?.invoke(event.isBuffering)
-                        }
-                    }
-                    is AudioPlayerEvent.PlayStart -> {
-                        // PlayStart 由 AudioPlayer 内部处理，这里不需要额外处理
-                    }
-                    is AudioPlayerEvent.IsPlayingChanged -> {
-                        // IsPlayingChanged 由 AudioPlayer 内部处理
-                    }
+                    is AudioPlayerEvent.MediaItemTransition ->
+                        handleMediaItemTransition(event.reason, event.mediaItem, capturedEpoch)
+                    is AudioPlayerEvent.PlayComplete ->
+                        handlePlayComplete(capturedEpoch)
+                    is AudioPlayerEvent.PlayError ->
+                        handleError(event.message, capturedEpoch)
+                    is AudioPlayerEvent.BufferingStateChanged ->
+                        if (playbackState.isActive) onBufferingStateChanged?.invoke(event.isBuffering)
+                    is AudioPlayerEvent.PlayStart -> {}
+                    is AudioPlayerEvent.IsPlayingChanged -> {}
                 }
             }
         }
@@ -93,124 +95,145 @@ class StreamingTtsQueue(
         // 单一协程串行处理所有 segment，确保严格顺序
         scope.launch {
             for (segment in segmentChannel) {
-                if (!active) continue
+                if (!playbackState.isActive) continue
                 processSegmentSerial(segment)
             }
         }
     }
 
-    // Phase 2: MediaItemTransition 处理逻辑（从 init 块提取）
-    private fun handleMediaItemTransition(reason: Int, mediaItem: androidx.media3.common.MediaItem?) {
-        if (!active) {
-            // 跳过非活动状态
-        } else if (!isTransitioning.compareAndSet(false, true)) {
-            // 防止重入：如果已经在处理过渡，跳过
-            Log.w(TAG, "[TRANSITION] 跳过重入的过渡请求, reason=$reason")
-        } else {
-            try {
-                Log.d(TAG, "[TRANSITION] reason=$reason, playingIdx=$currentPlayingIndex, listSize=${segmentList.size}")
-
-                when (reason) {
-                    Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> {
-                        // 自动过渡到下一个 segment
-                        segmentList.getOrNull(currentPlayingIndex)?.let { completed ->
-                            val elapsed = System.currentTimeMillis() - segmentStartTime
-                            Log.d(TAG, "[COMPLETE] idx=$currentPlayingIndex segment=${completed.segmentId}, 历时=${elapsed}ms")
-                            onSegmentComplete(completed, elapsed)
-                        }
-
-                        currentPlayingIndex++
-                        val nextSegment = segmentList.getOrNull(currentPlayingIndex)
-                        if (nextSegment != null) {
-                            segmentStartTime = System.currentTimeMillis()
-                            Log.d(TAG, "[START] idx=$currentPlayingIndex segment=${nextSegment.segmentId}")
-                            onSegmentStart(nextSegment)
-                        } else {
-                            Log.d(TAG, "[QUEUE_END] 播放列表结束, inputFinished=$inputFinished")
-                            currentPlayingIndex = -1
-                            if (inputFinished) {
-                                active = false
-                                onAllComplete()
-                            } else {
-                                onWaitingForSegment()
-                            }
-                        }
-                    }
-                    Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED -> {
-                        // 播放列表变化（首个 segment 加入）
-                        if (currentPlayingIndex < 0 && segmentList.isNotEmpty()) {
-                            currentPlayingIndex = 0
-                            val firstSegment = segmentList[0]
-                            segmentStartTime = System.currentTimeMillis()
-                            Log.d(TAG, "[START-FIRST] idx=0 segment=${firstSegment.segmentId}")
-                            onSegmentStart(firstSegment)
-                        }
-                    }
-                    else -> {}
-                }
-            } finally {
-                isTransitioning.set(false)
-            }
+    private fun handleMediaItemTransition(
+        reason: Int,
+        mediaItem: androidx.media3.common.MediaItem?,
+        epoch: Int
+    ) {
+        if (sessionEpoch.get() != epoch) {
+            Log.d(TAG, "[STALE_TRANSITION] 丢弃陈旧事件 (epoch=$epoch, current=${sessionEpoch.get()})")
+            return
         }
-    }
+        val state = playbackState
+        if (!state.isActive) return
 
-    // Phase 2: PlayComplete 处理逻辑（从 init 块提取）
-    private fun handlePlayComplete() {
-        if (!active) {
-            // 跳过非活动状态
-        } else if (!isCompleting.compareAndSet(false, true)) {
-            // 防止重入：如果已经在处理完成，跳过
-            Log.w(TAG, "[PLAY_COMPLETE] 跳过重入的完成请求")
-        } else {
-            try {
-                Log.d(TAG, "[PLAY_COMPLETE] playingIdx=$currentPlayingIndex, listSize=${segmentList.size}")
+        Log.d(TAG, "[TRANSITION] reason=$reason, state=$state, listSize=${segmentList.size}")
 
-                // 只有当播放器真正结束且不是过渡中时才处理
-                // 避免与 onMediaItemTransition 竞争
-                if (currentPlayingIndex >= 0 && currentPlayingIndex < segmentList.size) {
-                    // 检查是否是最后一个 segment
-                    val isLastSegment = currentPlayingIndex == segmentList.size - 1
-                    if (isLastSegment) {
-                        val completed = segmentList[currentPlayingIndex]
-                        val elapsed = System.currentTimeMillis() - segmentStartTime
-                        Log.d(TAG, "[COMPLETE-LAST] idx=$currentPlayingIndex segment=${completed.segmentId}, 历时=${elapsed}ms")
-                        onSegmentComplete(completed, elapsed)
-                    }
+        when (reason) {
+            Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> {
+                val completedIndex = state.currentIndex
+                segmentList.getOrNull(completedIndex)?.let { completed ->
+                    val elapsed = System.currentTimeMillis() - segmentStartTime
+                    Log.d(TAG, "[COMPLETE] idx=$completedIndex segment=${completed.segmentId}, 历时=${elapsed}ms")
+                    onSegmentComplete(completed, elapsed)
                 }
 
-                currentPlayingIndex = -1
-
-                if (inputFinished) {
-                    Log.d(TAG, "[ALL_COMPLETE] 所有 segment 播放完成")
-                    active = false
-                    onAllComplete()
+                val nextIndex = completedIndex + 1
+                val nextSegment = segmentList.getOrNull(nextIndex)
+                if (nextSegment != null) {
+                    playbackState = when (state) {
+                        is PlaybackState.Receiving -> PlaybackState.Receiving(nextIndex)
+                        is PlaybackState.Draining  -> PlaybackState.Draining(nextIndex)
+                        else -> state
+                    }
+                    segmentStartTime = System.currentTimeMillis()
+                    Log.d(TAG, "[START] idx=$nextIndex segment=${nextSegment.segmentId}")
+                    onSegmentStart(nextSegment)
                 } else {
-                    onWaitingForSegment()
+                    Log.d(TAG, "[QUEUE_END] 播放列表结束, state=$state")
+                    if (state is PlaybackState.Draining) {
+                        if (hasAcceptedSegmentsWaiting()) {
+                            Log.d(TAG, "[QUEUE_WAIT] 等待已接收但尚未处理的 segment: accepted=$acceptedSegmentCount processed=$processedSegmentCount")
+                            playbackState = PlaybackState.Draining(-1)
+                            onWaitingForSegment()
+                        } else {
+                            triggerAllComplete()
+                        }
+                    } else {
+                        playbackState = PlaybackState.Receiving(-1)
+                        onWaitingForSegment()
+                    }
                 }
-            } finally {
-                isCompleting.set(false)
             }
+            Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED -> {
+                if (state.currentIndex < 0 && segmentList.isNotEmpty()) {
+                    playbackState = when (state) {
+                        is PlaybackState.Receiving -> PlaybackState.Receiving(0)
+                        is PlaybackState.Draining  -> PlaybackState.Draining(0)
+                        else -> state
+                    }
+                    val firstSegment = segmentList[0]
+                    segmentStartTime = System.currentTimeMillis()
+                    Log.d(TAG, "[START-FIRST] idx=0 segment=${firstSegment.segmentId}")
+                    onSegmentStart(firstSegment)
+                }
+            }
+            else -> {}
         }
     }
 
-    // Phase 2: Error 处理逻辑（从 init 块提取）
-    private fun handleError(error: String) {
+    private fun handlePlayComplete(epoch: Int) {
+        if (sessionEpoch.get() != epoch) {
+            Log.d(TAG, "[STALE_COMPLETE] 丢弃陈旧 PlayComplete (epoch=$epoch, current=${sessionEpoch.get()})")
+            return
+        }
+        val state = playbackState
+        if (!state.isActive) return
+
+        Log.d(TAG, "[PLAY_COMPLETE] state=$state, listSize=${segmentList.size}")
+
+        val completedIndex = state.currentIndex
+        if (completedIndex >= 0 && completedIndex < segmentList.size) {
+            if (completedIndex == segmentList.size - 1) {
+                val completed = segmentList[completedIndex]
+                val elapsed = System.currentTimeMillis() - segmentStartTime
+                Log.d(TAG, "[COMPLETE-LAST] idx=$completedIndex segment=${completed.segmentId}, 历时=${elapsed}ms")
+                onSegmentComplete(completed, elapsed)
+            }
+        }
+
+        if (state is PlaybackState.Draining) {
+            if (hasAcceptedSegmentsWaiting()) {
+                Log.d(TAG, "[PLAY_COMPLETE_WAIT] 等待已接收但尚未处理的 segment: accepted=$acceptedSegmentCount processed=$processedSegmentCount")
+                playbackState = PlaybackState.Draining(-1)
+                onWaitingForSegment()
+                return
+            }
+            if (completedIndex >= 0 && completedIndex < segmentList.lastIndex) {
+                Log.d(TAG, "[PLAY_COMPLETE_WAIT] 播放完成但本地队列还有未播 segment: completed=$completedIndex listSize=${segmentList.size}")
+                playbackState = PlaybackState.Draining(completedIndex)
+                onWaitingForSegment()
+                return
+            }
+            Log.d(TAG, "[ALL_COMPLETE] PlayComplete 触发完成")
+            triggerAllComplete()
+        } else {
+            playbackState = PlaybackState.Receiving(-1)
+            onWaitingForSegment()
+        }
+    }
+
+    private fun handleError(error: String, epoch: Int) {
         Log.e(TAG, "[ERROR] $error")
-        if (active) {
-            active = false
+        if (sessionEpoch.get() != epoch) return
+        if (playbackState.isActive) {
+            playbackState = PlaybackState.Idle
             onError(IllegalStateException(error))
         }
+    }
+
+    private fun triggerAllComplete() {
+        playbackState = PlaybackState.Idle
+        onAllComplete()
     }
 
     private suspend fun processSegmentSerial(segment: TtsSegmentData) {
         try {
             val index = segmentList.size
-            Log.d(TAG, "[PROCESS] idx=$index segmentId=${segment.segmentId}")
+            // N2-补: 在 IO 挂起前捕获 epoch，IO 返回后校验，防止旧 segment 注入新 session
+            val capturedEpoch = sessionEpoch.get()
+            Log.d(TAG, "[PROCESS] idx=$index segmentId=${segment.segmentId} epoch=$capturedEpoch")
 
             segmentList.add(segment)
+            processedSegmentCount++
 
             // Phase 0 修复 P0-2: onSegmentEnqueue 在主线程执行
-            // preloadSegmentLipSync 是 CPU 计算，不涉及 IO，无需切换到 IO 线程
             onSegmentEnqueue(segment)
 
             // Phase 0 修复 P0-4: 只有 buildAudioUrl 在 IO 线程执行
@@ -219,11 +242,15 @@ class StreamingTtsQueue(
             }
             Log.d(TAG, "[URL] idx=$index")
 
-            if (!active) return
+            // 双重保护：同时检查 playbackState 和 epoch（防止 cancel→start 间隙注入旧 URL）
+            if (!playbackState.isActive || sessionEpoch.get() != capturedEpoch) {
+                Log.d(TAG, "[PROCESS-ABORT] stale segment, epoch=$capturedEpoch current=${sessionEpoch.get()}")
+                return
+            }
 
             // Phase 0 修复 P0-4: 显式保证在主线程调用 ExoPlayer
             withContext(Dispatchers.Main.immediate) {
-                if (!active) return@withContext
+                if (!playbackState.isActive || sessionEpoch.get() != capturedEpoch) return@withContext
                 if (!audioPlayer.hasMediaItems()) {
                     Log.d(TAG, "[PLAY] idx=$index")
                     audioPlayer.play(fullUrl)
@@ -235,12 +262,11 @@ class StreamingTtsQueue(
 
             nextEnqueueIndex++
         } catch (e: CancellationException) {
-            // Phase 0 修复: CancellationException 必须重新抛出
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "[ERROR] ${e.message}", e)
-            if (active) {
-                active = false
+            if (playbackState.isActive) {
+                playbackState = PlaybackState.Idle
                 onError(e)
             }
         }
@@ -248,50 +274,66 @@ class StreamingTtsQueue(
 
     fun start() {
         assertMainThread()
-        Log.d(TAG, "[START] 队列初始化")
+        sessionEpoch.incrementAndGet()
+        Log.d(TAG, "[START] 队列初始化, epoch=${sessionEpoch.get()}")
         audioPlayer.stop()
         segmentList.clear()
-        currentPlayingIndex = -1
         nextEnqueueIndex = 0
-        inputFinished = false
-        active = true
+        acceptedSegmentCount = 0
+        processedSegmentCount = 0
+        pendingSegmentIndex.set(-1)
+        playbackState = PlaybackState.Receiving(-1)
     }
 
     fun enqueue(segment: TtsSegmentData) {
         assertMainThread()
-        if (!active) start()
+        if (!playbackState.isActive) start()
 
         Log.d(TAG, "[ENQUEUE-REQ] segmentId=${segment.segmentId}")
 
-        // 发送到 channel，由单一协程串行处理
-        segmentChannel.trySend(segment)
+        // N1 修复: 检查返回值，channel 满时报错而非静默丢弃
+        val result = segmentChannel.trySend(segment)
+        if (result.isSuccess) {
+            acceptedSegmentCount++
+        } else {
+            Log.e(TAG, "[ENQUEUE-FAIL] channel full, segment dropped: id=${segment.segmentId}, " +
+                    "listSize=${segmentList.size}, playingIdx=${playbackState.currentIndex}")
+            onError(IllegalStateException("TTS segment channel full, segment ${segment.segmentId} dropped"))
+        }
     }
 
     fun finishInput() {
         assertMainThread()
-        Log.d(TAG, "[FINISH] inputFinished=true, listSize=${segmentList.size}, playingIdx=$currentPlayingIndex")
-        inputFinished = true
+        val state = playbackState
+        Log.d(TAG, "[FINISH] state=$state, listSize=${segmentList.size}")
 
-        if (currentPlayingIndex < 0 || currentPlayingIndex >= segmentList.size) {
-            if (segmentList.isEmpty() || currentPlayingIndex >= segmentList.size) {
-                Log.d(TAG, "[ALL_COMPLETE] finishInput 触发完成")
-                active = false
-                onAllComplete()
+        when (state) {
+            is PlaybackState.Receiving -> {
+                val idx = state.playingIndex
+                playbackState = PlaybackState.Draining(idx)
+                if (idx < 0 || idx >= segmentList.size) {
+                    if (hasAcceptedSegmentsWaiting()) {
+                        Log.d(TAG, "[FINISH_WAIT] 等待已接收但尚未处理的 segment: accepted=$acceptedSegmentCount processed=$processedSegmentCount")
+                    } else if (segmentList.isEmpty() || idx >= segmentList.size) {
+                        Log.d(TAG, "[ALL_COMPLETE] finishInput 触发完成（无 segment）")
+                        triggerAllComplete()
+                    }
+                }
             }
+            is PlaybackState.Idle -> Log.w(TAG, "[FINISH] 忽略：队列未激活")
+            is PlaybackState.Draining -> Log.w(TAG, "[FINISH] 重复调用，已在 Draining 状态")
         }
     }
 
     fun cancel() {
         assertMainThread()
-        Log.d(TAG, "[CANCEL]")
-        active = false
-        inputFinished = false
+        val newEpoch = sessionEpoch.incrementAndGet()
+        Log.d(TAG, "[CANCEL] from state=$playbackState, epoch→$newEpoch")
+        playbackState = PlaybackState.Idle
         segmentList.clear()
-        currentPlayingIndex = -1
         nextEnqueueIndex = 0
-        // 重置所有状态标志
-        isTransitioning.set(false)
-        isCompleting.set(false)
+        acceptedSegmentCount = 0
+        processedSegmentCount = 0
         pendingSegmentIndex.set(-1)
         audioPlayer.stop()
     }
@@ -302,5 +344,9 @@ class StreamingTtsQueue(
         segmentChannel.close()
         scope.cancel()
         audioPlayer.release()
+    }
+
+    private fun hasAcceptedSegmentsWaiting(): Boolean {
+        return processedSegmentCount < acceptedSegmentCount
     }
 }
