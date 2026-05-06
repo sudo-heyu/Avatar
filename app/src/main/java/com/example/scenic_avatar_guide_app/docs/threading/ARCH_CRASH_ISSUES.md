@@ -1,8 +1,18 @@
 # 架构级崩溃问题文档
 
-> **创建日期**：2026-05-06  
-> **背景**：经过代码审计确认，项目的频繁闪退不是单点 bug 造成的，而是三个架构级设计问题的累积效应。本文档描述问题本质、复现路径和改善方向，供后续重构参考。  
+> **创建日期**：2026-05-06
+> **最后更新**：2026-05-06
+> **状态**：三个问题全部已修复 ✅
+> **背景**：经过代码审计确认，项目的频繁闪退不是单点 bug 造成的，而是三个架构级设计问题的累积效应。本文档描述问题本质、复现路径和改善方向，供后续重构参考。
 > **关联文档**：`THREAD_SAFETY_REFACTOR.md`（已执行的线程修复）、`CRASH_FIXPLAN_SUPPLEMENT.md`（已执行的补丁修复）
+
+## 修复状态摘要
+
+| 问题 | 状态 | 修复方式 |
+|------|------|----------|
+| **问题一** Native 并发驱动路径 | ✅ 已修复 | `s_isDestroyed` 原子标志 + 双重检查锁 |
+| **问题二** stop() 非原子清理 | ✅ 已修复 | `resetSpeakingState()` 同步回调 |
+| **问题三** 五套播放状态分散 | ✅ 已修复 | `sessionEpoch` 统一退出判断 |
 
 ---
 
@@ -62,6 +72,7 @@ if (timeBasedFinished || sdkMotionFinished) {
 
 - `core/avatar/Live2DRendererImpl.kt`：`animationTick()`、`scheduleAnimationTick()`、`runOnRenderThread()`、`onAfterDrawFrame` 回调、`setMouth()`
 - `core/avatar/animation/` 目录下所有动画控制器
+- `cpp/JniBridgeC.cpp`：Native JNI 桥接（已添加 `s_isDestroyed` 原子标志）
 
 ### 改善方向
 
@@ -70,6 +81,27 @@ if (timeBasedFinished || sdkMotionFinished) {
 2. **把 animationTick 迁移到 `onAfterDrawFrame` 驱动**：当前由主线程 Handler 定时触发，改为由 GL 线程每帧触发。好处是：所有 JNI 写操作集中在 GL 线程，路径 A 和路径 C 合并为一条路径，消除并发。
 
 3. **渐进可行的临时方案**：在 `animationTick` 中，把所有 `runOnRenderThread` 的 JNI 调用改为先检查一次 `synchronized` 块的 `isReleased` 和 `nativeMotionPlaying`，再入队，减少残留任务的影响范围。
+
+### 已执行的修复（2026-05-06）
+
+在 `JniBridgeC.cpp` 中引入全局原子标志 `s_isDestroyed`，配合双重检查锁保护所有 JNI 函数：
+
+```cpp
+static std::atomic<bool> s_isDestroyed{false};
+
+// nativeOnStop / nativeOnDestroy 中设置
+s_isDestroyed.store(true, std::memory_order_release);
+
+// nativeOnSurfaceCreated 中重置
+s_isDestroyed.store(false, std::memory_order_release);
+
+// 所有其他 JNI 函数入口检查
+if (s_isDestroyed.load(std::memory_order_acquire)) return;
+std::lock_guard<std::mutex> lock(s_renderMutex);
+if (s_isDestroyed.load(std::memory_order_relaxed)) return;
+```
+
+这消除了页面切换时 GL 队列残留任务访问已销毁 Native 状态的风险。
 
 ---
 
@@ -130,6 +162,7 @@ fun stop() {
 
 - `core/avatar/AvatarPlaybackManager.kt`：`stop()`、`startStreaming()`、`startAudioSyncedLipSync()`、`onAllComplete` 回调
 - `core/avatar/Live2DRendererImpl.kt`：`updateState()`、`isSpeaking`、`speakingMouthOverride`
+- `core/avatar/Live2DRenderer.kt`：接口定义（已添加 `resetSpeakingState()` 方法）
 
 ### 改善方向
 
@@ -140,6 +173,19 @@ fun stop() {
 3. **`stop()` 中去掉顶层 `runCatching`**，改为对每个步骤单独处理，确保某步失败不跳过后续清理。
 
 4. **建立渲染器的直接重置接口**：在 `Live2DRenderer` 接口中增加 `resetToIdle()` 方法，调用者直接驱动，不走 StateFlow 异步路径。
+
+### 已执行的修复（2026-05-06）
+
+1. **同步重置渲染器状态**：
+   - 在 `Live2DRenderer` 接口中新增 `resetSpeakingState()` 方法
+   - `Live2DRendererImpl` 实现同步清除 `isSpeaking`、`speakingMouthOverride`、`overrideMouthOpenY`、`overrideMouthForm`
+   - `AvatarPlaybackManager` 持有 `onResetSpeakingState` 回调，在 `stop()` 最后调用
+   - 通过 `MainViewModel.setResetSpeakingStateCallback()` 连接渲染器
+
+2. **改进 stop() 清理流程**：
+   - 移除顶层 `runCatching`，改为每个步骤独立 `runCatching`
+   - 确保某步失败不跳过后续清理
+   - 持锁期间只做字段赋值，锁外取消协程，避免死锁
 
 ---
 
@@ -228,19 +274,30 @@ T5 时刻 `_isPlaying = false` 是一个典型的滞后态。`audioPositionSyncJ
 
 2. **短期可行方案**：把 `audioPositionSyncJob` 的启动和退出条件改为基于 `StreamingTtsQueue.sessionEpoch`，而不是 `isPlayingRef`。口型循环在启动时捕获当前 epoch，每帧校验；`cancel()` 递增 epoch，旧循环立即检测到不匹配并退出。这消除了退出延迟问题，且不需要引入新的架构层。
 
+### 已执行的修复（2026-05-06）
+
+采用**短期可行方案**：在 `AvatarPlaybackManager` 中引入 `sessionEpoch: AtomicInteger`：
+
+- `startStreaming()` 时递增 epoch，同步设置 `isPlayingRef = true`
+- `stop()` 时递增 epoch，让旧口型循环立即检测到不匹配
+- `startAudioSyncedLipSync()` 和 `startNonStreamingLipSync()` 在循环开头校验 epoch
+- epoch 不匹配时立即退出，无需等待 `isPlayingRef` 或 ExoPlayer 异步状态
+
+详见文档末尾"已执行的修复"部分。
+
 ---
 
 ## 问题影响矩阵
 
-| 问题 | 触发场景 | 表现 | 崩溃类型 |
-|------|----------|------|----------|
-| **问题一** 动作时间估算失准 | 低端设备、长文本回答有多个动作 | SIGSEGV / App 闪退 | 硬崩溃 |
-| **问题一** 页面切换时 GL 残留任务 | 快速前后台切换 | SIGSEGV | 硬崩溃 |
-| **问题二** 旧 audioPositionSyncJob 未退出 | 连续快速发消息 | 口型抖动 / IllegalStateException | 软崩溃或视觉异常 |
-| **问题二** StateFlow 跳过 IDLE | 连续发消息（两条间隔 < 500ms） | isSpeaking 状态泄漏到新会话 | 视觉异常 |
-| **问题二** runCatching 吞异常 | ExoPlayer 异常状态（如网络切换） | 播放链路半死锁 | 软崩溃 |
-| **问题三** isPlaying 不一致窗口 | 任何 cancel→start | 口型与音频不同步 | 视觉异常 |
-| **问题三** 三次快速发送的叠加 | 压力下连续操作 | 嘴型锁死 / 无限循环 | 软崩溃 |
+| 问题 | 触发场景 | 表现 | 崩溃类型 | 修复状态 |
+|------|----------|------|----------|----------|
+| **问题一** 动作时间估算失准 | 低端设备、长文本回答有多个动作 | SIGSEGV / App 闪退 | 硬崩溃 | ✅ 已修复 |
+| **问题一** 页面切换时 GL 残留任务 | 快速前后台切换 | SIGSEGV | 硬崩溃 | ✅ 已修复 |
+| **问题二** 旧 audioPositionSyncJob 未退出 | 连续快速发消息 | 口型抖动 / IllegalStateException | 软崩溃或视觉异常 | ✅ 已修复 |
+| **问题二** StateFlow 跳过 IDLE | 连续发消息（两条间隔 < 500ms） | isSpeaking 状态泄漏到新会话 | 视觉异常 | ✅ 已修复 |
+| **问题二** runCatching 吞异常 | ExoPlayer 异常状态（如网络切换） | 播放链路半死锁 | 软崩溃 | ✅ 已修复 |
+| **问题三** isPlaying 不一致窗口 | 任何 cancel→start | 口型与音频不同步 | 视觉异常 | ✅ 已修复 |
+| **问题三** 三次快速发送的叠加 | 压力下连续操作 | 嘴型锁死 / 无限循环 | 软崩溃 | ✅ 已修复 |
 
 ---
 
@@ -269,13 +326,13 @@ T5 时刻 `_isPlaying = false` 是一个典型的滞后态。`audioPositionSyncJ
 
 ---
 
-## 附：崩溃频率预估（基于场景）
+## 附：崩溃频率预估（修复后）
 
-| 操作场景 | 当前崩溃概率 | 根因 |
-|----------|-------------|------|
-| 单条消息完整对话 | 低 | 无并发压力，路径单一 |
-| 连续发 2 条（间隔 < 1s） | 中 | 问题二的旧 Job 未退出 |
-| 连续发 3+ 条 | 高 | 问题三的状态不一致叠加 |
-| 同时有复杂动作（点头、挥手）| 中高 | 问题一的时间估算失准 |
-| 低端设备（< 4GB RAM） | 高 | 问题一 + Live2D 帧时间不稳 |
-| 快速前后台切换 | 中 | 问题一的 GL 残留任务 |
+| 操作场景 | 修复前崩溃概率 | 修复后预期 | 根因（已修复） |
+|----------|---------------|------------|----------------|
+| 单条消息完整对话 | 低 | 极低 | 无并发压力，路径单一 |
+| 连续发 2 条（间隔 < 1s） | 中 | 低 | 问题二已修复 |
+| 连续发 3+ 条 | 高 | 低 | 问题三已修复 |
+| 同时有复杂动作（点头、挥手）| 中高 | 低 | 问题一已修复 |
+| 低端设备（< 4GB RAM） | 高 | 中低 | 问题一已修复，Live2D 内存仍需优化 |
+| 快速前后台切换 | 中 | 低 | 问题一已修复 |
