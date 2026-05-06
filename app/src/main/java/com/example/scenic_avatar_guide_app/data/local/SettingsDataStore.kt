@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -29,6 +30,9 @@ class SettingsDataStore @Inject constructor(
         private val RATE_KEY = stringPreferencesKey("rate")
         private val VOLUME_KEY = stringPreferencesKey("volume")
         private val PITCH_KEY = stringPreferencesKey("pitch")
+        private val AUTH_USER_ID_KEY = stringPreferencesKey("auth_user_id")
+        private val AUTH_USERNAME_KEY = stringPreferencesKey("auth_username")
+        private val IS_AUTHENTICATED_KEY = booleanPreferencesKey("is_authenticated")
 
         const val DEFAULT_BASE_URL = "http://10.0.2.2:8000/"
         const val DEFAULT_VOICE_ID = "zh-CN-XiaoxiaoNeural"
@@ -75,6 +79,18 @@ class SettingsDataStore @Inject constructor(
 
     val pitch: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[PITCH_KEY] ?: DEFAULT_PITCH
+    }
+
+    val authUserId: Flow<String?> = context.dataStore.data.map { preferences ->
+        preferences[AUTH_USER_ID_KEY]
+    }
+
+    val authUsername: Flow<String?> = context.dataStore.data.map { preferences ->
+        preferences[AUTH_USERNAME_KEY]
+    }
+
+    val isAuthenticated: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[IS_AUTHENTICATED_KEY] ?: false
     }
 
     suspend fun setBaseUrl(url: String) {
@@ -147,6 +163,32 @@ class SettingsDataStore @Inject constructor(
         context.dataStore.edit { preferences ->
             preferences.remove(SCENIC_ID_KEY)
             preferences.remove(SPOT_ID_KEY)
+        }
+    }
+
+    suspend fun setAuthUserId(id: String) {
+        context.dataStore.edit { preferences ->
+            preferences[AUTH_USER_ID_KEY] = id
+        }
+    }
+
+    suspend fun setAuthUsername(username: String) {
+        context.dataStore.edit { preferences ->
+            preferences[AUTH_USERNAME_KEY] = username
+        }
+    }
+
+    suspend fun setIsAuthenticated(value: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[IS_AUTHENTICATED_KEY] = value
+        }
+    }
+
+    suspend fun clearAuth() {
+        context.dataStore.edit { preferences ->
+            preferences.remove(AUTH_USER_ID_KEY)
+            preferences.remove(AUTH_USERNAME_KEY)
+            preferences.remove(IS_AUTHENTICATED_KEY)
         }
     }
 

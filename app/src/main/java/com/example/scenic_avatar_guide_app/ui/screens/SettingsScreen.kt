@@ -36,6 +36,7 @@ import com.example.scenic_avatar_guide_app.ui.theme.*
 @Composable
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
+    onShowAuthDialog: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val baseUrl by viewModel.baseUrl.collectAsStateWithLifecycle()
@@ -51,9 +52,12 @@ fun SettingsScreen(
     val scenicId by viewModel.scenicId.collectAsStateWithLifecycle()
     val spotId by viewModel.spotId.collectAsStateWithLifecycle()
     val scenicAreas = viewModel.scenicAreas
+    val isAuthenticated by viewModel.isAuthenticated.collectAsStateWithLifecycle()
+    val authUsername by viewModel.authUsername.collectAsStateWithLifecycle()
 
     var showServerDialog by remember { mutableStateOf(false) }
     var showScenicDialog by remember { mutableStateOf(false) }
+    var showLogoutConfirm by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     val currentScenicName = scenicAreas.find { it.id == scenicId }?.name ?: "未选择"
@@ -243,6 +247,33 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // 账号
+            SettingsGroup(title = "账号") {
+                if (isAuthenticated) {
+                    SettingsListItem(
+                        icon = Icons.Default.Person,
+                        iconBg = Primary.copy(alpha = 0.1f),
+                        title = "退出登录",
+                        subtitle = "当前用户：$authUsername",
+                        titleColor = Error,
+                        onClick = { showLogoutConfirm = true }
+                    )
+                } else {
+                    SettingsListItem(
+                        icon = Icons.Default.Login,
+                        iconBg = Primary.copy(alpha = 0.1f),
+                        title = "登录账号",
+                        subtitle = "登录后可同步历史记录",
+                        onClick = {
+                            onShowAuthDialog()
+                            onNavigateBack()
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             // 关于
             SettingsGroup(title = "关于") {
                 SettingsListItem(
@@ -266,6 +297,30 @@ fun SettingsScreen(
             onSave = { scheme, host, port ->
                 viewModel.saveServerEndpoint(scheme, host, port)
                 showServerDialog = false
+            }
+        )
+    }
+
+    // 退出登录确认对话框
+    if (showLogoutConfirm) {
+        AlertDialog(
+            onDismissRequest = { showLogoutConfirm = false },
+            title = { Text("确认退出登录？") },
+            text = { Text("退出后将清除当前会话，并切换为游客模式。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.logout()
+                        showLogoutConfirm = false
+                    }
+                ) {
+                    Text("确认退出", color = Error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLogoutConfirm = false }) {
+                    Text("取消")
+                }
             }
         )
     }

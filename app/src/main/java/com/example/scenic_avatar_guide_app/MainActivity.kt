@@ -31,6 +31,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             GuideTheme {
                 var showSettings by remember { mutableStateOf(false) }
+                var authDialogTrigger by remember { mutableStateOf(0) }
 
                 BackHandler(enabled = showSettings) {
                     if (showSettings) showSettings = false
@@ -38,7 +39,8 @@ class MainActivity : ComponentActivity() {
 
                 Box(modifier = Modifier.fillMaxSize()) {
                     MainScreen(
-                        onSettingsClick = { showSettings = true }
+                        onSettingsClick = { showSettings = true },
+                        externalAuthTrigger = authDialogTrigger
                     )
                     AnimatedVisibility(
                         visible = showSettings,
@@ -46,7 +48,11 @@ class MainActivity : ComponentActivity() {
                         exit = slideOutHorizontally { it }
                     ) {
                         SettingsScreen(
-                            onNavigateBack = { showSettings = false }
+                            onNavigateBack = { showSettings = false },
+                            onShowAuthDialog = {
+                                authDialogTrigger++
+                                showSettings = false
+                            }
                         )
                     }
                 }

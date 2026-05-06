@@ -97,4 +97,18 @@ interface ApiService {
      */
     @POST("api/v1/chat/feedback")
     suspend fun submitFeedback(@Body request: ChatFeedbackRequest): ChatFeedbackResponse
+
+    // ==================== 认证 ====================
+
+    /**
+     * 用户注册
+     */
+    @POST("api/v1/auth/register")
+    suspend fun authRegister(@Body request: AuthRegisterRequest): AuthRegisterResponse
+
+    /**
+     * 用户登录
+     */
+    @POST("api/v1/auth/login")
+    suspend fun authLogin(@Body request: AuthLoginRequest): AuthLoginResponse
 }

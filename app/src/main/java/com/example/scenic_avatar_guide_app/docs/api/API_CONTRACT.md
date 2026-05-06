@@ -1,8 +1,8 @@
 # API 接口契约
 
-版本：v7.1  
-日期：2026-04-30  
-状态：**同步流式 TTS chunk 协议，保留非流式接口作为降级路径**
+版本：v8.0  
+日期：2026-05-06  
+状态：**新增用户认证接口，同步流式 TTS chunk 协议，保留非流式接口作为降级路径**
 
 ---
 
@@ -50,6 +50,9 @@
 | 2001 | 服务内部错误 |
 | 2002 | LLM 服务不可用 |
 | 2003 | 知识库检索失败 |
+| 3001 | 用户名已存在 |
+| 3002 | 用户名或密码错误 |
+| 3003 | 用户不存在 |
 
 ---
 
@@ -267,6 +270,88 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
 9. 旧接口 `POST /api/v1/chat/text` 继续保留，作为非流式降级路径。
 
 详细重构方案见：`API_STREAMING.md`。
+
+---
+
+### 3.5 用户认证接口
+
+#### 3.5.1 注册
+
+**接口**：`POST /api/v1/auth/register`
+
+**请求**：
+```json
+{
+  "username": "testuser",
+  "password": "123456",
+  "device_id": "android_001"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| username | String | 是 | 用户名，长度 3-32 字符，仅支持字母、数字、下划线 |
+| password | String | 是 | 密码，长度 6-64 字符 |
+| device_id | String | 否 | 设备标识，用于多端绑定 |
+
+**响应**：
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "user_id": "u_abc123",
+    "username": "testuser",
+    "created_at": "2026-05-06T10:30:00Z"
+  }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| user_id | String | 用户唯一标识，此后所有会话均使用该 ID |
+| username | String | 用户名 |
+| created_at | String | 注册时间（ISO 8601） |
+
+**错误码**：
+- `3001`：用户名已存在
+- `1002`：参数格式错误（用户名/密码长度不合规）
+
+---
+
+#### 3.5.2 登录
+
+**接口**：`POST /api/v1/auth/login`
+
+**请求**：
+```json
+{
+  "username": "testuser",
+  "password": "123456",
+  "device_id": "android_001"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| username | String | 是 | 用户名 |
+| password | String | 是 | 密码 |
+| device_id | String | 否 | 设备标识 |
+
+**响应**：与注册接口一致，返回 `user_id`、`username`、`created_at`。
+
+**错误码**：
+- `3002`：用户名或密码错误
+- `3003`：用户不存在
+
+---
+
+#### 3.5.3 认证后端逻辑
+
+1. **user_id 生成规则**：后端保证同一 `username` 永远对应同一个 `user_id`。
+2. **会话隔离**：`session/create` 接口使用 `user_id` 创建会话；guest 用户（未认证）使用临时 UUID 作为 `user_id`。
+3. **多端登录**：同一账号可在多设备登录，各自拥有独立的 `session_id`，但 `user_id` 相同，后端历史记录按 `user_id` 聚合。
+4. **密码存储**：后端使用 bcrypt 等慢哈希算法存储密码，禁止明文存储。
 
 ---
 
@@ -1160,3 +1245,4 @@ enum class VisemeType(val mouthOpen: Float, val mouthForm: Float = 0f) {
 | v6.0 | 2026-04-29 | **交互模式重构：三种模式缩减为两种（聊天问答 + 路线规划），统一 `POST /api/v1/chat/text` 接口，通过 `mode` 字段区分；新增 `route_data` 响应结构；新增图片上传接口** |
 | v7.0 | 2026-04-29 | **新增 `POST /api/v1/chat/text/stream` 流式接口摘要；引入 `text_delta`、`tts_segment`、`done` 等事件；明确分段 TTS 队列播放与非流式降级路径** |
 | v7.1 | 2026-04-30 | **同步流式 TTS chunk 协议：补充 `segment_index`、`tts_audio_chunk`、`tts_audio_end`、`tts_audio_error`、`aborted` 与 chunk 口型 offset 规则** |
+| v8.0 | 2026-05-06 | **新增用户认证接口：`POST /api/v1/auth/register`、`POST /api/v1/auth/login`，支持注册/登录、user_id 持久化与多端历史记录同步** |

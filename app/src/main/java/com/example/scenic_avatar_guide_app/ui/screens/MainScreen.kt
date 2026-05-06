@@ -65,6 +65,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.content.getSystemService
@@ -103,6 +104,7 @@ private val MessageToFunctionCardGap = 8.dp
 @Composable
 fun MainScreen(
     onSettingsClick: () -> Unit = {},
+    externalAuthTrigger: Int = 0,
     viewModel: MainViewModel = hiltViewModel()
 ) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
@@ -119,6 +121,11 @@ fun MainScreen(
     val isConversationActive by viewModel.isConversationActive.collectAsStateWithLifecycle()
     val showScenicSelection by viewModel.showScenicSelection.collectAsStateWithLifecycle()
     val scenicAreas = viewModel.scenicAreas
+    val showAuthDialog by viewModel.showAuthDialog.collectAsStateWithLifecycle()
+    val isAuthenticated by viewModel.isAuthenticated.collectAsStateWithLifecycle()
+    val authUsername by viewModel.authUsername.collectAsStateWithLifecycle()
+    val isAuthLoading by viewModel.isAuthLoading.collectAsStateWithLifecycle()
+    val authError by viewModel.authError.collectAsStateWithLifecycle()
     val showFeedbackDialog by viewModel.showFeedbackDialog.collectAsStateWithLifecycle()
     val isSubmittingFeedback by viewModel.isSubmittingFeedback.collectAsStateWithLifecycle()
     val feedbackResult by viewModel.feedbackResult.collectAsStateWithLifecycle()
@@ -138,6 +145,13 @@ fun MainScreen(
         FallbackBottomReserveWithTestPanel
     } else {
         FallbackBottomReserve
+    }
+
+    // 外部触发显示认证弹窗（例如从设置页点击登录）
+    LaunchedEffect(externalAuthTrigger) {
+        if (externalAuthTrigger > 0 && !showScenicSelection) {
+            viewModel.showAuthDialog()
+        }
     }
 
     // 用户是否在底部附近（用于判断是否自动滚动）
@@ -313,7 +327,13 @@ fun MainScreen(
                 },
                 onNewSession = {
                     coroutineScope.launch { drawerState.close() }
-                    viewModel.startNewSession()
+                    viewModel.startEmptyChat()
+                },
+                isAuthenticated = isAuthenticated,
+                authUsername = authUsername,
+                onAuthClick = {
+                    coroutineScope.launch { drawerState.close() }
+                    viewModel.showAuthDialog()
                 }
             )
         },
@@ -514,6 +534,16 @@ fun MainScreen(
         )
     }
 
+    if (showAuthDialog) {
+        com.example.scenic_avatar_guide_app.ui.components.AuthDialog(
+            onDismiss = { viewModel.dismissAuthDialog() },
+            onLogin = { username, password -> viewModel.login(username, password) },
+            onRegister = { username, password -> viewModel.register(username, password) },
+            isLoading = isAuthLoading,
+            errorMessage = authError
+        )
+    }
+
     if (showFeedbackDialog) {
         com.example.scenic_avatar_guide_app.ui.components.FeedbackDialog(
             onDismiss = { viewModel.dismissFeedbackDialog() },
@@ -570,6 +600,9 @@ private fun ChatHistoryDrawer(
     onCloseDrawer: () -> Unit,
     onSessionSelected: (String) -> Unit,
     onNewSession: () -> Unit,
+    isAuthenticated: Boolean = false,
+    authUsername: String? = null,
+    onAuthClick: () -> Unit = {},
     viewModel: SessionListViewModel = hiltViewModel()
 ) {
     val sessions by viewModel.sessions.collectAsState()
@@ -684,9 +717,10 @@ private fun ChatHistoryDrawer(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 左侧：头像 + 用户名
+                // 左侧：头像 + 用户名/登录按钮
                 Row(
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { onAuthClick() }
                 ) {
                     Image(
                         painter = painterResource(id = R.mipmap.ic_launcher_foreground),
@@ -696,12 +730,21 @@ private fun ChatHistoryDrawer(
                             .clip(CircleShape)
                     )
                     Spacer(Modifier.width(10.dp))
-                    Text(
-                        text = "灵山游",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = TextPrimary
-                    )
+                    Column {
+                        Text(
+                            text = if (isAuthenticated) (authUsername ?: "用户") else "登录",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (isAuthenticated) Primary else TextSecondary
+                        )
+                        if (!isAuthenticated) {
+                            Text(
+                                text = "点击登录账号",
+                                fontSize = 12.sp,
+                                color = TextHint
+                            )
+                        }
+                    }
                 }
 
                 // 右侧：设置按钮
@@ -729,53 +772,81 @@ private fun SessionDrawerItem(
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
                 onClick = onClick,
-                onLongClick = onDelete
+                onLongClick = { showDeleteConfirm = true }
             )
-            .padding(vertical = 5.dp),
+            .padding(vertical = 12.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = session.displayTitle(),
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
-                color = TextSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = formatSessionTime(session.lastMessageAt ?: session.createdAt),
-                fontSize = 12.sp,
-                color = TextHint.copy(alpha = 0.85f)
-            )
-        }
+        Text(
+            text = session.displayTitle(),
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+            color = TextSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
     }
-}
 
-private fun formatSessionTime(timeStr: String?): String {
-    if (timeStr.isNullOrBlank()) return ""
-    return try {
-        val date = java.time.OffsetDateTime.parse(timeStr).toInstant().toEpochMilli()
-        val now = System.currentTimeMillis()
-        val diff = now - date
-        when {
-            diff < 60_000 -> "刚刚"
-            diff < 3_600_000 -> "${diff / 60_000} 分钟前"
-            diff < 86_400_000 -> "${diff / 3_600_000} 小时前"
-            diff < 604_800_000 -> "${diff / 86_400_000} 天前"
-            else -> {
-                val localDate = java.time.Instant.ofEpochMilli(date).atZone(java.time.ZoneId.systemDefault())
-                "${localDate.monthValue}-${localDate.dayOfMonth}"
+    if (showDeleteConfirm) {
+        Dialog(onDismissRequest = { showDeleteConfirm = false }) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(24.dp)
+                        .fillMaxWidth()
+                ) {
+                    Text(
+                        text = "确认删除",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "删除后该对话记录将无法恢复，是否继续？",
+                        fontSize = 14.sp,
+                        color = TextSecondary,
+                        lineHeight = 20.sp
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(
+                        onClick = {
+                            onDelete()
+                            showDeleteConfirm = false
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Error)
+                    ) {
+                        Text("删除", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = { showDeleteConfirm = false },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("取消", fontSize = 15.sp, color = TextSecondary)
+                    }
+                }
             }
         }
-    } catch (e: Exception) {
-        android.util.Log.e("formatSessionTime", "parse error: $timeStr", e)
-        ""
     }
 }
 

@@ -6,6 +6,7 @@ import com.example.scenic_avatar_guide_app.core.tts.RemoteTTSController
 import com.example.scenic_avatar_guide_app.core.tts.VoiceInfo
 import com.example.scenic_avatar_guide_app.data.local.ScenicDataSource
 import com.example.scenic_avatar_guide_app.data.local.SettingsDataStore
+import com.example.scenic_avatar_guide_app.data.repository.AuthRepository
 import com.example.scenic_avatar_guide_app.data.repository.GuideRepository
 import com.example.scenic_avatar_guide_app.domain.model.ScenicArea
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -30,6 +31,7 @@ data class ServerEndpointConfig(
 class SettingsViewModel @Inject constructor(
     private val settingsDataStore: SettingsDataStore,
     private val repository: GuideRepository,
+    private val authRepository: AuthRepository,
     private val scenicDataSource: ScenicDataSource
 ) : ViewModel() {
 
@@ -69,6 +71,12 @@ class SettingsViewModel @Inject constructor(
     private val _spotId = MutableStateFlow<String?>(null)
     val spotId: StateFlow<String?> = _spotId.asStateFlow()
 
+    private val _isAuthenticated = MutableStateFlow(false)
+    val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
+
+    private val _authUsername = MutableStateFlow<String?>(null)
+    val authUsername: StateFlow<String?> = _authUsername.asStateFlow()
+
     init {
         viewModelScope.launch {
             settingsDataStore.baseUrl.collect {
@@ -93,6 +101,12 @@ class SettingsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             settingsDataStore.spotId.collect { _spotId.value = it }
+        }
+        viewModelScope.launch {
+            settingsDataStore.isAuthenticated.collect { _isAuthenticated.value = it }
+        }
+        viewModelScope.launch {
+            settingsDataStore.authUsername.collect { _authUsername.value = it }
         }
     }
 
@@ -154,6 +168,15 @@ class SettingsViewModel @Inject constructor(
 
     fun clearStatusMessage() {
         _statusMessage.value = null
+    }
+
+    fun logout() {
+        viewModelScope.launch {
+            authRepository.logout()
+            _isAuthenticated.value = false
+            _authUsername.value = null
+            _statusMessage.value = "已退出登录"
+        }
     }
 
     fun checkConnection() {

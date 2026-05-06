@@ -3,6 +3,7 @@ package com.example.scenic_avatar_guide_app.ui.screens
 import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.scenic_avatar_guide_app.data.repository.AuthRepository
 import com.example.scenic_avatar_guide_app.data.repository.GuideRepository
 import com.example.scenic_avatar_guide_app.data.repository.SessionRepository
 import com.example.scenic_avatar_guide_app.data.repository.toChatMessage
@@ -288,11 +289,28 @@ class MainViewModel @Inject constructor(
     private val application: Application,
     private val repository: GuideRepository,
     private val sessionRepository: SessionRepository,
+    private val authRepository: AuthRepository,
     private val settingsDataStore: SettingsDataStore,
     private val scenicDataSource: ScenicDataSource
 ) : ViewModel() {
 
     val scenicAreas = scenicDataSource.loadScenicAreas()
+
+    // 认证状态
+    private val _isAuthenticated = MutableStateFlow(false)
+    val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
+
+    private val _authUsername = MutableStateFlow<String?>(null)
+    val authUsername: StateFlow<String?> = _authUsername.asStateFlow()
+
+    private val _showAuthDialog = MutableStateFlow(false)
+    val showAuthDialog: StateFlow<Boolean> = _showAuthDialog.asStateFlow()
+
+    private val _authError = MutableStateFlow<String?>(null)
+    val authError: StateFlow<String?> = _authError.asStateFlow()
+
+    private val _isAuthLoading = MutableStateFlow(false)
+    val isAuthLoading: StateFlow<Boolean> = _isAuthLoading.asStateFlow()
 
     // 匹配后端误漏的 XML/结构标签（含中文尖括号变体），防止显示给用户
     // 同时匹配行尾不完整标签，避免打字机效果中途闪现半截标签
@@ -397,6 +415,15 @@ class MainViewModel @Inject constructor(
 
     init {
         ensureUserId()
+
+        // 持续监听认证状态变化，确保多 ViewModel 间状态同步
+        viewModelScope.launch {
+            settingsDataStore.isAuthenticated.collect { _isAuthenticated.value = it }
+        }
+        viewModelScope.launch {
+            settingsDataStore.authUsername.collect { _authUsername.value = it }
+        }
+
         viewModelScope.launch {
             val scenicId = settingsDataStore.scenicId.first()
             val spotId = settingsDataStore.spotId.first()
@@ -404,6 +431,15 @@ class MainViewModel @Inject constructor(
                 _showScenicSelection.value = true
             } else {
                 initSession()
+            }
+
+            // 未认证用户延迟弹出登录提示，已认证用户不弹
+            val authenticated = settingsDataStore.isAuthenticated.first()
+            if (!authenticated) {
+                delay(800)
+                if (!_showScenicSelection.value) {
+                    _showAuthDialog.value = true
+                }
             }
         }
         observeAvatarState()
@@ -501,6 +537,73 @@ class MainViewModel @Inject constructor(
                 val newUserId = "guest_${java.util.UUID.randomUUID().toString().replace("-", "").take(16)}"
                 settingsDataStore.setUserId(newUserId)
             }
+        }
+    }
+
+    // ==================== 认证 ====================
+
+    fun showAuthDialog() {
+        _showAuthDialog.value = true
+    }
+
+    fun dismissAuthDialog() {
+        _showAuthDialog.value = false
+        _authError.value = null
+    }
+
+    fun login(username: String, password: String) {
+        viewModelScope.launch {
+            _isAuthLoading.value = true
+            _authError.value = null
+            authRepository.login(username, password).fold(
+                onSuccess = { userData ->
+                    _isAuthenticated.value = true
+                    _authUsername.value = userData.username
+                    _showAuthDialog.value = false
+                    _authError.value = null
+                    // 认证后重建会话，使用新的 user_id
+                    settingsDataStore.clearSession()
+                    startNewSession()
+                },
+                onFailure = { error ->
+                    _authError.value = error.message ?: "登录失败，请重试"
+                }
+            )
+            _isAuthLoading.value = false
+        }
+    }
+
+    fun register(username: String, password: String) {
+        viewModelScope.launch {
+            _isAuthLoading.value = true
+            _authError.value = null
+            authRepository.register(username, password).fold(
+                onSuccess = { userData ->
+                    _isAuthenticated.value = true
+                    _authUsername.value = userData.username
+                    _showAuthDialog.value = false
+                    _authError.value = null
+                    // 认证后重建会话
+                    settingsDataStore.clearSession()
+                    startNewSession()
+                },
+                onFailure = { error ->
+                    _authError.value = error.message ?: "注册失败，请重试"
+                }
+            )
+            _isAuthLoading.value = false
+        }
+    }
+
+    fun logout() {
+        viewModelScope.launch {
+            authRepository.logout()
+            _isAuthenticated.value = false
+            _authUsername.value = null
+            _authError.value = null
+            // 重建匿名会话
+            settingsDataStore.clearSession()
+            startNewSession()
         }
     }
 
@@ -1065,7 +1168,7 @@ class MainViewModel @Inject constructor(
     }
 
     /**
-     * 创建全新会话
+     * 创建全新会话（会立即向后端请求创建，适用于登出/登录后重建）
      */
     fun startNewSession() {
         cancelCurrentStream()
@@ -1080,6 +1183,23 @@ class MainViewModel @Inject constructor(
                 addMessage("会话创建失败，请检查网络后重试", isUser = false, isError = true)
                 return@launch
             }
+            addMessage("您好！我是景灵智导，很高兴为您服务。请问有什么可以帮助您？", isUser = false)
+        }
+    }
+
+    /**
+     * 开始新的空对话（不立即创建后端会话，仅在用户发送第一条消息后创建）
+     * 用于用户手动点击"新建对话"
+     */
+    fun startEmptyChat() {
+        cancelCurrentStream()
+        _messages.value = emptyList()
+        _isConversationActive.value = false
+        currentAssistantMessageId = null
+        currentBackendMessageId = null
+        sessionId = null
+        viewModelScope.launch {
+            settingsDataStore.clearSession()
             addMessage("您好！我是景灵智导，很高兴为您服务。请问有什么可以帮助您？", isUser = false)
         }
     }

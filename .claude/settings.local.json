@@ -177,7 +177,8 @@
       "Bash(tasklist)",
       "Bash(findstr node *)",
       "Bash(JAVA_HOME=\"F:/Software/AndroidStudio/jbr\" C:/Users/xumin/.jbang/bin/jbang run *)",
-      "mcp__gradle__gradle"
+      "mcp__gradle__gradle",
+      "Bash(./gradlew compileDebugKotlin --console=plain)"
     ]
   },
   "enabledMcpjsonServers": [
