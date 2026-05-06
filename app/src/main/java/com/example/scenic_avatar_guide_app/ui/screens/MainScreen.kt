@@ -589,57 +589,75 @@ fun MainScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TopBar(
     onMenuClick: () -> Unit,
     showTestPanel: Boolean,
     onToggleTestPanel: () -> Unit
 ) {
-    TopAppBar(
-        title = { Text("景灵智导", fontWeight = FontWeight.Bold) },
-        navigationIcon = {
-            IconButton(onMenuClick) {
-                Column(
-                    horizontalAlignment = Alignment.Start,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.padding(4.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .width(24.dp)
-                            .height(2.5.dp)
-                            .clip(RoundedCornerShape(1.5.dp))
-                            .background(Color.White)
-                    )
-                    Box(
-                        modifier = Modifier
-                            .width(18.dp)
-                            .height(2.5.dp)
-                            .clip(RoundedCornerShape(1.5.dp))
-                            .background(Color.White)
-                    )
-                    Box(
-                        modifier = Modifier
-                            .width(12.dp)
-                            .height(2.5.dp)
-                            .clip(RoundedCornerShape(1.5.dp))
-                            .background(Color.White)
-                    )
-                }
-            }
-        },
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = Primary, titleContentColor = Color.White),
-        actions = {
-            IconButton(onToggleTestPanel) {
-                Icon(
-                    imageVector = if (showTestPanel) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                    contentDescription = if (showTestPanel) "隐藏测试卡片" else "显示测试卡片",
-                    tint = Color.White
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .background(Color.White)
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        IconButton(
+            onClick = onMenuClick,
+            modifier = Modifier.size(40.dp)
+        ) {
+            Column(
+                horizontalAlignment = Alignment.Start,
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+                modifier = Modifier.padding(2.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(15.dp)
+                        .height(1.5.dp)
+                        .clip(RoundedCornerShape(0.75.dp))
+                        .background(TextSecondary)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(15.dp)
+                        .height(1.5.dp)
+                        .clip(RoundedCornerShape(0.75.dp))
+                        .background(TextSecondary)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(8.dp)
+                        .height(1.5.dp)
+                        .clip(RoundedCornerShape(0.75.dp))
+                        .background(TextSecondary)
                 )
             }
         }
-    )
+
+        Text(
+            text = "景灵智导",
+            fontWeight = FontWeight.Bold,
+            fontSize = 18.sp,
+            color = TextSecondary,
+            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.Center
+        )
+
+        IconButton(
+            onClick = onToggleTestPanel,
+            modifier = Modifier.size(40.dp)
+        ) {
+            Icon(
+                imageVector = if (showTestPanel) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                contentDescription = if (showTestPanel) "隐藏测试卡片" else "显示测试卡片",
+                tint = TextPrimary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
 }
 
 /**
