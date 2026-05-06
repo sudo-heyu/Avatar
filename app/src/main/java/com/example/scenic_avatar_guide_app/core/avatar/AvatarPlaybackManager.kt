@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 private const val TAG = "AvatarPlaybackManager"
@@ -212,6 +213,11 @@ class AvatarPlaybackManager(
     // Phase 1 修复: isPlaying 改为 AtomicBoolean，保证多协程可见性
     private val isPlayingRef = AtomicBoolean(false)
 
+    // 问题3修复: sessionEpoch 用于口型循环的精确退出判断
+    // 解决快速 cancel→start 时状态不一致导致的口型抖动问题
+    // 原理：启动时捕获 epoch，每帧校验；cancel 时递增 epoch，旧循环立即检测到不匹配并退出
+    private val sessionEpoch = AtomicInteger(0)
+
     // 当前播放动作（用于获取 loop 等配置）
     private var currentPlayAction: AvatarPlayAction? = null
 
@@ -358,6 +364,9 @@ class AvatarPlaybackManager(
     private fun startNonStreamingLipSync() {
         audioPositionSyncJob?.cancel()
 
+        // 问题3修复：启动时捕获 epoch，用于精确退出判断
+        val capturedEpoch = sessionEpoch.get()
+
         lastMouthOpen = 0f
         lastMouthForm = 0f
 
@@ -366,7 +375,19 @@ class AvatarPlaybackManager(
             var samePositionCount = 0
             var frameCount = 0
 
-            while (isActive && isPlayingRef.get()) {
+            while (isActive) {
+                // 问题3修复：epoch 校验优先，让旧循环在 cancel 后立即退出
+                if (sessionEpoch.get() != capturedEpoch) {
+                    Log.d(TAG, "[LIPSYNC-NONSTREAM] Epoch 已变化 ($capturedEpoch -> ${sessionEpoch.get()})，退出循环")
+                    break
+                }
+
+                // 保留 isPlayingRef 作为二次校验（向后兼容）
+                if (!isPlayingRef.get()) {
+                    Log.d(TAG, "[LIPSYNC-NONSTREAM] isPlayingRef=false，退出循环")
+                    break
+                }
+
                 frameCount++
                 val frameStart = System.currentTimeMillis()
 
@@ -508,8 +529,11 @@ class AvatarPlaybackManager(
         gesture: AvatarGesture = AvatarGesture.THINKING_POSE
     ) {
         assertMainThread()
-        Log.d(TAG, "[STREAMING] 开始流式播放会话")
         stop()
+        // 问题3修复：递增 epoch，让旧口型循环立即退出
+        val newEpoch = sessionEpoch.incrementAndGet()
+        Log.d(TAG, "[STREAMING] 开始流式播放会话, epoch=$newEpoch")
+        isPlayingRef.set(true)  // 与 epoch 同步更新
         receivedTtsSegment = false
         notifiedFirstSegment = false
         currentSegmentEvents.clear()
@@ -672,9 +696,13 @@ class AvatarPlaybackManager(
      * Phase 0 修复：避免 synchronized + cancel 死锁
      * 持锁期间只做字段赋值，取出 job 引用后离开锁再取消
      * Phase 4 修复：去掉顶层 runCatching，确保某步失败不跳过后续清理
+     * 问题3修复：递增 sessionEpoch，让口型循环立即退出
      */
     fun stop() {
         assertMainThread()
+
+        // 问题3修复：递增 epoch，让旧口型循环在下一帧检测到不匹配并退出
+        sessionEpoch.incrementAndGet()
 
         // 步骤 1：停止 TTS 控制器
         runCatching { ttsController.stop() }
@@ -858,6 +886,9 @@ class AvatarPlaybackManager(
             return
         }
 
+        // 问题3修复：启动时捕获 epoch，用于精确退出判断
+        val capturedEpoch = sessionEpoch.get()
+
         // Phase 0 修复：如果 job 已在运行，取消旧的并重置状态（segment 切换时）
         // 先取出 job 引用，在锁外取消，避免死锁
         val oldJob: Job?
@@ -912,7 +943,19 @@ class AvatarPlaybackManager(
             var frameCount = 0
             var wasBuffering = false
 
-            while (isActive && isPlayingRef.get()) {
+            while (isActive) {
+                // 问题3修复：epoch 校验优先，让旧循环在 cancel 后立即退出
+                if (sessionEpoch.get() != capturedEpoch) {
+                    Log.d(TAG, "[LIPSYNC] Epoch 已变化 ($capturedEpoch -> ${sessionEpoch.get()})，退出循环")
+                    break
+                }
+
+                // 保留 isPlayingRef 作为二次校验（向后兼容）
+                if (!isPlayingRef.get()) {
+                    Log.d(TAG, "[LIPSYNC] isPlayingRef=false，退出循环")
+                    break
+                }
+
                 // 校验是否仍在处理同一个 segment
                 val currentSegId = currentLipSyncSegmentId.get()
                 if (currentSegId != segmentId) {
