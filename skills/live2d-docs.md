@@ -106,7 +106,6 @@ _model.saveParameters();
 ### 5. 本项目相关文件位置
 
 - 官方教程归档：`app/src/main/java/com/example/scenic_avatar_guide_app/docs/avatar/live2d-official-tutorials/`
-- 中文口型同步方案：`app/src/main/java/com/example/scenic_avatar_guide_app/docs/avatar/CHINESE_LIP_SYNC.md`
 - 口型优化记录：`app/src/main/java/com/example/scenic_avatar_guide_app/docs/avatar/LIP_SYNC_OPTIMIZATION.md`
 
 ### 6. 官方资源链接

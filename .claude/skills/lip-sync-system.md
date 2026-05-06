@@ -268,7 +268,7 @@ if (wasSpeaking && !isSpeaking) {
 
 - `docs/api/API_STREAMING.md` — SSE 流式事件协议（tts_segment, tts_audio_chunk, tts_audio_end）
 - `docs/api/API_TTS_USAGE.md` — TTS 接口使用说明
-- `docs/avatar/CHINESE_LIP_SYNC.md` — 中文口型同步方案
+- `docs/avatar/LIP_SYNC_OPTIMIZATION.md` — 口型同步优化记录
 - `docs/avatar/AVATAR_LIVE2D_PLAN.md` — Live2D 开发计划
 - `docs/tts/TTS_MARKS_SPEC.md` — TTS marks 格式规范
 - `docs/tts/EDGE_TTS_IMPLEMENTATION.md` — Edge-TTS 实现说明
