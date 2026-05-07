@@ -396,7 +396,7 @@ private fun PlaceholderAvatar(
                 AvatarExpression.APologetic -> "🙇"
                 AvatarExpression.WELCOMING -> "👋"
                 AvatarExpression.APPROVING -> "👍"
-                AvatarExpression.PLAYFUL -> "😉"
+                AvatarExpression.PLAYFUL -> "😊"
                 AvatarExpression.REVERENT -> "🙏"
                 else -> ""
             }

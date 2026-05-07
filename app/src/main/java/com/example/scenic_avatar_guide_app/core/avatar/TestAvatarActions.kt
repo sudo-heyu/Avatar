@@ -909,7 +909,7 @@ object TestAvatarActions {
         ExpressionButton("approving", "赞许", AvatarExpression.APPROVING, "肯定认可"),
         ExpressionButton("surprised", "惊叹", AvatarExpression.SURPRISED, "惊喜共鸣"),
         ExpressionButton("grateful", "感恩", AvatarExpression.GRATEFUL, "欣慰感谢"),
-        ExpressionButton("playful", "俏皮", AvatarExpression.PLAYFUL, "俏皮眨眼"),
+        ExpressionButton("playful", "俏皮", AvatarExpression.PLAYFUL, "眯眼甜笑"),
         ExpressionButton("thinking", "思考", AvatarExpression.THINKING, "沉思侧目"),
         ExpressionButton("focused", "专注", AvatarExpression.FOCUSED, "聆听关注"),
         ExpressionButton("reverent", "敬畏", AvatarExpression.REVERENT, "庄严敬畏"),
@@ -1171,16 +1171,14 @@ object TestAvatarActions {
         // C1: 喜悦-嘻嘻（基础）
         AvatarPlayAction(
             text = "嘻嘻",
-            expression = AvatarExpression.HAPPY,
-            expressionIntensity = 0.82f,
+            expression = AvatarExpression.PLAYFUL,
+            expressionIntensity = 0.86f,
             gesture = AvatarGesture.NOD,
             motionQueue = listOf(
-                MotionQueueItem("nod", 0, 400),
-                MotionQueueItem("nod", 450, 400)
+                MotionQueueItem("nod", 120, 560)
             ),
             expressionTimeline = listOf(
-                ExpressionTimelineItem(AvatarExpression.HAPPY, 0, 0.82f),
-                ExpressionTimelineItem(AvatarExpression.HAPPY, 700, 0.86f)
+                ExpressionTimelineItem(AvatarExpression.PLAYFUL, 0, 0.86f, 180)
             )
         ),
         // C2: 赞赏-太棒了（增强）
@@ -1449,7 +1447,12 @@ object TestAvatarActions {
                 ExpressionTimelineItem(AvatarExpression.HAPPY, 900, 0.72f)
             )
         )
-    )
+    ).map { combo ->
+        combo.copy(
+            returnToIdleBetweenMotions = false,
+            returnToIdleAfterMotionQueue = true
+        )
+    }
 
     /**
      * 获取 Combo 评测按钮列表（18个）
@@ -1487,7 +1490,7 @@ object TestAvatarActions {
         )
 
         val descriptions = listOf(
-            "半眯眼嘻嘻笑 + 双点头节奏，用于与游客开心互动、回应赞美",
+            "眯眼甜笑 + 单次轻点头，用于与游客开心互动、回应赞美",
             "兴奋表情 + 双点头 + 展开引导，强烈表达赞赏和兴奋（增强）",
             "热情欢迎表情 + 侧首致意，用于初次见面或打招呼",
             "引导动作 + 欢迎表情，用于引导游客前往某处",

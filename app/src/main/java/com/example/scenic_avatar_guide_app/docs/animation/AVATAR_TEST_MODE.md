@@ -180,6 +180,8 @@ AvatarPlayAction(
 
 Combo 测试使用 `TestAvatarActions.allCombos` 中的 18 个精简情感表现单元。每个 Combo 都是一个短 `AvatarPlayAction`，用于验证短 TTS、表情时间轴、动作队列和口型同步的快速联动。
 
+Combo 面板中的动作队列使用连续播放策略：动作之间不插入 `IDLE`，只在队列末尾平滑收尾，以便观察短情绪片段是否自然连贯。
+
 当前 Combo 面板展示：
 
 - `emotionCategory`：情感/用途分类，如 `喜悦`、`引导`、`敬畏`、`聆听`

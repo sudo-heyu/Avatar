@@ -19,7 +19,7 @@ enum class AvatarState {
  * 表情体系（13个）：
  * - 基础态：neutral
  * - 积极层：happy（温和愉悦）、excited（热情兴奋）、welcoming（热情欢迎）、approving（认同赞许）
- * - 交互层：thinking（思考中）、playful（俏皮调侃）、focused（专注聆听）
+ * - 交互层：thinking（思考中）、playful（俏皮可爱）、focused（专注聆听）
  * - 特殊层：concerned（关切担心）、apologetic（歉意致歉）、reverent（庄重敬畏）
  * - 情感层：surprised（惊叹惊喜）、grateful（感恩欣慰）
  */

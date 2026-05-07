@@ -19,6 +19,12 @@ import java.io.IOException;
 import java.io.InputStream;
 
 public class JniBridgeJava {
+    /**
+     * Live2D 资源缓存结构版本。
+     * 修改大资源或需要强制刷新全部 Live2D 缓存时 bump 这里。
+     */
+    private static final int LIVE2D_ASSET_CACHE_REVISION = 3;
+
     // Native -----------------------------------------------------------------
 
     public static native void nativeOnStart();
@@ -144,10 +150,10 @@ public class JniBridgeJava {
 
         SharedPreferences prefs = context.getSharedPreferences("live2d_asset_cache", Context.MODE_PRIVATE);
         int cachedVersion = prefs.getInt("version", -1);
-        int currentVersion = getAppVersionCode();
+        int currentVersion = getLive2DAssetCacheVersion();
 
         File live2dDir = new File(context.getFilesDir(), "live2d");
-        if (cachedVersion == currentVersion && live2dDir.exists()) {
+        if (cachedVersion == currentVersion && live2dDir.exists() && !isAppDebuggable()) {
             return;
         }
 
@@ -160,13 +166,19 @@ public class JniBridgeJava {
         }
     }
 
-    private static int getAppVersionCode() {
+    private static int getLive2DAssetCacheVersion() {
         try {
-            return context.getPackageManager()
+            int appVersionCode = context.getPackageManager()
                     .getPackageInfo(context.getPackageName(), 0).versionCode;
+            return appVersionCode * 1000 + LIVE2D_ASSET_CACHE_REVISION;
         } catch (Exception e) {
-            return 0;
+            return LIVE2D_ASSET_CACHE_REVISION;
         }
+    }
+
+    private static boolean isAppDebuggable() {
+        return context != null
+                && (context.getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
     }
 
     private static void copyAssetDirectory(String assetPath, File destPath) throws IOException {
@@ -180,8 +192,8 @@ public class JniBridgeJava {
                 copyAssetDirectory(assetPath + "/" + child, new File(destPath, child));
             }
         } else {
-            // 文件：已存在则跳过（避免重复写入大纹理）
-            if (destPath.isFile() && destPath.length() > 0) {
+            // 大资源已存在则跳过；JSON/EXP3/MOTION3 等文本资产需要允许内容变更覆盖。
+            if (destPath.isFile() && destPath.length() > 0 && !shouldRefreshTextAsset(assetPath, destPath)) {
                 return;
             }
             File parent = destPath.getParentFile();
@@ -196,6 +208,36 @@ public class JniBridgeJava {
                     out.write(buffer, 0, bytesRead);
                 }
             }
+        }
+    }
+
+    private static boolean shouldRefreshTextAsset(String assetPath, File destPath) {
+        String lower = assetPath.toLowerCase();
+        if (!(lower.endsWith(".json") || lower.endsWith(".exp3.json") || lower.endsWith(".motion3.json"))) {
+            return false;
+        }
+
+        try (InputStream in = context.getAssets().open(assetPath);
+             FileInputStream cached = new FileInputStream(destPath)) {
+            byte[] assetBuffer = new byte[8192];
+            byte[] cachedBuffer = new byte[8192];
+            while (true) {
+                int assetRead = in.read(assetBuffer);
+                int cachedRead = cached.read(cachedBuffer);
+                if (assetRead != cachedRead) {
+                    return true;
+                }
+                if (assetRead == -1) {
+                    return false;
+                }
+                for (int i = 0; i < assetRead; i++) {
+                    if (assetBuffer[i] != cachedBuffer[i]) {
+                        return true;
+                    }
+                }
+            }
+        } catch (IOException e) {
+            return true;
         }
     }
 

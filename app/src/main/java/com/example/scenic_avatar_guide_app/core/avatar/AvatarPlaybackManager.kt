@@ -224,6 +224,7 @@ class AvatarPlaybackManager(
     private var motionQueueJob: Job? = null
     private var expressionTimelineJob: Job? = null
     private var waitingCloseJob: Job? = null
+    private var pendingNonStreamingCompletion = false
 
     // 流式口型实时更新协程
     private var streamingLipSyncJob: Job? = null
@@ -322,7 +323,12 @@ class AvatarPlaybackManager(
                     playExpressionTimeline(action.expressionTimeline)
                 }
                 if (action.motionQueue.isNotEmpty()) {
-                    playMotionQueue(action.motionQueue)
+                    playMotionQueue(
+                        queue = action.motionQueue,
+                        returnToIdleBetweenMotions = action.returnToIdleBetweenMotions,
+                        returnToIdleAfterMotionQueue = action.returnToIdleAfterMotionQueue,
+                        transitionMs = GestureTransitionController.calculateTransitionMs(action.gestureSpeed)
+                    )
                 }
             }
         }
@@ -331,20 +337,23 @@ class AvatarPlaybackManager(
             Log.d(TAG, "[TTS] 非流式播放完成")
             audioPositionSyncJob?.cancel()
             audioPositionSyncJob = null
-            val shouldKeepGesture = currentPlayAction?.gestureLoop == true
             _mouthState.value = Pair(0f, 0f)
-            _avatarState.update {
-                it.copy(
-                    state = AvatarState.IDLE,
-                    gesture = if (shouldKeepGesture) it.gesture else AvatarGesture.IDLE,
-                    gesturePriority = if (shouldKeepGesture) it.gesturePriority else GesturePriority.NORMAL,
-                    mouthOpen = 0f,
-                    mouthForm = 0f
-                )
+            val action = currentPlayAction
+            if (action != null &&
+                action.motionQueue.isNotEmpty() &&
+                action.returnToIdleAfterMotionQueue &&
+                motionQueueJob?.isActive == true
+            ) {
+                pendingNonStreamingCompletion = true
+                _avatarState.update {
+                    it.copy(
+                        mouthOpen = 0f,
+                        mouthForm = 0f
+                    )
+                }
+            } else {
+                completeNonStreamingPlayback()
             }
-            isPlayingRef.set(false)
-            currentPlayAction = null
-            currentSegmentEvents.clear()
         }
 
         // 音素事件列表回调 - 使用与流式模式相同的口型同步逻辑
@@ -368,6 +377,23 @@ class AvatarPlaybackManager(
             // 启动与流式模式相同的口型同步逻辑
             startNonStreamingLipSync()
         }
+    }
+
+    private fun completeNonStreamingPlayback() {
+        val shouldKeepGesture = currentPlayAction?.gestureLoop == true
+        pendingNonStreamingCompletion = false
+        _avatarState.update {
+            it.copy(
+                state = AvatarState.IDLE,
+                gesture = if (shouldKeepGesture) it.gesture else AvatarGesture.IDLE,
+                gesturePriority = if (shouldKeepGesture) it.gesturePriority else GesturePriority.NORMAL,
+                mouthOpen = 0f,
+                mouthForm = 0f
+            )
+        }
+        isPlayingRef.set(false)
+        currentPlayAction = null
+        currentSegmentEvents.clear()
     }
 
     /**
@@ -482,7 +508,7 @@ class AvatarPlaybackManager(
                 state = if (hasSpeech) AvatarState.SPEAKING else AvatarState.IDLE,
                 expression = action.expression,
                 expressionIntensity = action.expressionIntensity,
-                gesture = action.gesture,
+                gesture = if (hasSpeech && action.motionQueue.isNotEmpty()) it.gesture else action.gesture,
                 gesturePriority = action.gesturePriority,
                 gestureTransitionMs = transitionMs
             )
@@ -496,7 +522,12 @@ class AvatarPlaybackManager(
                 playExpressionTimeline(action.expressionTimeline)
             }
             if (action.motionQueue.isNotEmpty()) {
-                playMotionQueue(action.motionQueue)
+                playMotionQueue(
+                    queue = action.motionQueue,
+                    returnToIdleBetweenMotions = action.returnToIdleBetweenMotions,
+                    returnToIdleAfterMotionQueue = action.returnToIdleAfterMotionQueue,
+                    transitionMs = transitionMs
+                )
             }
         }
 
@@ -790,6 +821,7 @@ class AvatarPlaybackManager(
             currentSegmentText = ""
             preloadedLipSyncEvents.clear()
             pendingSegments.clear()
+            skippedSegmentIndexes.clear()
             nextExpectedSegmentIndex = 0
         }
 
@@ -805,6 +837,7 @@ class AvatarPlaybackManager(
         expressionTimelineJob = null
         cancelWaitingClose()
         currentPlayAction = null
+        pendingNonStreamingCompletion = false
         _mouthState.value = Pair(0f, 0f)
 
         // 步骤 6：更新 StateFlow（可能被合并）
@@ -1266,62 +1299,72 @@ class AvatarPlaybackManager(
      * - 最后一个动作在 duration 结束后平滑过渡到 IDLE
      * - 动作之间有平滑过渡，过渡时间由 GestureTransitionController.DEFAULT_TRANSITION_MS 控制
      */
-    private fun playMotionQueue(queue: List<MotionQueueItem>) {
+    private fun playMotionQueue(
+        queue: List<MotionQueueItem>,
+        returnToIdleBetweenMotions: Boolean = true,
+        returnToIdleAfterMotionQueue: Boolean = true,
+        transitionMs: Long = GestureTransitionController.DEFAULT_TRANSITION_MS
+    ) {
         motionQueueJob?.cancel()
         if (queue.isEmpty()) return
-
-        val transitionMs = GestureTransitionController.DEFAULT_TRANSITION_MS
 
         motionQueueJob = scope.launch {
             val sortedQueue = queue.sortedBy { it.startOffsetMs }
             val startTime = SystemClock.elapsedRealtime()
 
-            sortedQueue.forEachIndexed { index, item ->
-                val elapsed = SystemClock.elapsedRealtime() - startTime
-                val waitMs = (item.startOffsetMs - elapsed).coerceAtLeast(0)
-                if (waitMs > 0) delay(waitMs)
+            try {
+                sortedQueue.forEachIndexed { index, item ->
+                    val elapsed = SystemClock.elapsedRealtime() - startTime
+                    val waitMs = (item.startOffsetMs - elapsed).coerceAtLeast(0)
+                    if (waitMs > 0) delay(waitMs)
 
-                val gesture = AvatarGesture.fromValue(item.type)
-                Log.d(TAG, "motion[$index]: $gesture, transitionMs=$transitionMs")
-                // 使用平滑过渡更新动作
-                _avatarState.update {
-                    it.copy(
-                        gesture = gesture,
-                        gestureTransitionMs = transitionMs
-                    )
-                }
+                    val gesture = AvatarGesture.fromValue(item.type)
+                    Log.d(TAG, "motion[$index]: $gesture, transitionMs=$transitionMs")
+                    // 使用平滑过渡更新动作
+                    _avatarState.update {
+                        it.copy(
+                            gesture = gesture,
+                            gestureTransitionMs = transitionMs
+                        )
+                    }
 
-                if (item.durationMs > 0) {
-                    val nextItem = sortedQueue.getOrNull(index + 1)
-                    val nextStartMs = nextItem?.startOffsetMs ?: Long.MAX_VALUE
-                    val now = SystemClock.elapsedRealtime() - startTime
-                    val timeUntilNext = (nextStartMs - now).coerceAtLeast(0)
-                    val holdMs = item.durationMs.coerceAtMost(timeUntilNext)
+                    if (item.durationMs > 0) {
+                        val nextItem = sortedQueue.getOrNull(index + 1)
+                        val nextStartMs = nextItem?.startOffsetMs ?: Long.MAX_VALUE
+                        val now = SystemClock.elapsedRealtime() - startTime
+                        val timeUntilNext = (nextStartMs - now).coerceAtLeast(0)
+                        val holdMs = item.durationMs.coerceAtMost(timeUntilNext)
 
-                    if (holdMs > 0) delay(holdMs)
+                        if (holdMs > 0) delay(holdMs)
 
-                    // duration 结束后，如果距离下一个动作还有时间，平滑过渡到 IDLE 并等待
-                    if (nextItem != null && item.durationMs < timeUntilNext) {
-                        // 平滑过渡到 IDLE
-                        _avatarState.update {
-                            it.copy(
-                                gesture = AvatarGesture.IDLE,
-                                gestureTransitionMs = transitionMs
-                            )
-                        }
-                        val remainingWait = timeUntilNext - item.durationMs
-                        if (remainingWait > 0) delay(remainingWait)
-                    } else if (nextItem == null) {
-                        // 最后一个动作，duration 结束后平滑过渡到 IDLE
-                        val remaining = item.durationMs - holdMs
-                        if (remaining > 0) delay(remaining)
-                        _avatarState.update {
-                            it.copy(
-                                gesture = AvatarGesture.IDLE,
-                                gestureTransitionMs = transitionMs
-                            )
+                        // duration 结束后，如果距离下一个动作还有时间，按策略回到 IDLE 或保持当前姿态等待
+                        if (nextItem != null && item.durationMs < timeUntilNext) {
+                            if (returnToIdleBetweenMotions) {
+                                _avatarState.update {
+                                    it.copy(
+                                        gesture = AvatarGesture.IDLE,
+                                        gestureTransitionMs = transitionMs
+                                    )
+                                }
+                            }
+                            val remainingWait = timeUntilNext - item.durationMs
+                            if (remainingWait > 0) delay(remainingWait)
+                        } else if (nextItem == null && returnToIdleAfterMotionQueue) {
+                            // 最后一个动作，duration 结束后平滑过渡到 IDLE
+                            val remaining = item.durationMs - holdMs
+                            if (remaining > 0) delay(remaining)
+                            _avatarState.update {
+                                it.copy(
+                                    gesture = AvatarGesture.IDLE,
+                                    gestureTransitionMs = transitionMs
+                                )
+                            }
                         }
                     }
+                }
+            } finally {
+                if (isActive && pendingNonStreamingCompletion) {
+                    completeNonStreamingPlayback()
                 }
             }
         }
@@ -1371,6 +1414,8 @@ data class AvatarPlayAction(
     val gestureLoop: Boolean = false,
     val gestureSpeed: Float = 1.0f,
     val motionQueue: List<MotionQueueItem> = emptyList(),
+    val returnToIdleBetweenMotions: Boolean = true,
+    val returnToIdleAfterMotionQueue: Boolean = true,
     /**
      * 表情变化时间轴
      * 按startOffsetMs排序，播放过程中动态切换表情

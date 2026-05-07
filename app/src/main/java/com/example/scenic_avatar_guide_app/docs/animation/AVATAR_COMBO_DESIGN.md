@@ -33,21 +33,23 @@ Combo 仍遵循 Live2D 三层参数分工：
 - LipSync 是 `ParamMouthOpenY` 的唯一实时写入层。
 - Combo 文本要短，优先选择 1-4 字的口语反馈。
 - 同一语义只保留一个代表 Combo，避免“点头 + 开心表情”的换皮重复。
+- Combo 的 `motionQueue` 内部不回到 `IDLE`，避免短动作之间出现僵硬停顿。
 
 ## 3. 设计原则
 
 1. 先确定交互意图，再选择表情和动作。
 2. 基础 Combo 使用单动作，增强 Combo 使用 2-3 个动作。
-3. 动作起点尽量贴合短语音节，例如“嘻嘻”对应两次点头。
+3. 动作起点尽量贴合短语音节，例如“嘻嘻”用稳定眯眼笑和单次轻点头表达短反馈。
 4. `emotionTags` 覆盖口语和书面表达，但同类 Combo 核心词不要重复。
 5. 保留方向类 Combo，因为左、右、前在导览场景中语义不可互换。
 6. 删除只改变文案、但动作/表情几乎相同的 Combo。
+7. Combo 动作之间保持当前姿态并直接交叉过渡，队列末尾再平滑收尾。
 
 ## 4. 当前 Combo 清单
 
 | ID | 文本 | 类别 | 表情 | 动作 | 类型 | 用途 |
 |----|------|------|------|------|------|------|
-| C1 | 嘻嘻 | 喜悦 | HAPPY | NOD x2 | 基础 | 开心互动、回应赞美 |
+| C1 | 嘻嘻 | 喜悦 | PLAYFUL | NOD | 基础 | 开心互动、回应赞美 |
 | C2 | 太棒了 | 赞赏 | EXCITED -> HAPPY | NOD x2 + GUIDE | 增强 | 强烈赞赏、正向反馈 |
 | C3 | 您好呀 | 欢迎 | WELCOMING -> HAPPY | WAVE | 基础 | 初次见面、打招呼 |
 | C4 | 这边请 | 引导 | WELCOMING -> HAPPY | GUIDE | 基础 | 邀请跟随、带路 |
@@ -136,7 +138,10 @@ AvatarPlayAction(
 - `expression` 是起始情绪，`expressionTimeline` 是细化变化。
 - `gesture` 是基础动作，`motionQueue` 是可精确排布的动作序列。
 - 若 `motionQueue` 存在，以队列为准表达节奏。
-- 动作结束后由播放管理器回到 IDLE，避免残留 Gesture 参数。
+- 所有 Combo 统一设置 `returnToIdleBetweenMotions = false` 和 `returnToIdleAfterMotionQueue = true`。
+- Combo 内部动作不插入 IDLE；动作队列末尾才平滑回到 IDLE，避免残留 Gesture 参数。
+- 如果短 TTS 比动作队列更早结束，播放管理器会延后非流式收尾，等当前 `motionQueue` 完成后再统一回到 IDLE。
+- 场景讲解仍保留默认策略：动作间可以回到 IDLE，用于表达长文本中的自然停顿。
 
 ## 8. 新增 Combo 检查清单
 
@@ -147,6 +152,7 @@ AvatarPlayAction(
 - 是否具有独立的导览用途。
 - 文本是否短于 4 个汉字或接近 1 秒口播。
 - 是否违反 Expression / Gesture / LipSync 分层。
+- 是否沿用 Combo 连续动作策略，避免 motionQueue 中间回 IDLE。
 - 是否需要新增测试按钮分类或只作为内部触发。
 
 建议优先补齐真正缺口，例如“鼓励”“等待”“网络错误轻提示”，不要增加同类点头、同类感谢或同类欢迎的换皮版本。
