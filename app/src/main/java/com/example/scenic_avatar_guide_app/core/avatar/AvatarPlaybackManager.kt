@@ -252,6 +252,9 @@ class AvatarPlaybackManager(
     // 后端并发合成时各段完成顺序不定，需要按 segmentIndex 排序后再入播放队列
     private val pendingSegments = sortedMapOf<Int, TtsSegmentData>()
 
+    // 已明确合成失败的 segmentIndex。用于跳过缺失片段，避免后续片段因顺序等待被卡住。
+    private val skippedSegmentIndexes = sortedSetOf<Int>()
+
     // 下一个期望入队的 segmentIndex（-1 表示不使用 index 排序）
     private var nextExpectedSegmentIndex = 0
 
@@ -555,6 +558,7 @@ class AvatarPlaybackManager(
         currentSegmentText = ""
         preloadedLipSyncEvents.clear()
         pendingSegments.clear()
+        skippedSegmentIndexes.clear()
         nextExpectedSegmentIndex = 0
         streamingTtsQueue.start()
         _mouthState.value = Pair(0f, 0f)
@@ -610,6 +614,14 @@ class AvatarPlaybackManager(
         }
 
         when {
+            idx in skippedSegmentIndexes -> {
+                Log.w(TAG, "[REORDER] 忽略已标记失败的 segment: idx=$idx, segmentId=${segment.segmentId}")
+                if (idx == nextExpectedSegmentIndex) {
+                    skippedSegmentIndexes.remove(idx)
+                    nextExpectedSegmentIndex++
+                }
+                flushPendingSegments()
+            }
             idx == nextExpectedSegmentIndex -> {
                 streamingTtsQueue.enqueue(segment)
                 nextExpectedSegmentIndex++
@@ -625,9 +637,48 @@ class AvatarPlaybackManager(
         }
     }
 
+    fun skipSpeechSegment(segmentId: String?, segmentIndex: Int?) {
+        assertMainThread()
+        if (segmentIndex == null) {
+            val removed = pendingSegments.entries.firstOrNull { it.value.segmentId == segmentId }
+            if (removed != null) {
+                pendingSegments.remove(removed.key)
+                Log.w(TAG, "[REORDER] 按 segmentId 移除失败片段: idx=${removed.key}, segmentId=$segmentId")
+            } else {
+                Log.w(TAG, "[REORDER] 收到无 index 的失败片段，无法推进顺序: segmentId=$segmentId")
+            }
+            return
+        }
+
+        pendingSegments.remove(segmentIndex)?.let {
+            Log.w(TAG, "[REORDER] 移除待播失败片段: idx=$segmentIndex, segmentId=${it.segmentId}")
+        }
+
+        when {
+            segmentIndex < nextExpectedSegmentIndex -> {
+                Log.d(TAG, "[REORDER] 忽略已越过的失败片段: idx=$segmentIndex, nextExpected=$nextExpectedSegmentIndex")
+            }
+            segmentIndex == nextExpectedSegmentIndex -> {
+                Log.w(TAG, "[REORDER] 跳过失败片段: idx=$segmentIndex, segmentId=$segmentId")
+                nextExpectedSegmentIndex++
+                flushPendingSegments()
+            }
+            else -> {
+                Log.w(TAG, "[REORDER] 标记未来失败片段: idx=$segmentIndex, nextExpected=$nextExpectedSegmentIndex")
+                skippedSegmentIndexes.add(segmentIndex)
+            }
+        }
+    }
+
     private fun flushPendingSegments() {
-        while (pendingSegments.containsKey(nextExpectedSegmentIndex)) {
-            val next = pendingSegments.remove(nextExpectedSegmentIndex)!!
+        while (true) {
+            if (skippedSegmentIndexes.remove(nextExpectedSegmentIndex)) {
+                Log.w(TAG, "[REORDER] flush 时跳过失败 segment: idx=$nextExpectedSegmentIndex")
+                nextExpectedSegmentIndex++
+                continue
+            }
+
+            val next = pendingSegments.remove(nextExpectedSegmentIndex) ?: break
             Log.d(TAG, "[REORDER] 释放缓存 segment: idx=$nextExpectedSegmentIndex, segmentId=${next.segmentId}")
             streamingTtsQueue.enqueue(next)
             nextExpectedSegmentIndex++
@@ -645,6 +696,7 @@ class AvatarPlaybackManager(
             }
             pendingSegments.clear()
         }
+        skippedSegmentIndexes.clear()
         streamingTtsQueue.finishInput()
     }
 

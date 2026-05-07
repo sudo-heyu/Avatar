@@ -10,6 +10,7 @@ import com.example.scenic_avatar_guide_app.domain.model.ResponseMetadata
 import com.example.scenic_avatar_guide_app.domain.model.RouteData
 import com.example.scenic_avatar_guide_app.domain.model.SourceInfo
 import com.example.scenic_avatar_guide_app.domain.model.TtsMarkItem
+import com.example.scenic_avatar_guide_app.domain.model.TtsAudioErrorData
 import com.example.scenic_avatar_guide_app.domain.model.TtsSegmentData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -208,6 +209,8 @@ class StreamingChatClient @Inject constructor(
                 ?.let { ChatStreamEvent.TtsSegment(it) }
             "tts_segment_ready" -> decodeTtsSegmentReady(envelope)
                 ?.let { ChatStreamEvent.TtsSegmentReady(it) }
+            "tts_audio_error" -> decodeTtsAudioError(envelope)
+                ?.let { ChatStreamEvent.TtsAudioError(it) }
             "tts_audio_chunk", "tts_audio_end" -> null
             "avatar_action" -> envelope.data
                 ?.let { json.decodeFromJsonElement<AvatarAction>(it) }
@@ -285,6 +288,30 @@ class StreamingChatClient @Inject constructor(
             emotion = envelope.emotion,
             marks = envelope.marks
         )
+    }
+
+    private fun decodeTtsAudioError(envelope: ChatStreamEnvelope): TtsAudioErrorData? {
+        val dataError = envelope.data?.let { data ->
+            runCatching {
+                json.decodeFromJsonElement<TtsAudioErrorData>(data)
+            }.getOrNull()
+        }
+
+        return TtsAudioErrorData(
+            segmentId = dataError?.segmentId ?: envelope.segmentId,
+            segmentIndex = dataError?.segmentIndex ?: envelope.segmentIndex,
+            code = dataError?.code ?: envelope.code,
+            message = dataError?.message ?: envelope.message,
+            reason = dataError?.reason ?: envelope.reason,
+            error = dataError?.error
+        ).takeIf {
+            it.segmentId != null ||
+                it.segmentIndex != null ||
+                it.code != null ||
+                !it.message.isNullOrBlank() ||
+                !it.reason.isNullOrBlank() ||
+                !it.error.isNullOrBlank()
+        }
     }
 }
 

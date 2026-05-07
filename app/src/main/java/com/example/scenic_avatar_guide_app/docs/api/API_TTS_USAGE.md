@@ -213,7 +213,7 @@ tts_segment_ready (音频已生成，可播放)
 | 固定文案缓存预热 | 调用 `/api/v1/tts/synthesize` |
 | 流式接口失败降级 | 可回退非流式回答，再调用 `/api/v1/tts/synthesize` |
 
-详细流式方案见：`STREAMING_REFACTOR_PLAN.md`。
+详细流式方案见：`API_STREAMING.md`。
 
 ---
 

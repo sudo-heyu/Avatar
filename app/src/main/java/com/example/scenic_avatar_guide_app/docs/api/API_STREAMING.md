@@ -1,8 +1,8 @@
 # 流式输入输出重构方案
 
-版本：v2.0
-日期：2026-05-03  
-状态：后端文本 SSE + TTS URL 方案已实现并通过测试；已支持 LLM 情绪标注（只标注关键词）、按情绪边界截断流式 TTS 和 `chat/abort` 取消；Android 端待接入播放队列
+版本：v3.0
+日期：2026-05-07  
+状态：**Android 端已完成全部接入**：`StreamingChatClient` SSE 解析、`StreamingTtsQueue` 分段播放、`TypewriterController` 打字机效果、自动续写、`AuthDialog` 认证、`FeedbackDialog` 满意度反馈。流式 TTS 主事件为 `tts_segment_ready`；`tts_audio_error` 用于跳过合成失败片段；`tts_audio_chunk`/`tts_audio_end` 后端保留发送但 Android 端已忽略
 
 ---
 
@@ -29,14 +29,21 @@
 | `text_delta` | 已实现 | 按模型增量顺序发送 |
 | `avatar_action` / `sources` / `metadata` / `done` | 已实现 | 文本生成完成后发送结构化事件 |
 | `route_data` | 已实现 | `mode=route` 且解析出路线数据时发送 |
-| `error` | 已实现 | 流式链路异常时发送 |
+| `error` / `aborted` | 已实现 | 流式链路异常或用户取消时发送 |
 | `tts_segment` | 已实现 | `ChatService` 中按情绪边界/句子边界分段，立即推送段落元信息 |
-| `tts_segment_ready` | 已实现 | 音频文件已生成，返回完整 audio_url、duration_ms、marks |
-| `chat/abort` / `aborted` | 已实现 | 客户端可按 `message_id` 或 `session_id` 取消正在进行的 SSE 流 |
-| TTS 不阻塞文本流 | 已实现 | LLM delta 通过事件队列立即发送，TTS 合成和 chunk 推送在后台任务中执行 |
-| TTS 文件名安全 | 已实现 | 自定义文件名仅允许安全 `.mp3` 文件名，拒绝路径穿越和绝对路径 |
+| `tts_segment_ready` | 已实现 | **当前主事件**：音频文件已生成，返回完整 `audio_url`、`duration_ms`、`marks` |
+| `tts_audio_error` | 已实现 | 某个 TTS 片段合成失败或被取消；Android 端跳过该 segment，继续后续片段 |
+| `tts_audio_chunk` / `tts_audio_end` | 后端保留 | Android 端 `StreamingChatClient` 已忽略（返回 `null`），不再作为播放主链路 |
+| `PrematurelyEnded` | Android 端生成 | EOF 但未收到终止事件时触发，配合自动续写机制（最多 3 次） |
+| `chat/abort` | 已实现 | 客户端可按 `message_id` 或 `session_id` 取消正在进行的 SSE 流 |
+| TTS 不阻塞文本流 | 已实现 | LLM delta 通过事件队列立即发送，TTS 合成在后台任务中执行 |
+| Android `StreamingChatClient` | 已实现 | OkHttp SSE 解析，动态 base URL，协程取消联动 |
+| Android `StreamingTtsQueue` | 已实现 | 分段播放、`PlaybackState` 状态机、`sessionEpoch` 防串扰、20 容量有界缓冲 |
+| Android `TypewriterController` | 已实现 | TTS 同步打字机效果，超时 1.5s 兜底，自动续写时无缝衔接 |
+| Android 用户认证 | 已实现 | `AuthDialog` + `AuthRepository`，注册/登录/登出，guest ID 兜底 |
+| Android 满意度反馈 | 已实现 | `FeedbackDialog` + `POST /api/v1/chat/feedback`，支持评分/投诉/留言 |
+| Android 会话管理 | 已实现 | 侧边栏展示会话列表，支持恢复、归档、删除 |
 | 自动化测试 | 已补充 | `tests/integration/test_chat_stream.py`、`tests/unit/test_route_data.py`、`tests/unit/test_streaming_tts.py`、`tests/unit/test_tts_service.py` |
-| 真实模型流式验证 | 已完成 | 本地 Uvicorn + HTTP streaming 调用通过，首个 `text_delta` 可在最终完成前到达 |
 
 ---
 
@@ -211,8 +218,8 @@ Android 端应优先实现 SSE 解析，同时可将解析器设计为按行读�
 | `message_start` | 流开始 | 当前已实现 | 绑定 `message_id`、`session_id` |
 | `text_delta` | 每次文本增量 | 是 | 追加到机器人消息气泡 |
 | `tts_segment` | 可朗读片段切出后立即发送 | 已实现 | 创建片段队列项，记录文本、音色和预告 URL |
-| `tts_segment_ready` | 音频文件已生成 | 已实现 | 播放 audio_url，用 marks 驱动口型 |
-| `tts_audio_error` | 单个 TTS 片段失败 | 已实现 | 跳过该段或等待整段 TTS 降级 |
+| `tts_segment_ready` | **音频文件已生成** | 已实现 | **播放 `audio_url`，用 `marks` 驱动口型** |
+| `tts_audio_error` | 某个 TTS 片段合成失败或被取消 | 已实现 | 标记该片段失败，跳过播放并释放后续排队片段 |
 | `avatar_action` | 流开始后立即发送（基于用户问题推断） | 当前已实现 | 更新数字人表情、动作 |
 | `sources` | 检索来源完成后 | 当前已实现，未接 RAG 时为空数组 | 补齐消息来源 |
 | `route_data` | 路线规划结构化数据完成后 | 当前已实现，`mode=route` 且有数据时发送 | 补齐路线卡片数据 |
@@ -220,6 +227,9 @@ Android 端应优先实现 SSE 解析，同时可将解析器设计为按行读�
 | `done` | 文本与结构化数据发送完成 | 是 | 关闭 loading，等待 TTS 队列播放完成 |
 | `aborted` | 收到 `chat/abort` | 已实现 | 停止流、清空本次 TTS 队列、恢复待机 |
 | `error` | 流式链路异常 | 当前已实现 | 停止流与 TTS，显示错误 |
+| `PrematurelyEnded` | Android 端生成：EOF 但未收到终止事件 | Android 端 | 触发自动续写，最多 3 次 |
+
+> **保留但不播放的事件**：`tts_audio_chunk`、`tts_audio_end` 后端仍可能发送，但 Android 端 `StreamingChatClient` 忽略不处理。
 
 ### 5.2 `message_start`
 
@@ -275,14 +285,14 @@ Android 端应优先实现 SSE 解析，同时可将解析器设计为按行读�
 | `segment_id` | String | 是 | 分段音频 ID，单次回答内唯一 |
 | `segment_index` | Int | 是 | 分段序号，单次回答内从 0 开始递增；客户端播放队列应以该字段排序 |
 | `text` | String | 是 | 该音频片段对应文本 |
-| `audio_url` | String | 是 | 最终落盘音频相对路径或完整 URL；通常到 `tts_audio_end` 后才保证可读取 |
-| `duration_ms` | Int / null | 否 | `tts_segment` 阶段通常为 `null`；真实值见 `tts_audio_end.duration_ms` |
+| `audio_url` | String | 是 | 音频相对路径预告；真实可播放文件以 `tts_segment_ready` 为准 |
+| `duration_ms` | Int / null | 否 | `tts_segment` 阶段通常为 `null`；真实值见 `tts_segment_ready.duration_ms` |
 | `voice` | String | 否 | 实际使用发音人；只会是晓晓或晓伊，非法请求值会回落为后端默认流式音色 |
 | `rate` | String | 否 | 实际使用语速 |
 | `volume` | String | 否 | 实际使用音量 |
 | `pitch` | String | 否 | 实际使用音调 |
 | `emotion` | String | 否 | LLM 标注的情绪或后验推断的情绪，如 `welcoming`、`excited`、`thinking` 等 |
-| `marks` | Array | 否 | `tts_segment` 阶段通常为空；真实值见 `tts_audio_end.marks` |
+| `marks` | Array | 否 | `tts_segment` 阶段通常为空；真实值见 `tts_segment_ready.marks` |
 
 约束：
 
@@ -290,56 +300,20 @@ Android 端应优先实现 SSE 解析，同时可将解析器设计为按行读�
 - `tts_segment` 只负责让移动端提前建立队列项；不要立即请求 `audio_url` 强依赖文件已存在。
 - 移动端播放下一段前，应重置或重新启动该片段的口型时间轴。
 
-### 5.5 `tts_audio_chunk`
+### 5.5 `tts_segment_ready`（当前主事件）
 
 ```json
 {
-  "type": "tts_audio_chunk",
-  "segment_id": "seg_001",
-  "segment_index": 0,
-  "sequence": 0,
-  "audio_format": "mp3",
-  "audio_profile": "edge_tts_raw_mp3",
-  "audio_base64": "SUQz..."
-}
-```
-
-字段说明：
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `segment_id` | String | 是 | 对应 `tts_segment.segment_id` |
-| `segment_index` | Int | 是 | 对应 `tts_segment.segment_index` |
-| `sequence` | Int | 是 | 当前片段内 chunk 序号，从 0 开始递增 |
-| `audio_format` | String | 是 | 当前固定为 `mp3` |
-| `audio_profile` | String | 是 | 当前为 `edge_tts_raw_mp3`，表示 Edge-TTS 原始 MP3 流 |
-| `audio_base64` | String | 是 | Base64 编码的 MP3 chunk 字节 |
-
-约束：
-
-- 同一 `segment_index` 或 `segment_id` 内必须按 `sequence` 顺序追加到播放缓冲。
-- 多段 TTS 并发合成时，不同片段的 chunk 可能交错到达；队列顺序以 `segment_index` 为准。
-- 该事件可早于 `tts_audio_end` 到达，移动端可先播放、后补 marks。
-- 若发现 chunk 缺失或乱序无法恢复，建议丢弃该段 chunk 流，等待 `tts_audio_end.audio_url` 兜底播放。
-
-### 5.6 `tts_audio_end`
-
-```json
-{
-  "type": "tts_audio_end",
+  "type": "tts_segment_ready",
   "segment_id": "seg_001",
   "segment_index": 0,
   "audio_url": "/api/v1/tts/file/seg_001.mp3",
-  "file_name": "seg_001.mp3",
   "duration_ms": 1800,
-  "stream_audio_duration_ms": 1944,
-  "stream_audio_offset_ms": 96,
   "marks": [
-    { "text": "欢", "start_ms": 0, "end_ms": 210, "phonemes": ["h", "u", "an"] },
-    { "text": "迎", "start_ms": 210, "end_ms": 420, "phonemes": ["i", "ng"] },
-    { "text": "，", "start_ms": 420, "end_ms": 560, "phonemes": ["SIL"] }
+    { "word": "欢迎", "start_ms": 0, "end_ms": 420 },
+    { "word": "来到", "start_ms": 430, "end_ms": 820 }
   ],
-  "chunk_count": 8
+  "emotion": "welcoming"
 }
 ```
 
@@ -349,34 +323,66 @@ Android 端应优先实现 SSE 解析，同时可将解析器设计为按行读�
 |------|------|------|------|
 | `segment_id` | String | 是 | 对应 `tts_segment.segment_id` |
 | `segment_index` | Int | 是 | 对应 `tts_segment.segment_index` |
-| `audio_url` | String | 是 | 最终落盘 MP3，可作为 chunk 播放失败后的兜底 |
-| `file_name` | String | 是 | 最终落盘 MP3 文件名 |
-| `duration_ms` | Int / null | 否 | 最终落盘 MP3 的真实帧时长 |
-| `stream_audio_duration_ms` | Int / null | 否 | 原始 chunk 流 MP3 的总帧时长 |
-| `stream_audio_offset_ms` | Int / null | 否 | 原始 chunk 流相对最终 marks 的前导偏移 |
-| `marks` | Array | 否 | WordBoundary 对齐的字级音素时间戳，对应最终裁剪后 MP3 时间轴 |
-| `chunk_count` | Int | 是 | 当前片段已发送 chunk 数 |
+| `audio_url` | String | 是 | 最终落盘 MP3，可直接播放 |
+| `duration_ms` | Int / null | 否 | 音频总时长（毫秒） |
+| `marks` | Array | 否 | 词级时间标记，用于口型同步 |
+| `emotion` | String | 否 | 该片段情绪 |
 
-口型同步：
+约束：
 
-- 播放 `audio_url` 时，直接用播放器当前进度匹配 `marks.start_ms/end_ms`。
-- 播放 `tts_audio_chunk` 原始流时，用 `max(0, player_position_ms - stream_audio_offset_ms)` 匹配 marks。
+- 移动端收到 `tts_segment_ready` 后立即用 ExoPlayer 播放 `audio_url`。
+- 口型同步直接用播放器当前进度匹配 `marks.start_ms/end_ms`。
 - `marks[-1].end_ms` 与 `duration_ms` 对齐；不要按字符数或其它时长重新拉伸 marks。
+- 若 `audio_url` 播放失败，跳过该段，等待后续片段或 `done` 后整段 TTS 降级。
 
-### 5.7 `tts_audio_error`
+### 5.6 `tts_audio_error`
+
+当后台 TTS 合成任务被取消、超时或失败时，后端发送该事件。移动端必须跳过对应片段，不能继续请求该片段的预告 `audio_url`。
 
 ```json
 {
   "type": "tts_audio_error",
   "segment_id": "seg_001",
-  "segment_index": 0,
-  "message": "tts synthesis failed"
+  "segment_index": 1,
+  "message": "tts synthesize cancelled"
 }
 ```
 
-移动端收到该事件后，应跳过对应片段，或在 `done` 后走整段 TTS 降级。
+移动端行为：
 
-### 5.8 `avatar_action`
+1. 记录失败的 `segment_id` / `segment_index`。
+2. 调用 `skipSpeechSegment()` 推进 TTS 播放队列。
+3. 如果后续又收到同一片段的 `tts_segment_ready`，直接忽略。
+4. 释放已缓存但被该失败 index 卡住的后续片段。
+5. 通知打字机可以继续显示文本，避免无音频时 UI 卡住。
+
+### 5.7 `PrematurelyEnded`（Android 端生成）
+
+当 SSE 流读取到 EOF，但从未收到 `done`、`aborted`、`error` 等终止事件时，Android 端 `StreamingChatClient` 会生成 `ChatStreamEvent.PrematurelyEnded`。
+
+**触发条件**：
+- 网络不稳定导致连接提前断开
+- 后端异常崩溃未发送终止事件
+- 代理/网关中途截断响应
+
+**移动端行为**：
+1. 保留已收到的文本与已播放的音频。
+2. 触发自动续写：将当前已展示文本作为上下文，构造续写提示词重新调用 `POST /api/v1/chat/text/stream`。
+3. 最多尝试 3 次（`MAX_STREAM_CONTINUATION_ATTEMPTS = 3`）。
+4. 续写流的首个 `text_delta` 会无缝追加到同一消息气泡。
+5. 超过最大次数仍未恢复，则标记消息为"回答中断"。
+
+### 5.8 已弃用音频 Chunk 事件（`tts_audio_chunk` / `tts_audio_end`）
+
+> 以下事件后端仍保留发送，但 Android 端 `StreamingChatClient` 已忽略不处理：
+> ```kotlin
+> "tts_audio_chunk", "tts_audio_end" -> null
+> ```
+> 
+> 当前播放以 `tts_segment_ready.audio_url` 为准，不再消费实时音频 chunk。
+> 若后端未来重新启用 chunk 方案，Android 端需恢复对应事件解析与缓冲逻辑。
+
+### 5.9 `avatar_action`
 
 ```json
 {
@@ -539,14 +545,13 @@ LLM token/text stream (含 <emotion="xxx"> 标签)
       ▼
 TTS 合成短句（携带情绪对应韵律参数）
       │
-      ├─ 立即发送 tts_segment（段落元信息）
-      ├─ Edge-TTS audio chunk 到达即发送 tts_audio_chunk
-      └─ 合成完成后发送 tts_audio_end（audio_url / duration_ms / marks）
+      ├─ 立即发送 tts_segment（段落元信息预告）
+      └─ 合成完成后发送 tts_segment_ready（audio_url / duration_ms / marks）
       ▼
-移动端实时播放 chunk；失败时用 audio_url 兜底
+移动端直接播放 audio_url
 ```
 
-当前后端实现中，`text_delta`、`tts_segment` 和音频 chunk 已解耦：原始 delta 会先解析并剥离情绪标签后发送给移动端，TTS 合成在后台任务中执行，Edge-TTS 返回 chunk 时立即通过 SSE 推送，避免语音合成阻塞后续文字展示。
+当前后端实现中，`text_delta`、`tts_segment` 和 TTS 合成已解耦：原始 delta 会先解析并剥离情绪标签后发送给移动端，TTS 合成在后台任务中执行，音频文件生成完成后通过 `tts_segment_ready` 推送，避免语音合成阻塞后续文字展示。
 
 ### 6.2.1 LLM 接入配置
 
@@ -602,11 +607,9 @@ PPIO_MODEL_NAME=deepseek-v4-flash
 
 ## 七、Android 端数据模型
 
-### 7.1 新增 `ChatStreamEvent`
+### 7.1 `ChatStreamEvent`（已落地）
 
-建议新增文件：
-
-`app/src/main/java/com/example/scenic_avatar_guide_app/domain/model/ChatStreamModels.kt`
+文件：`app/src/main/java/com/example/scenic_avatar_guide_app/domain/model/ChatStreamEvent.kt`
 
 ```kotlin
 sealed interface ChatStreamEvent {
@@ -624,17 +627,12 @@ sealed interface ChatStreamEvent {
         val segment: TtsSegmentData
     ) : ChatStreamEvent
 
-    data class TtsAudioChunk(
-        val chunk: TtsAudioChunkData
-    ) : ChatStreamEvent
-
-    data class TtsAudioEnd(
-        val end: TtsAudioEndData
+    data class TtsSegmentReady(
+        val segment: TtsSegmentData
     ) : ChatStreamEvent
 
     data class TtsAudioError(
-        val segmentId: String,
-        val message: String
+        val error: TtsAudioErrorData
     ) : ChatStreamEvent
 
     data class AvatarActionDelta(
@@ -655,6 +653,14 @@ sealed interface ChatStreamEvent {
 
     data object Done : ChatStreamEvent
 
+    data object PrematurelyEnded : ChatStreamEvent
+
+    data class Aborted(
+        val messageId: String? = null,
+        val sessionId: String? = null,
+        val reason: String? = null
+    ) : ChatStreamEvent
+
     data class Error(
         val code: Int? = null,
         val message: String
@@ -662,7 +668,25 @@ sealed interface ChatStreamEvent {
 }
 ```
 
-### 7.2 新增 `TtsSegmentData`
+> 注：`TtsAudioChunk`、`TtsAudioEnd` 已从主播放事件移除；后端若发送，解析器返回 `null` 忽略。`TtsAudioError` 保留，用于跳过失败片段。
+
+### 7.2 `TtsAudioErrorData`
+
+```kotlin
+@Serializable
+data class TtsAudioErrorData(
+    @SerialName("segment_id")
+    val segmentId: String? = null,
+    @SerialName("segment_index")
+    val segmentIndex: Int? = null,
+    val code: Int? = null,
+    val message: String? = null,
+    val reason: String? = null,
+    val error: String? = null
+)
+```
+
+### 7.3 `TtsSegmentData`
 
 ```kotlin
 @Serializable
@@ -683,150 +707,81 @@ data class TtsSegmentData(
 )
 ```
 
-```kotlin
-@Serializable
-data class TtsAudioChunkData(
-    @SerialName("segment_id")
-    val segmentId: String,
-    val sequence: Int,
-    @SerialName("audio_format")
-    val audioFormat: String,
-    @SerialName("audio_profile")
-    val audioProfile: String,
-    @SerialName("audio_base64")
-    val audioBase64: String
-)
+### 7.4 流式解析内部 DTO
 
-@Serializable
-data class TtsAudioEndData(
-    @SerialName("segment_id")
-    val segmentId: String,
-    @SerialName("audio_url")
-    val audioUrl: String,
-    @SerialName("file_name")
-    val fileName: String,
-    @SerialName("duration_ms")
-    val durationMs: Int? = null,
-    @SerialName("stream_audio_duration_ms")
-    val streamAudioDurationMs: Int? = null,
-    @SerialName("stream_audio_offset_ms")
-    val streamAudioOffsetMs: Int? = null,
-    val marks: List<TtsMarkItem>? = null,
-    @SerialName("chunk_count")
-    val chunkCount: Int
-)
-```
-
-### 7.3 流式解析 DTO
-
-可为网络解析新增可序列化 DTO，再转换为领域事件：
-
-```kotlin
-@Serializable
-data class ChatStreamEnvelope(
-    val type: String,
-    @SerialName("message_id")
-    val messageId: String? = null,
-    @SerialName("session_id")
-    val sessionId: String? = null,
-    @SerialName("created_at")
-    val createdAt: String? = null,
-    val delta: String? = null,
-    val data: JsonElement? = null,
-    @SerialName("segment_id")
-    val segmentId: String? = null,
-    val text: String? = null,
-    @SerialName("audio_url")
-    val audioUrl: String? = null,
-    @SerialName("duration_ms")
-    val durationMs: Int? = null,
-    val voice: String? = null,
-    val rate: String? = null,
-    val volume: String? = null,
-    val pitch: String? = null,
-    val emotion: String? = null,
-    val marks: List<TtsMarkItem>? = null,
-    val sequence: Int? = null,
-    @SerialName("audio_format")
-    val audioFormat: String? = null,
-    @SerialName("audio_profile")
-    val audioProfile: String? = null,
-    @SerialName("audio_base64")
-    val audioBase64: String? = null,
-    @SerialName("file_name")
-    val fileName: String? = null,
-    @SerialName("stream_audio_duration_ms")
-    val streamAudioDurationMs: Int? = null,
-    @SerialName("stream_audio_offset_ms")
-    val streamAudioOffsetMs: Int? = null,
-    @SerialName("chunk_count")
-    val chunkCount: Int? = null,
-    val code: Int? = null,
-    val message: String? = null
-)
-```
+`StreamingChatClient` 内部使用 `ChatStreamEnvelope` 统一反序列化 SSE payload，再映射为 `ChatStreamEvent`。该 DTO 包含所有可能字段（含已弃用的 chunk 字段），通过 `type` 字段分发。
 
 ---
 
 ## 八、Android 网络层改造
 
-### 8.1 新增 `StreamingChatClient`
+### 8.1 `StreamingChatClient`（已落地）
 
-建议新增文件：
-
-`app/src/main/java/com/example/scenic_avatar_guide_app/data/remote/StreamingChatClient.kt`
+文件：`app/src/main/java/com/example/scenic_avatar_guide_app/data/remote/StreamingChatClient.kt`
 
 职责：
 
 1. 构造 `POST /api/v1/chat/text/stream` 请求。
-2. 复用动态 base URL 逻辑。
+2. 复用动态 base URL 逻辑（`DynamicBaseUrlInterceptor`）。
 3. 使用 OkHttp 直接读取 `ResponseBody`。
-4. 逐行解析 SSE 或 NDJSON。
-5. 将 JSON 事件转换为 `ChatStreamEvent`。
-6. 协程取消时取消 OkHttp `Call`。
+4. 逐行解析 SSE。
+5. 将 JSON 事件转换为 `ChatStreamEvent`；`tts_audio_error` 转换为跳过片段事件，`tts_audio_chunk`/`tts_audio_end` 返回 `null` 忽略。
+6. EOF 时若未收到终止事件，生成 `ChatStreamEvent.PrematurelyEnded`。
+7. 协程取消时取消 OkHttp `Call`。
 
-伪代码：
+核心逻辑：
 
 ```kotlin
 class StreamingChatClient @Inject constructor(
-    private val okHttpClient: OkHttpClient,
+    @StreamingOkHttp private val okHttpClient: OkHttpClient,
     private val json: Json
 ) {
     fun streamChat(request: ChatTextRequest): Flow<ChatStreamEvent> = callbackFlow {
-        val body = json.encodeToString(ChatTextRequest.serializer(), request)
-            .toRequestBody("application/json".toMediaType())
-
-        val httpRequest = Request.Builder()
-            .url("http://placeholder/api/v1/chat/text/stream")
-            .post(body)
-            .header("Accept", "text/event-stream")
-            .build()
-
+        // ... 构造请求 ...
         val call = okHttpClient.newCall(httpRequest)
 
-        launch(Dispatchers.IO) {
+        val readJob = launch(Dispatchers.IO) {
             try {
                 call.execute().use { response ->
-                    if (!response.isSuccessful) {
-                        trySend(ChatStreamEvent.Error(response.code, response.message))
-                        close()
-                        return@use
-                    }
-
-                    val source = response.body?.source()
-                    while (source != null && !source.exhausted()) {
+                    // ... 读取 SSE 行 ...
+                    var sawTerminalEvent = false
+                    while (!source.exhausted()) {
                         val line = source.readUtf8Line() ?: continue
-                        parseLine(line)?.let { trySend(it) }
+                        val event = parseStreamLine(line, sseDataLines, ...)
+                        if (event != null) {
+                            sawTerminalEvent = sawTerminalEvent || event.isTerminalStreamEvent()
+                            trySend(event)
+                        }
+                    }
+                    // EOF flush
+                    flushSseData(sseDataLines, currentEventType)?.let {
+                        sawTerminalEvent = sawTerminalEvent || it.isTerminalStreamEvent()
+                        trySend(it)
+                    }
+                    if (!sawTerminalEvent && !call.isCanceled()) {
+                        trySend(ChatStreamEvent.PrematurelyEnded)
                     }
                 }
             } catch (e: Exception) {
-                trySend(ChatStreamEvent.Error(message = e.message ?: "流式请求失败"))
+                if (!call.isCanceled()) {
+                    trySend(ChatStreamEvent.Error(message = "..."))
+                }
             } finally {
                 close()
             }
         }
 
-        awaitClose { call.cancel() }
+        awaitClose {
+            readJob.cancel()
+            call.cancel()
+        }
+    }
+
+    private fun ChatStreamEvent.isTerminalStreamEvent(): Boolean {
+        return this is ChatStreamEvent.Done ||
+            this is ChatStreamEvent.PrematurelyEnded ||
+            this is ChatStreamEvent.Aborted ||
+            this is ChatStreamEvent.Error
     }
 }
 ```
@@ -892,35 +847,52 @@ fun sendTextMessageStream(
 
 ## 十、ViewModel 改造
 
-### 10.1 状态与 Job
+### 10.1 状态与 Job（已落地）
 
-`MainViewModel` 新增：
+`MainViewModel` 关键状态：
 
 ```kotlin
 private var currentStreamJob: Job? = null
 private var currentAssistantMessageId: String? = null
-private var accumulatedAssistantText: String = ""
+private val typewriterController = TypewriterController(viewModelScope)
+private var prematureStreamEnd = false
+private var continuationAttempts = 0
+private var receivedText = false
+
+// 认证状态
+private val _isAuthenticated = MutableStateFlow(false)
+val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
+
+// 满意度反馈
+private val _showFeedbackDialog = MutableStateFlow(false)
+val showFeedbackDialog: StateFlow<Boolean> = _showFeedbackDialog.asStateFlow()
 ```
 
-### 10.2 新增消息更新工具方法
+### 10.2 `TypewriterController`
+
+文件：`MainViewModel.kt` 内联类
+
+职责：
+1. 按固定间隔（约 32ms）逐字追加文本，形成打字机效果。
+2. 与 TTS 同步：首个 `tts_segment_ready` 到达后触发 `canStartDisplay`，打字机才开始展示文字。
+3. 超时保护：若 TTS 在 1.5s 内未就绪，直接开始显示文字。
+4. 自动续写时无缝衔接：续写流的 `text_delta` 直接追加到同一消息。
 
 ```kotlin
-private fun addAssistantPlaceholder(): String
+class TypewriterController(private val scope: CoroutineScope) {
+    var onTextUpdate: ((messageId: String, text: String) -> Unit)? = null
+    private var canStartDisplay = false
 
-private fun appendAssistantDelta(
-    id: String,
-    delta: String
-)
+    fun notifyTtsReady() { canStartDisplay = true }
 
-private fun updateAssistantMessage(
-    id: String,
-    sources: List<SourceInfo>? = null,
-    avatarAction: AvatarAction? = null,
-    routeData: RouteData? = null,
-    isError: Boolean? = null
-)
-
-private fun cancelCurrentStream()
+    fun start(messageId: String, fullText: String) {
+        scope.launch {
+            // 等待 TTS 同步信号或超时
+            // ...
+            // 逐字追加
+        }
+    }
+}
 ```
 
 ### 10.3 流式发送流程
@@ -937,19 +909,54 @@ sendMessage()
               ├─ 确保 session_id
               ├─ 创建机器人占位消息
               ├─ playbackManager.startStreaming()
+              ├─ typewriterController.start()
               └─ collect repository.sendTextMessageStream()
-                      ├─ TextDelta       -> appendAssistantDelta()
+                      ├─ MessageStart    -> 绑定 messageId / sessionId
+                      ├─ TextDelta       -> typewriterController 追加 / 直接更新
                       ├─ TtsSegment      -> playbackManager.prepareSpeechSegment()
-                      ├─ TtsAudioChunk   -> playbackManager.appendSpeechChunk()
-                      ├─ TtsAudioEnd     -> playbackManager.finishSpeechSegment()
-                      ├─ TtsAudioError   -> playbackManager.failSpeechSegment()
+                      ├─ TtsSegmentReady -> playbackManager.playSpeechSegment()
+                      │                     typewriterController.notifyTtsReady()
                       ├─ AvatarAction    -> playbackManager.updateStreamingAction()
                       ├─ Sources         -> updateAssistantMessage()
                       ├─ RouteData       -> updateAssistantMessage()
                       ├─ Metadata        -> 缓存或更新降级字段
                       ├─ Done            -> playbackManager.finishStreamingInput()
+                      ├─ PrematurelyEnded -> 标记 prematureStreamEnd = true
                       └─ Error           -> 标记错误并停止播放
+              │
+              └─ 流结束后：若 prematureStreamEnd 且收到过文本
+                     且 continuationAttempts < 3 -> 自动续写
 ```
+
+### 10.4 自动续写机制
+
+当收到 `PrematurelyEnded` 且已收到过文本时：
+
+```kotlin
+if (prematureStreamEnd && receivedText && continuationAttempts < MAX_STREAM_CONTINUATION_ATTEMPTS) {
+    continuationAttempts += 1
+    val continuationPrompt = buildContinuationPrompt(currentMessageContent)
+    // 重新调用 streamChat，新流的 text_delta 追加到同一消息
+}
+```
+
+约束：
+- 最多续写 3 次。
+- 续写提示词基于当前已展示文本构造，保持上下文连贯。
+- 若续写流再次 `PrematurelyEnded`，继续计数；超过上限则放弃并标记中断。
+
+### 10.5 认证与反馈集成
+
+**认证**：
+- `AuthDialog` 提供注册/登录界面。
+- `AuthRepository` 处理 `authRegister` / `authLogin` / `logout`。
+- 未登录用户使用 `guest_{随机16位}` ID 兜底。
+- 登录成功后 `saveAuthData` 同步更新 `userId` 到 DataStore。
+
+**满意度反馈**：
+- 每条助手消息支持长按/点击触发 `FeedbackDialog`。
+- `submitFeedback(rating, isComplaint, comment)` 调用 `POST /api/v1/chat/feedback`。
+- 评分 1-5 星，可选标记为投诉并填写留言。
 
 ### 10.4 Loading 行为
 
@@ -970,42 +977,51 @@ sendMessage()
 
 ## 十一、TTS 队列改造
 
-### 11.1 新增 `StreamingTtsQueue`
+### 11.1 `StreamingTtsQueue`（已落地）
 
-建议新增文件：
-
-`app/src/main/java/com/example/scenic_avatar_guide_app/core/tts/StreamingTtsQueue.kt`
+文件：`app/src/main/java/com/example/scenic_avatar_guide_app/core/tts/StreamingTtsQueue.kt`
 
 职责：
 
-1. 接收后端 `tts_segment` 创建片段队列项。
-2. 接收同一 `segment_index` 或 `segment_id` 下的 `tts_audio_chunk`，按 `sequence` 追加到播放缓冲。
-3. 收到首个可播放 chunk 后开始低延迟播放。
-4. 收到 `tts_audio_end` 后关闭该片段输入，并补齐 `duration_ms`、`marks` 和 fallback `audio_url`。
-5. chunk 流失败或乱序不可恢复时，等待 `tts_audio_end.audio_url` 兜底播放。
-6. 队列空但输入未结束时进入等待状态。
-7. 队列空且输入已结束时回调完成。
-8. 支持取消。
+1. 接收后端 `tts_segment_ready` 获取可播放 `audio_url`。
+2. 使用 `Channel<TtsSegmentData>(20)` 有界缓冲队列排队播放。
+3. `PlaybackState` 状态机管理：`Idle` → `Receiving` → `Draining` → `Idle`。
+4. `sessionEpoch` 机制：每次新问答递增 epoch，旧事件到达时自动丢弃，防止串扰。
+5. `assertMainThread()` 强制主线程操作，避免并发崩溃。
+6. 队列空但输入未结束时进入等待状态；队列空且输入已结束时恢复 IDLE。
+7. 支持取消与清空。
 
-建议接口：
+核心结构：
 
 ```kotlin
-class StreamingTtsQueue(
-    private val audioPlayer: AudioPlayer,
-    private val buildAudioUrl: suspend (String) -> String,
-    private val onSegmentStart: (TtsSegmentData) -> Unit,
-    private val onSegmentComplete: (TtsSegmentData) -> Unit,
-    private val onWaitingForSegment: () -> Unit,
-    private val onAllComplete: () -> Unit,
-    private val onError: (Throwable) -> Unit
+class StreamingTtsQueue @Inject constructor(
+    private val audioPlayer: AudioPlayer
 ) {
-    fun start()
-    fun prepare(segment: TtsSegmentData)
-    fun appendChunk(chunk: TtsAudioChunkData)
-    fun finishSegment(end: TtsAudioEndData)
-    fun failSegment(error: TtsAudioErrorData)
-    fun finishInput()
-    fun cancel()
+    sealed class PlaybackState {
+        object Idle : PlaybackState()
+        object Receiving : PlaybackState()
+        object Draining : PlaybackState()
+    }
+
+    private val segmentChannel = Channel<TtsSegmentData>(20)
+    private var playbackState: PlaybackState = PlaybackState.Idle
+    private var sessionEpoch = 0
+
+    fun startNewSession(): Int {
+        sessionEpoch++
+        // 清空旧队列...
+        return sessionEpoch
+    }
+
+    fun enqueue(segment: TtsSegmentData, epoch: Int) {
+        assertMainThread()
+        if (epoch != sessionEpoch) return // 丢弃过期事件
+        segmentChannel.trySend(segment)
+        // 驱动播放协程...
+    }
+
+    fun finishInput(epoch: Int) { ... }
+    fun cancel() { ... }
 }
 ```
 
@@ -1013,26 +1029,19 @@ class StreamingTtsQueue(
 
 | 场景 | 行为 |
 |------|------|
-| 队列为空，收到 `tts_segment` | 创建队列项，等待首个 chunk |
-| 队列项收到首个可播放 chunk | 立即开始播放 |
-| 当前片段播放中，收到同段 chunk | 追加到当前播放缓冲 |
-| 当前片段播放中，收到新 `tts_segment` | 创建后续队列项 |
-| 当前段 chunk 播放失败，后续收到 `tts_audio_end` | 使用 `audio_url` 兜底播放该段 |
+| 收到 `tts_segment_ready` | 入队；若当前空闲则立即播放 |
+| 当前片段播放中，收到新 `tts_segment_ready` | 加入队列尾部，顺序播放 |
 | 当前片段播完，队列有下一段 | 立即播放下一段 |
 | 当前片段播完，队列为空，流未结束 | 进入等待状态，口型归零 |
-| 当前片段播完，队列为空，流已结束 | 回调全部完成，数字人恢复 IDLE |
-| 用户发送新问题 | 取消当前音频、清空队列 |
-| `tts_audio_error` | 跳过该段，或在最终文本完成后整段 TTS 降级 |
+| 当前片段播完，队列为空，流已结束 | 恢复 IDLE |
+| 用户发送新问题 | 取消当前音频、清空队列、epoch 递增 |
+| `sessionEpoch` 不匹配 | 丢弃该事件，防止旧流串扰 |
 
-### 11.3 与现有 `RemoteTTSController` 的关系
+### 11.3 与 `RemoteTTSController` 的关系
 
-不要第一阶段直接推翻 `RemoteTTSController.speak(text)`。
-
-推荐做法：
-
-- 非流式：继续使用 `RemoteTTSController.speak(完整文本)`。
-- 流式：新增 `StreamingTtsQueue`，优先播放后端实时 `tts_audio_chunk`；chunk 失败时使用 `tts_audio_end.audio_url` 兜底。
-- 后续稳定后，可将二者抽象成统一 `TTSProvider`。
+- 流式问答主链路：`StreamingTtsQueue` 消费 `tts_segment_ready`。
+- 非流式降级：保留 `RemoteTTSController.speak(完整文本)` 用于独立 TTS 合成。
+- 系统 TTS 兜底：极端离线场景下使用 `SystemTTS`。
 
 ---
 
@@ -1089,10 +1098,10 @@ _isLoading = false
 | 场景 | 降级策略 |
 |------|----------|
 | 首个事件前连接失败 | 调用旧 `sendTextMessage()` |
-| 已收到部分文本后失败 | 保留部分文本，标记“回答中断” |
-| TTS chunk 播放失败 | 丢弃该段 chunk 流，等待 `tts_audio_end.audio_url` 兜底；仍失败则保留文字流 |
+| 已收到部分文本后失败 | 保留部分文本，触发自动续写（最多 3 次）或标记“回答中断” |
+| `tts_segment_ready` 播放失败 | 跳过该段，继续播放下一段；仍失败则保留文字流 |
 | `tts_segment` 长时间不到 | UI 继续展示文字，数字人等待；可在最终用整段 TTS 兜底 |
-| `tts_audio_error` | 跳过当前段，必要时在 `done` 后对完整回答调用 `/api/v1/tts/synthesize` |
+| 流异常断开 | `PrematurelyEnded` 触发自动续写；超过上限则标记中断 |
 
 第一阶段建议只实现最小降级：
 
@@ -1132,18 +1141,19 @@ _isLoading = false
 ### 阶段 5：TTS 片段队列
 
 1. 新增 `StreamingTtsQueue`。
-2. 先实现按 `segment_index + sequence` 或 `segment_id + sequence` 串行消费 `tts_audio_chunk`。
-3. 实现 `tts_audio_end.audio_url` 兜底播放。
-4. 队列空但流未结束时进入等待状态。
-5. 流结束且队列空时恢复 IDLE。
+2. 消费 `tts_segment_ready.audio_url` 直接播放（ExoPlayer）。
+3. 使用 `Channel<TtsSegmentData>(20)` 有界缓冲，防止内存无限增长。
+4. 实现 `PlaybackState` 状态机：`Idle` → `Receiving` → `Draining` → `Idle`。
+5. 实现 `sessionEpoch` 机制，防止旧流事件串扰。
+6. 队列空但流未结束时进入等待状态；流结束且队列空时恢复 IDLE。
 
 ### 阶段 6：口型与数字人
 
-1. 收到 `tts_audio_end.marks` 后转为片段内 `PhonemeEvent`。
-2. 播放 chunk 流时，用 `max(0, player_position_ms - stream_audio_offset_ms)` 匹配 marks。
-3. 播放最终 `audio_url` 时，直接用播放器当前进度匹配 marks。
-4. 每段音频结束时停止口型并归零。
-5. 接入流式表情与动作更新。
+1. 收到 `tts_segment_ready.marks` 后转为片段内 `PhonemeEvent`。
+2. 播放 `audio_url` 时，直接用播放器当前进度匹配 `marks.start_ms/end_ms`。
+3. 每段音频结束时停止口型并归零。
+4. 接入流式表情与动作更新。
+5. 实现 `AvatarPlaybackManager` 的 `sessionEpoch` 检查，防止旧流口型串扰。
 
 ### 阶段 7：取消、降级、验收
 
@@ -1165,7 +1175,7 @@ _isLoading = false
 
 ### 15.2 流式 TTS
 
-- 收到首个 `tts_segment` 后建立队列项，收到首个可播放 `tts_audio_chunk` 后 TTS 开始播放。
+- 收到 `tts_segment_ready` 后直接播放 `audio_url`。
 - 当前片段播放时，后续片段可以继续入队。
 - 文本卡顿且队列为空时，TTS 自然停顿，口型归零。
 - 后续新片段到达后，TTS 自动继续播放。
@@ -1182,7 +1192,8 @@ _isLoading = false
 
 - 用户发送新问题时，旧回答文本流停止。
 - 用户发送新问题时，旧 TTS 音频立即停止。
-- 网络中断时，消息能明确展示失败或中断状态。
+- 网络中断或流异常断开时，触发 `PrematurelyEnded` 自动续写（最多 3 次）。
+- 超过续写次数上限后，标记消息为“回答中断，请重试”。
 - `ViewModel.onCleared()` 后无后台音频继续播放。
 
 ---
@@ -1195,14 +1206,17 @@ _isLoading = false
 | 2 | `tts_segment` 由后端生成还是移动端拿 delta 后再请求 TTS | **已采用后端生成**；Android 端仍需保留整段 TTS 降级 |
 | 3 | 首段最短长度 | 建议 8-12 个中文字符或 800ms 超时强制切分 |
 | 4 | `tts_segment.text` 与展示文本不一致时如何处理 | 允许不完全一致，但必须语义一致 |
-| 5 | TTS 播放失败是否跳过该段 | 优先等待 `tts_audio_end.audio_url` 兜底；仍失败时跳过坏段或整段 TTS 降级 |
+| 5 | TTS 播放失败是否跳过该段 | **直接播放 `tts_segment_ready.audio_url`**；播放失败则跳过该段，继续播放下一段 |
 | 6 | 是否保留非流式开关 | **已保留**：`POST /api/v1/chat/text` 作为降级路径 |
+| 7 | `tts_audio_chunk` 是否仍需解析 | **已确认：Android 端忽略**，后端保留发送但 `StreamingChatClient` 返回 `null` |
+| 8 | 自动续写次数上限 | **已确认：3 次**（`MAX_STREAM_CONTINUATION_ATTEMPTS = 3`） |
+| 9 | 打字机超时时间 | **已确认：1.5s**（TTS 未就绪时直接开始展示文字） |
 
 ---
 
 ## 十七、与现有接口文档的关系
 
-- `Android_API_CONTRACT.md` v6.1 已正式纳入 `POST /api/v1/chat/text/stream`。
-- 本文档继续描述流式链路的分阶段实现与 Android 端改造建议。
-- 当前稳定范围是“文本 SSE + 结构化事件 + 后端分段 TTS 元信息 + 实时音频 chunk + 取消事件”；Android 端仍需继续验证真实网络、取消和播放队列。
+- `API_CONTRACT.md` v9.0 已正式纳入 `POST /api/v1/chat/text/stream` 及全部事件定义。
+- 本文档描述流式链路的完整实现与 Android 端架构。
+- 当前稳定范围：**文本 SSE + 结构化事件 + `tts_segment_ready` 分段音频 + `PrematurelyEnded` 自动续写 + 认证/反馈/会话管理**。
 - `API_TTS_USAGE.md` 中的独立 TTS 接口仍保留，作为非流式与降级能力。

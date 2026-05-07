@@ -1,8 +1,8 @@
 # 数字人测试模式说明
 
-版本：v1.1  
-日期：2026-04-30  
-适用范围：Android 端主界面内置测试面板、Live2D 表情/动作/场景/口型联调、后端 mock/API 降级测试
+版本：v1.2  
+日期：2026-05-07  
+适用范围：Android 端主界面内置测试面板、Live2D 表情/动作/场景/口型/Combo 联调、后端 mock/API 降级测试
 
 ---
 
@@ -23,6 +23,7 @@ val expressionButtons = TestAvatarActions.getExpressionButtons()
 val gestureButtons = TestAvatarActions.getGestureButtons()
 val scenarioButtons = TestAvatarActions.getScenarioButtons()
 val lipSyncButtons = TestAvatarActions.getLipSyncTestButtons()
+val comboButtons = TestAvatarActions.getComboButtons()
 ```
 
 点击任意测试项后调用：
@@ -36,7 +37,7 @@ MainScreen → MainViewModel.playTestAction(action)
 
 ## 2. 当前测试分类
 
-当前测试模式分为 4 个页签：
+当前测试模式分为 5 个页签：
 
 | 页签 | 数据来源 | 数量 | 目的 |
 |------|----------|------|------|
@@ -44,6 +45,7 @@ MainScreen → MainViewModel.playTestAction(action)
 | 动作 | `getGestureButtons()` | 13 | 单独验证 Gesture 层 |
 | 场景 | `getScenarioButtons()` | 36 | 验证 Expression + Gesture + LipSync 协同 |
 | 口型 | `getLipSyncTestButtons()` | 12 | 专项验证中文口型同步 |
+| Combo | `getComboButtons()` | 18 | 验证短情绪反馈、方向引导和 LLM 情绪匹配素材 |
 
 ---
 
@@ -174,7 +176,33 @@ AvatarPlayAction(
 
 ---
 
-## 7. 后端联调数据结构
+## 7. Combo 测试
+
+Combo 测试使用 `TestAvatarActions.allCombos` 中的 18 个精简情感表现单元。每个 Combo 都是一个短 `AvatarPlayAction`，用于验证短 TTS、表情时间轴、动作队列和口型同步的快速联动。
+
+当前 Combo 面板展示：
+
+- `emotionCategory`：情感/用途分类，如 `喜悦`、`引导`、`敬畏`、`聆听`
+- `label`：直接来自 `action.text`，避免维护重复文案
+- `emotionTags`：展示前 3 个标签，辅助检查 LLM 匹配词
+
+当前 18 个 Combo：
+
+| 分组 | 数量 | Combo |
+|------|------|-------|
+| 喜悦/赞赏 | 2 | 嘻嘻、太棒了 |
+| 欢迎/引导 | 5 | 您好呀、这边请、往左走、往右走、往前走 |
+| 惊叹/敬畏 | 3 | 哇、好壮观、好神圣 |
+| 认同/思考 | 2 | 好的、让我想想 |
+| 歉意/关切 | 2 | 抱歉呀、小心哦 |
+| 感恩/告别 | 2 | 感谢您、一路平安 |
+| 俏皮/聆听 | 2 | 猜猜看、我在听 |
+
+设计细节见 `docs/animation/AVATAR_COMBO_DESIGN.md`。
+
+---
+
+## 8. 后端联调数据结构
 
 当前 Android 端主链路使用流式接口：
 
@@ -260,7 +288,7 @@ POST /api/v1/tts/synthesize
 | `sources` | RAG 引用来源；只测数字人时可为空数组 |
 | `metadata.intent` | 常用值：`greeting`、`farewell`、`introduction`、`direction`、`route_recommendation`、`unknown` |
 
-## 8. 后端 Mock 场景
+## 9. 后端 Mock 场景
 
 以下场景用于补充主界面测试面板之外的接口兼容、降级和异常验证。
 
@@ -354,7 +382,7 @@ POST /api/v1/tts/synthesize
 4. 流式播放测试应 mock `text_delta` 和 `tts_segment`，其中 `tts_segment.marks` 为片段内相对时间。
 5. 降级测试应覆盖 `avatar_action: null`、`sources: []`、`code != 0` 和超长 `reply_text`。
 
-## 9. 当前一致性结论
+## 10. 当前一致性结论
 
 以 `TestAvatarActions.kt` 和 `AvatarState.kt` 为准：
 
@@ -362,12 +390,13 @@ POST /api/v1/tts/synthesize
 - 动作测试与当前 `AvatarGesture` 一致：13/13 覆盖。
 - 场景测试与当前实现一致：实际为 36 个场景，旧注释中的 32 已修正。
 - 口型测试与当前实现一致：12 个专项文本场景。
+- Combo 测试与当前实现一致：32 个旧 Combo 已收缩为 18 个高频 Combo。
 
 本文档是当前数字人测试模式、后端 mock/API 降级测试和维护规则的唯一说明。
 
 ---
 
-## 10. 维护规则
+## 11. 维护规则
 
 1. 新增 `AvatarExpression` 时，同步更新：
    - `TestAvatarActions.getExpressionButtons()`
@@ -386,7 +415,12 @@ POST /api/v1/tts/synthesize
    - `lipSyncTestScenarios`
    - `getLipSyncTestButtons()` 中的 `categories`、`labels`、`descriptions`
    - 本文档
-5. 调整后端数字人协议、流式事件或降级策略时，同步更新：
+5. 新增或删除 Combo 时，同步更新：
+   - `allCombos`
+   - `getComboButtons()` 中的 `categories`、`tags`、`descriptions`
+   - `docs/animation/AVATAR_COMBO_DESIGN.md`
+   - 本文档
+6. 调整后端数字人协议、流式事件或降级策略时，同步更新：
    - 本文档的后端联调数据结构
    - 后端 API 契约文档
    - Android 端解析和降级实现

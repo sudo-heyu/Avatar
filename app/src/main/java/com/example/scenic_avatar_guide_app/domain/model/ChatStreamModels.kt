@@ -22,6 +22,10 @@ sealed interface ChatStreamEvent {
         val segment: TtsSegmentData
     ) : ChatStreamEvent
 
+    data class TtsAudioError(
+        val error: TtsAudioErrorData
+    ) : ChatStreamEvent
+
     data class AvatarActionDelta(
         val action: AvatarAction
     ) : ChatStreamEvent
@@ -53,6 +57,18 @@ sealed interface ChatStreamEvent {
         val message: String
     ) : ChatStreamEvent
 }
+
+@Serializable
+data class TtsAudioErrorData(
+    @SerialName("segment_id")
+    val segmentId: String? = null,
+    @SerialName("segment_index")
+    val segmentIndex: Int? = null,
+    val code: Int? = null,
+    val message: String? = null,
+    val reason: String? = null,
+    val error: String? = null
+)
 
 @Serializable
 data class TtsSegmentData(

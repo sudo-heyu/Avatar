@@ -18,6 +18,19 @@
 > 7. `GET /api/v1/tts/voices`
 > 8. `GET /api/v1/tts/file/{file_name}`
 >
+> **会话管理接口**：
+> 9. `GET /api/v1/session/list` — 查询会话列表
+> 10. `GET /api/v1/session/{session_id}` — 获取会话详情（含历史消息）
+> 11. `POST /api/v1/session/{session_id}/archive` — 归档会话
+> 12. `DELETE /api/v1/session/{session_id}` — 删除会话
+>
+> **用户认证接口**：
+> 13. `POST /api/v1/auth/register` — 用户注册
+> 14. `POST /api/v1/auth/login` — 用户登录
+>
+> **满意度反馈接口**：
+> 15. `POST /api/v1/chat/feedback` — 提交评分/投诉/留言
+>
 > 当前职责划分：
 >
 > 1. **Android 端仅使用流式接口**：`POST /api/v1/chat/text/stream` 返回 `text_delta`、`tts_segment`、`avatar_action`、`sources`、`metadata`、`done` 等事件；后端负责按可朗读片段生成音频

@@ -1154,7 +1154,7 @@ object TestAvatarActions {
     )
 
     /**
-     * 所有 Combo 列表（32个，覆盖导游解说全场景）
+     * 所有 Combo 列表（18个，覆盖导游解说高频情感与导览动作）
      *
      * 分层设计：
      * - 基础 Combo：单动作 + 表情，时长 0.5-1s，高频快速响应
@@ -1167,7 +1167,7 @@ object TestAvatarActions {
      * - LLM 语义匹配：用户词语 → emotionTags → combo_id → 播放
      */
     val allCombos = listOf(
-        // ==================== 一、喜悦类（3个：2基础+1增强）====================
+        // ==================== 一、喜悦/赞赏类（2个）====================
         // C1: 喜悦-嘻嘻（基础）
         AvatarPlayAction(
             text = "嘻嘻",
@@ -1183,21 +1183,7 @@ object TestAvatarActions {
                 ExpressionTimelineItem(AvatarExpression.HAPPY, 700, 0.86f)
             )
         ),
-        // C2: 喜悦-真好呀（基础）
-        AvatarPlayAction(
-            text = "真好呀",
-            expression = AvatarExpression.HAPPY,
-            expressionIntensity = 0.78f,
-            gesture = AvatarGesture.NOD,
-            motionQueue = listOf(
-                MotionQueueItem("nod", 0, 600)
-            ),
-            expressionTimeline = listOf(
-                ExpressionTimelineItem(AvatarExpression.HAPPY, 0, 0.78f),
-                ExpressionTimelineItem(AvatarExpression.HAPPY, 600, 0.82f)
-            )
-        ),
-        // C3: 喜悦-太棒了（增强）
+        // C2: 赞赏-太棒了（增强）
         AvatarPlayAction(
             text = "太棒了",
             expression = AvatarExpression.EXCITED,
@@ -1215,8 +1201,8 @@ object TestAvatarActions {
             )
         ),
 
-        // ==================== 二、欢迎类（3个：2基础+1增强）====================
-        // C4: 欢迎-您好呀（基础）
+        // ==================== 二、欢迎/引导类（5个）====================
+        // C3: 欢迎-您好呀（基础）
         AvatarPlayAction(
             text = "您好呀",
             expression = AvatarExpression.WELCOMING,
@@ -1230,7 +1216,7 @@ object TestAvatarActions {
                 ExpressionTimelineItem(AvatarExpression.HAPPY, 600, 0.8f)
             )
         ),
-        // C5: 欢迎-这边请（基础）
+        // C4: 引导-这边请（基础）
         AvatarPlayAction(
             text = "这边请",
             expression = AvatarExpression.WELCOMING,
@@ -1244,40 +1230,7 @@ object TestAvatarActions {
                 ExpressionTimelineItem(AvatarExpression.HAPPY, 800, 0.75f)
             )
         ),
-        // C6: 欢迎-欢迎来玩（增强）
-        AvatarPlayAction(
-            text = "欢迎来玩",
-            expression = AvatarExpression.WELCOMING,
-            expressionIntensity = 0.9f,
-            gesture = AvatarGesture.WAVE,
-            motionQueue = listOf(
-                MotionQueueItem("wave", 0, 600),
-                MotionQueueItem("guide", 700, 900),
-                MotionQueueItem("nod", 1700, 400)
-            ),
-            expressionTimeline = listOf(
-                ExpressionTimelineItem(AvatarExpression.WELCOMING, 0, 0.9f),
-                ExpressionTimelineItem(AvatarExpression.HAPPY, 800, 0.85f),
-                ExpressionTimelineItem(AvatarExpression.WELCOMING, 1600, 0.82f)
-            )
-        ),
-
-        // ==================== 三、引导类（4个基础）====================
-        // C7: 引导-看这里（基础）
-        AvatarPlayAction(
-            text = "看这里",
-            expression = AvatarExpression.HAPPY,
-            expressionIntensity = 0.72f,
-            gesture = AvatarGesture.POINT_FORWARD,
-            motionQueue = listOf(
-                MotionQueueItem("point_forward", 0, 800)
-            ),
-            expressionTimeline = listOf(
-                ExpressionTimelineItem(AvatarExpression.HAPPY, 0, 0.72f),
-                ExpressionTimelineItem(AvatarExpression.NEUTRAL, 700, 0.65f)
-            )
-        ),
-        // C8: 引导-往左走（基础）
+        // C5: 引导-往左走（基础）
         AvatarPlayAction(
             text = "往左走",
             expression = AvatarExpression.NEUTRAL,
@@ -1291,7 +1244,7 @@ object TestAvatarActions {
                 ExpressionTimelineItem(AvatarExpression.HAPPY, 800, 0.68f)
             )
         ),
-        // C9: 引导-往右走（基础）
+        // C6: 引导-往右走（基础）
         AvatarPlayAction(
             text = "往右走",
             expression = AvatarExpression.NEUTRAL,
@@ -1305,7 +1258,7 @@ object TestAvatarActions {
                 ExpressionTimelineItem(AvatarExpression.HAPPY, 800, 0.68f)
             )
         ),
-        // C10: 引导-往前走（基础）
+        // C7: 引导-往前走（基础）
         AvatarPlayAction(
             text = "往前走",
             expression = AvatarExpression.NEUTRAL,
@@ -1320,8 +1273,8 @@ object TestAvatarActions {
             )
         ),
 
-        // ==================== 四、惊叹类（4个：2基础+2增强）====================
-        // C11: 惊叹-哇（基础）
+        // ==================== 三、惊叹/敬畏类（3个）====================
+        // C8: 惊叹-哇（基础）
         AvatarPlayAction(
             text = "哇",
             expression = AvatarExpression.SURPRISED,
@@ -1335,21 +1288,7 @@ object TestAvatarActions {
                 ExpressionTimelineItem(AvatarExpression.EXCITED, 600, 0.82f)
             )
         ),
-        // C12: 惊叹-好美啊（基础）
-        AvatarPlayAction(
-            text = "好美啊",
-            expression = AvatarExpression.SURPRISED,
-            expressionIntensity = 0.82f,
-            gesture = AvatarGesture.NOD,
-            motionQueue = listOf(
-                MotionQueueItem("nod", 0, 600)
-            ),
-            expressionTimeline = listOf(
-                ExpressionTimelineItem(AvatarExpression.SURPRISED, 0, 0.82f),
-                ExpressionTimelineItem(AvatarExpression.HAPPY, 600, 0.8f)
-            )
-        ),
-        // C13: 惊叹-好壮观（增强）
+        // C9: 惊叹-好壮观（增强）
         AvatarPlayAction(
             text = "好壮观",
             expression = AvatarExpression.SURPRISED,
@@ -1366,7 +1305,7 @@ object TestAvatarActions {
                 ExpressionTimelineItem(AvatarExpression.EXCITED, 1500, 0.8f)
             )
         ),
-        // C14: 惊叹-好神圣（增强）
+        // C10: 敬畏-好神圣（增强）
         AvatarPlayAction(
             text = "好神圣",
             expression = AvatarExpression.REVERENT,
@@ -1384,8 +1323,8 @@ object TestAvatarActions {
             )
         ),
 
-        // ==================== 五、认同类（3个：2基础+1增强）====================
-        // C15: 认同-好的（基础）
+        // ==================== 四、认同/思考类（2个）====================
+        // C11: 认同-好的（基础）
         AvatarPlayAction(
             text = "好的",
             expression = AvatarExpression.HAPPY,
@@ -1399,40 +1338,7 @@ object TestAvatarActions {
                 ExpressionTimelineItem(AvatarExpression.APPROVING, 400, 0.7f)
             )
         ),
-        // C16: 认同-对的呀（基础）
-        AvatarPlayAction(
-            text = "对的呀",
-            expression = AvatarExpression.APPROVING,
-            expressionIntensity = 0.78f,
-            gesture = AvatarGesture.NOD,
-            motionQueue = listOf(
-                MotionQueueItem("nod", 0, 500)
-            ),
-            expressionTimeline = listOf(
-                ExpressionTimelineItem(AvatarExpression.APPROVING, 0, 0.78f),
-                ExpressionTimelineItem(AvatarExpression.HAPPY, 500, 0.75f)
-            )
-        ),
-        // C17: 认同-当然啦（增强）
-        AvatarPlayAction(
-            text = "当然啦",
-            expression = AvatarExpression.APPROVING,
-            expressionIntensity = 0.85f,
-            gesture = AvatarGesture.NOD,
-            motionQueue = listOf(
-                MotionQueueItem("nod", 0, 400),
-                MotionQueueItem("nod", 450, 400),
-                MotionQueueItem("guide", 900, 600)
-            ),
-            expressionTimeline = listOf(
-                ExpressionTimelineItem(AvatarExpression.APPROVING, 0, 0.85f),
-                ExpressionTimelineItem(AvatarExpression.HAPPY, 500, 0.82f),
-                ExpressionTimelineItem(AvatarExpression.APPROVING, 1100, 0.78f)
-            )
-        ),
-
-        // ==================== 六、思考类（2个：1基础+1增强）====================
-        // C18: 思考-让我想想（基础）
+        // C12: 思考-让我想想（基础）
         AvatarPlayAction(
             text = "让我想想",
             expression = AvatarExpression.THINKING,
@@ -1446,26 +1352,9 @@ object TestAvatarActions {
                 ExpressionTimelineItem(AvatarExpression.THINKING, 1000, 0.72f)
             )
         ),
-        // C19: 思考-不太确定（增强）
-        AvatarPlayAction(
-            text = "不太确定",
-            expression = AvatarExpression.THINKING,
-            expressionIntensity = 0.72f,
-            gesture = AvatarGesture.THINKING_POSE,
-            motionQueue = listOf(
-                MotionQueueItem("thinking_pose", 0, 600),
-                MotionQueueItem("shake", 700, 500),
-                MotionQueueItem("nod", 1300, 400)
-            ),
-            expressionTimeline = listOf(
-                ExpressionTimelineItem(AvatarExpression.THINKING, 0, 0.72f),
-                ExpressionTimelineItem(AvatarExpression.CONCERNED, 700, 0.68f),
-                ExpressionTimelineItem(AvatarExpression.NEUTRAL, 1300, 0.62f)
-            )
-        ),
 
-        // ==================== 七、歉意类（2个：1基础+1增强）====================
-        // C20: 歉意-抱歉呀（基础）
+        // ==================== 五、歉意/关切类（2个）====================
+        // C13: 歉意-抱歉呀（基础）
         AvatarPlayAction(
             text = "抱歉呀",
             expression = AvatarExpression.APologetic,
@@ -1479,26 +1368,7 @@ object TestAvatarActions {
                 ExpressionTimelineItem(AvatarExpression.NEUTRAL, 700, 0.65f)
             )
         ),
-        // C21: 歉意-好遗憾（增强）
-        AvatarPlayAction(
-            text = "好遗憾",
-            expression = AvatarExpression.APologetic,
-            expressionIntensity = 0.78f,
-            gesture = AvatarGesture.SHAKE,
-            motionQueue = listOf(
-                MotionQueueItem("shake", 0, 500),
-                MotionQueueItem("bow", 600, 600),
-                MotionQueueItem("nod", 1300, 400)
-            ),
-            expressionTimeline = listOf(
-                ExpressionTimelineItem(AvatarExpression.APologetic, 0, 0.72f),
-                ExpressionTimelineItem(AvatarExpression.APologetic, 600, 0.75f),
-                ExpressionTimelineItem(AvatarExpression.CONCERNED, 1200, 0.68f)
-            )
-        ),
-
-        // ==================== 八、关切类（2个：1基础+1增强）====================
-        // C22: 关切-小心哦（基础）
+        // C14: 关切-小心哦（基础）
         AvatarPlayAction(
             text = "小心哦",
             expression = AvatarExpression.CONCERNED,
@@ -1512,40 +1382,9 @@ object TestAvatarActions {
                 ExpressionTimelineItem(AvatarExpression.NEUTRAL, 500, 0.65f)
             )
         ),
-        // C23: 关切-别担心（增强）
-        AvatarPlayAction(
-            text = "别担心",
-            expression = AvatarExpression.HAPPY,
-            expressionIntensity = 0.75f,
-            gesture = AvatarGesture.NOD,
-            motionQueue = listOf(
-                MotionQueueItem("nod", 0, 300),
-                MotionQueueItem("wave", 400, 500),
-                MotionQueueItem("nod", 1000, 400)
-            ),
-            expressionTimeline = listOf(
-                ExpressionTimelineItem(AvatarExpression.HAPPY, 0, 0.75f),
-                ExpressionTimelineItem(AvatarExpression.APPROVING, 400, 0.78f),
-                ExpressionTimelineItem(AvatarExpression.HAPPY, 1000, 0.72f)
-            )
-        ),
 
-        // ==================== 九、感恩类（2个：1基础+1增强）====================
-        // C24: 感恩-谢谢您（基础）
-        AvatarPlayAction(
-            text = "谢谢您",
-            expression = AvatarExpression.GRATEFUL,
-            expressionIntensity = 0.82f,
-            gesture = AvatarGesture.NOD,
-            motionQueue = listOf(
-                MotionQueueItem("nod", 0, 600)
-            ),
-            expressionTimeline = listOf(
-                ExpressionTimelineItem(AvatarExpression.GRATEFUL, 0, 0.82f),
-                ExpressionTimelineItem(AvatarExpression.HAPPY, 600, 0.78f)
-            )
-        ),
-        // C25: 感恩-感谢您（增强）
+        // ==================== 六、感恩/告别类（2个）====================
+        // C15: 感恩-感谢您（增强）
         AvatarPlayAction(
             text = "感谢您",
             expression = AvatarExpression.GRATEFUL,
@@ -1561,23 +1400,7 @@ object TestAvatarActions {
                 ExpressionTimelineItem(AvatarExpression.HAPPY, 1300, 0.78f)
             )
         ),
-
-        // ==================== 十、告别类（2个：1基础+1增强）====================
-        // C26: 告别-再见啦（基础）
-        AvatarPlayAction(
-            text = "再见啦",
-            expression = AvatarExpression.WELCOMING,
-            expressionIntensity = 0.78f,
-            gesture = AvatarGesture.WAVE,
-            motionQueue = listOf(
-                MotionQueueItem("wave", 0, 800)
-            ),
-            expressionTimeline = listOf(
-                ExpressionTimelineItem(AvatarExpression.WELCOMING, 0, 0.78f),
-                ExpressionTimelineItem(AvatarExpression.HAPPY, 700, 0.75f)
-            )
-        ),
-        // C27: 告别-一路平安（增强）
+        // C16: 告别-一路平安（增强）
         AvatarPlayAction(
             text = "一路平安",
             expression = AvatarExpression.WELCOMING,
@@ -1594,37 +1417,8 @@ object TestAvatarActions {
             )
         ),
 
-        // ==================== 十一、俏皮类（3个：2基础+1增强）====================
-        // C28: 俏皮-嘿嘿（基础）
-        AvatarPlayAction(
-            text = "嘿嘿",
-            expression = AvatarExpression.PLAYFUL,
-            expressionIntensity = 0.75f,
-            gesture = AvatarGesture.NOD,
-            motionQueue = listOf(
-                MotionQueueItem("nod", 0, 400),
-                MotionQueueItem("nod", 450, 400)
-            ),
-            expressionTimeline = listOf(
-                ExpressionTimelineItem(AvatarExpression.PLAYFUL, 0, 0.75f),
-                ExpressionTimelineItem(AvatarExpression.HAPPY, 700, 0.72f)
-            )
-        ),
-        // C29: 俏皮-好玩吧（基础）
-        AvatarPlayAction(
-            text = "好玩吧",
-            expression = AvatarExpression.PLAYFUL,
-            expressionIntensity = 0.8f,
-            gesture = AvatarGesture.NOD,
-            motionQueue = listOf(
-                MotionQueueItem("nod", 0, 500)
-            ),
-            expressionTimeline = listOf(
-                ExpressionTimelineItem(AvatarExpression.PLAYFUL, 0, 0.8f),
-                ExpressionTimelineItem(AvatarExpression.EXCITED, 500, 0.78f)
-            )
-        ),
-        // C30: 俏皮-猜猜看（增强）
+        // ==================== 七、俏皮/聆听类（2个）====================
+        // C17: 俏皮-猜猜看（增强）
         AvatarPlayAction(
             text = "猜猜看",
             expression = AvatarExpression.PLAYFUL,
@@ -1641,9 +1435,7 @@ object TestAvatarActions {
                 ExpressionTimelineItem(AvatarExpression.PLAYFUL, 900, 0.78f)
             )
         ),
-
-        // ==================== 十二、聆听类（2个基础）====================
-        // C31: 聆听-我在听（基础）
+        // C18: 聆听-我在听（基础）
         AvatarPlayAction(
             text = "我在听",
             expression = AvatarExpression.FOCUSED,
@@ -1656,179 +1448,69 @@ object TestAvatarActions {
                 ExpressionTimelineItem(AvatarExpression.FOCUSED, 0, 0.8f),
                 ExpressionTimelineItem(AvatarExpression.HAPPY, 900, 0.72f)
             )
-        ),
-        // C32: 聆听-明白了（基础）
-        AvatarPlayAction(
-            text = "明白了",
-            expression = AvatarExpression.APPROVING,
-            expressionIntensity = 0.75f,
-            gesture = AvatarGesture.NOD,
-            motionQueue = listOf(
-                MotionQueueItem("nod", 0, 500)
-            ),
-            expressionTimeline = listOf(
-                ExpressionTimelineItem(AvatarExpression.APPROVING, 0, 0.75f),
-                ExpressionTimelineItem(AvatarExpression.HAPPY, 500, 0.72f)
-            )
         )
     )
 
     /**
-     * 获取 Combo 评测按钮列表（32个）
+     * 获取 Combo 评测按钮列表（18个）
      */
     fun getComboButtons(): List<ComboButton> {
-        val labels = listOf(
-            // 喜悦类（3个：2基础+1增强）
-            "嘻嘻", "真好呀", "太棒了",
-            // 欢迎类（3个：2基础+1增强）
-            "您好呀", "这边请", "欢迎来玩",
-            // 引导类（4个基础）
-            "看这里", "往左走", "往右走", "往前走",
-            // 惊叹类（4个：2基础+2增强）
-            "哇", "好美啊", "好壮观", "好神圣",
-            // 认同类（3个：2基础+1增强）
-            "好的", "对的呀", "当然啦",
-            // 思考类（2个：1基础+1增强）
-            "让我想想", "不太确定",
-            // 歉意类（2个：1基础+1增强）
-            "抱歉呀", "好遗憾",
-            // 关切类（2个：1基础+1增强）
-            "小心哦", "别担心",
-            // 感恩类（2个：1基础+1增强）
-            "谢谢您", "感谢您",
-            // 告别类（2个：1基础+1增强）
-            "再见啦", "一路平安",
-            // 俏皮类（3个：2基础+1增强）
-            "嘿嘿", "好玩吧", "猜猜看",
-            // 聆听类（2个基础）
-            "我在听", "明白了"
-        )
-
         val categories = listOf(
-            // 喜悦类
-            "喜悦", "喜悦", "喜悦",
-            // 欢迎类
-            "欢迎", "欢迎", "欢迎",
-            // 引导类
-            "引导", "引导", "引导", "引导",
-            // 惊叹类
-            "惊叹", "惊叹", "惊叹", "惊叹",
-            // 认同类
-            "认同", "认同", "认同",
-            // 思考类
-            "思考", "疑惑",
-            // 歉意类
-            "歉意", "歉意",
-            // 关切类
-            "关切", "关切",
-            // 感恩类
-            "感恩", "感恩",
-            // 告别类
-            "告别", "告别",
-            // 俏皮类
-            "俏皮", "俏皮", "俏皮",
-            // 聆听类
-            "聆听", "聆听"
+            "喜悦", "赞赏",
+            "欢迎", "引导", "引导", "引导", "引导",
+            "惊叹", "惊叹", "敬畏",
+            "认同", "思考",
+            "歉意", "关切",
+            "感恩", "告别",
+            "俏皮", "聆听"
         )
 
         val tags = listOf(
-            // 喜悦类
-            listOf("哈哈", "嘻嘻", "开心", "笑", "好笑", "有趣", "欢乐", "太美了", "真好", "真棒", "好漂亮", "乐死了"),
-            listOf("真好", "好耶", "太好了", "好极了", "棒极了", "舒服", "惬意", "美滋滋"),
+            listOf("哈哈", "嘻嘻", "开心", "笑", "好笑", "有趣", "欢乐", "太美了", "真好", "好漂亮"),
             listOf("棒", "太棒", "厉害", "好厉害", "真棒", "绝了", "牛", "赞", "点赞", "超赞", "完美", "精彩"),
-            // 欢迎类
             listOf("你好", "您好", "欢迎", "欢迎光临", "您来啦", "见到您", "好久不见", "幸会"),
             listOf("请跟我来", "跟我走", "来这边", "这边走", "往这边", "请往这边", "跟我来"),
-            listOf("欢迎来", "来玩呀", "期待您来", "等您来", "欢迎光临", "请来玩"),
-            // 引导类
-            listOf("看", "您看", "看这里", "往这里看", "注意看", "仔细看", "快看", "看一下"),
             listOf("左", "左边", "往左", "向左", "左手边", "左前方", "左侧"),
             listOf("右", "右边", "往右", "向右", "右手边", "右前方", "右侧"),
-            listOf("前", "前面", "往前", "向前", "直走", "一直走", "前方", "直行"),
-            // 惊叹类
+            listOf("前", "前面", "往前", "向前", "直走", "一直走", "前方", "直行", "看这里", "注意看"),
             listOf("哇", "哇塞", "天哪", "我的天", "太壮观了", "震撼", "惊呆了", "好厉害", "绝了"),
-            listOf("美", "好美", "太美", "美极了", "漂亮", "好漂亮", "美丽", "绝美", "超美"),
-            listOf("壮观", "宏伟", "雄伟", "大气", "气势磅礴", "震撼人心", "气势恢弘", "恢弘"),
+            listOf("壮观", "宏伟", "雄伟", "大气", "气势磅礴", "震撼人心", "气势恢弘", "恢弘", "好美", "绝美"),
             listOf("神圣", "庄严", "肃穆", "庄重", "令人敬畏", "心生敬意", "圣洁", "崇敬"),
-            // 认同类
             listOf("好", "好的", "好呀", "OK", "没问题", "可以", "行", "没问题呀"),
-            listOf("对", "没错", "正确", "是的", "对的", "确实", "真的", "就是说嘛"),
-            listOf("当然", "必须的", "肯定", "那当然", "毫无疑问", "绝对的", "一定的", "必须"),
-            // 思考类
             listOf("想想", "让我想想", "我想一想", "嗯...", "我考虑一下", "思考中", "想一想"),
-            listOf("不确定", "不太清楚", "我也不太知道", "有点疑问", "不太明白", "不太懂"),
-            // 歉意类
             listOf("抱歉", "对不起", "不好意思", "歉意", "失误了", "我的错", "不好意思啊"),
-            listOf("遗憾", "可惜", "好可惜", "太遗憾了", "真遗憾", "有点可惜", "很遗憾"),
-            // 关切类
             listOf("小心", "注意", "当心", "小心点", "注意安全", "别摔倒", "慢慢来", "小心哦"),
-            listOf("别担心", "放心", "没事的", "不要紧", "别怕", "有我在", "不用担心"),
-            // 感恩类
-            listOf("谢谢", "感谢", "多谢", "太感谢了", "非常感谢", "谢谢啦", "谢了"),
-            listOf("感激", "感恩", "心存感激", "太感谢", "十分感谢", "万分感谢"),
-            // 告别类
-            listOf("再见", "拜拜", "回见", "下次见", "期待再见", "慢走", "走好"),
+            listOf("谢谢", "感谢", "多谢", "太感谢了", "非常感谢", "谢谢啦", "谢了", "感激", "感恩"),
             listOf("一路平安", "旅途愉快", "注意安全", "保重", "一路顺风", "平安"),
-            // 俏皮类
-            listOf("嘿嘿", "嘻嘻", "呵呵", "悄悄的", "小声说", "神秘兮兮"),
-            listOf("好玩", "有趣", "挺好玩", "蛮有趣的", "趣味十足", "很有意思", "好玩儿"),
             listOf("猜", "猜猜", "你猜", "猜猜看", "想知道吗", "来猜猜", "猜一猜"),
-            // 聆听类
-            listOf("您说", "请说", "我听着呢", "在听", "请继续说", "您讲", "请讲"),
-            listOf("明白", "了解", "懂了", "知道了", "清楚了", "我懂了", "理解了")
+            listOf("您说", "请说", "我听着呢", "在听", "请继续说", "您讲", "请讲", "明白", "了解")
         )
 
         val descriptions = listOf(
-            // 喜悦类
             "半眯眼嘻嘻笑 + 双点头节奏，用于与游客开心互动、回应赞美",
-            "温和微笑 + 点头，表达满意和愉悦之情",
             "兴奋表情 + 双点头 + 展开引导，强烈表达赞赏和兴奋（增强）",
-            // 欢迎类
             "热情欢迎表情 + 侧首致意，用于初次见面或打招呼",
             "引导动作 + 欢迎表情，用于引导游客前往某处",
-            "招手 + 引导 + 点头，热情迎接游客到来（增强）",
-            // 引导类
-            "示意动作 + 开心表情，引导游客注意某处",
             "向左示意 + 中性表情，引导游客向左行进",
             "向右示意 + 中性表情，引导游客向右行进",
-            "向前示意 + 中性表情，引导游客向前行进",
-            // 惊叹类
+            "向前示意 + 中性表情，引导游客向前行进或注意前方",
             "仰望动作 + 惊叹表情，表达震撼和惊叹",
-            "点头 + 惊叹表情，表达对美景的赞叹",
             "仰望 + 点头 + 引导，表达对壮观景色的震撼（增强）",
             "仰望 + 鞠躬 + 点头，表达对神圣氛围的敬畏（增强）",
-            // 认同类
             "点头 + 开心表情，表达同意和接受",
-            "点头 + 赞许表情，表达认同和肯定",
-            "双点头 + 引导展开，表达强烈的认同（增强）",
-            // 思考类
             "思考姿态 + 思考表情，表达正在思考",
-            "思考 + 摇头 + 点头，表达不确定或疑惑（增强）",
-            // 歉意类
             "欠身 + 歉意表情，表达歉意",
-            "摇头 + 鞠躬 + 点头，表达遗憾之情（增强）",
-            // 关切类
             "点头 + 关切表情，提醒游客注意安全",
-            "点头 + 挥手安抚，安抚游客情绪（增强）",
-            // 感恩类
-            "点头 + 感恩表情，表达感谢",
             "双鞠躬 + 感恩表情，表达深深的感激（增强）",
-            // 告别类
-            "侧首致意 + 欢迎表情，道别并期待再见",
             "挥手 + 鞠躬 + 祝福表情，祝福游客一路平安（增强）",
-            // 俏皮类
-            "双点头 + 俏皮表情，调皮可爱的回应",
-            "点头 + 俏皮表情，表达有趣好玩",
             "双点头 + 引导 + 俏皮表情，神秘地引导猜测（增强）",
-            // 聆听类
-            "聆听姿态 + 专注表情，表达正在认真聆听",
-            "点头 + 赞许表情，表达理解和确认"
+            "聆听姿态 + 专注表情，表达正在认真聆听"
         )
 
         return allCombos.mapIndexed { index, action ->
             ComboButton(
                 id = "combo_$index",
-                label = labels.getOrElse(index) { "Combo${index + 1}" },
+                label = action.text ?: "Combo${index + 1}",
                 emotionCategory = categories.getOrElse(index) { "其他" },
                 emotionTags = tags.getOrElse(index) { emptyList() },
                 description = descriptions.getOrElse(index) { "" },

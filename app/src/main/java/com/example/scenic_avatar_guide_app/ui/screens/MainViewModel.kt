@@ -751,8 +751,10 @@ class MainViewModel @Inject constructor(
             var receivedDone = false
             var latestAvatarAction: AvatarAction? = null
             var latestMetadata: ResponseMetadata? = null
-            // 记录已经由 TtsSegment 直接入队的 segmentId，避免 TtsSegmentReady 重复入队
-            val enqueuedByTtsSegment = mutableSetOf<String>()
+            // 记录 segment 预告和失败状态。真实播放只消费 tts_segment_ready。
+            val segmentIndexById = mutableMapOf<String, Int>()
+            val failedTtsSegmentIds = mutableSetOf<String>()
+            val failedTtsSegmentIndexes = mutableSetOf<Int>()
 
             try {
                 var continuationAttempts = 0
@@ -784,23 +786,38 @@ class MainViewModel @Inject constructor(
                         }
                         is ChatStreamEvent.TtsSegment -> {
                             val seg = event.segment
-                            if (!seg.audioUrl.isNullOrBlank()) {
-                                // 后端直接在预通知里附带了音频 URL，立即入队
-                                enqueuedByTtsSegment.add(seg.segmentId)
-                                playbackManager.enqueueSpeechSegment(seg)
-                                Log.d(TAG, "[LATENCY] TtsSegment 直接入队: segmentId=${seg.segmentId}, audioUrl=${seg.audioUrl}")
-                            } else {
-                                Log.d(TAG, "[LATENCY] TtsSegment 预通知（无音频URL）: segmentId=${seg.segmentId}")
-                            }
+                            seg.segmentIndex?.let { segmentIndexById[seg.segmentId] = it }
+                            Log.d(
+                                TAG,
+                                "[LATENCY] TtsSegment 预通知: segmentId=${seg.segmentId}, " +
+                                    "idx=${seg.segmentIndex}, audioUrl=${seg.audioUrl}"
+                            )
                         }
                         is ChatStreamEvent.TtsSegmentReady -> {
                             val seg = event.segment
-                            if (seg.segmentId in enqueuedByTtsSegment) {
-                                Log.d(TAG, "[LATENCY] TtsSegmentReady 跳过（已由 TtsSegment 入队）: segmentId=${seg.segmentId}")
+                            val readyIndex = seg.segmentIndex ?: segmentIndexById[seg.segmentId]
+                            val failedById = seg.segmentId in failedTtsSegmentIds
+                            val failedByIndex = readyIndex?.let { it in failedTtsSegmentIndexes } == true
+                            if (failedById || failedByIndex) {
+                                Log.w(TAG, "[LATENCY] TtsSegmentReady 跳过失败片段: segmentId=${seg.segmentId}, idx=$readyIndex")
                             } else {
                                 Log.d(TAG, "[LATENCY] TtsSegmentReady 播放: segmentId=${seg.segmentId}, audioUrl=${seg.audioUrl}, durationMs=${seg.durationMs}")
                                 playbackManager.enqueueSpeechSegment(seg)
                             }
+                        }
+                        is ChatStreamEvent.TtsAudioError -> {
+                            val error = event.error
+                            val segmentId = error.segmentId
+                            val segmentIndex = error.segmentIndex ?: segmentId?.let { segmentIndexById[it] }
+                            segmentId?.let { failedTtsSegmentIds.add(it) }
+                            segmentIndex?.let { failedTtsSegmentIndexes.add(it) }
+                            Log.w(
+                                TAG,
+                                "TtsAudioError: segmentId=$segmentId, idx=$segmentIndex, " +
+                                    "code=${error.code}, message=${error.message ?: error.reason ?: error.error}"
+                            )
+                            typewriterController.notifyTtsReady()
+                            playbackManager.skipSpeechSegment(segmentId, segmentIndex)
                         }
                         is ChatStreamEvent.AvatarActionDelta -> {
                             Log.d(TAG, "AvatarActionDelta: expression=${event.action.expression?.type}")

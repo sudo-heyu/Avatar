@@ -1,8 +1,8 @@
 # API 接口契约
 
-版本：v8.0  
-日期：2026-05-06  
-状态：**新增用户认证接口，同步流式 TTS chunk 协议，保留非流式接口作为降级路径**
+版本：v9.0  
+日期：2026-05-07  
+状态：**新增会话管理、满意度反馈接口；流式 TTS 以 `tts_segment_ready` 为主事件；`tts_audio_error` 用于跳过合成失败片段；`tts_audio_chunk`/`tts_audio_end` 由后端保留但 Android 端已忽略；保留非流式接口作为降级路径**
 
 ---
 
@@ -179,15 +179,14 @@ data: {"type":"text_delta","delta":"欢迎来到灵山胜境，"}
 event: tts_segment
 data: {"type":"tts_segment","segment_id":"seg_001","segment_index":0,"text":"欢迎来到灵山胜境，","audio_url":"/api/v1/tts/file/seg_001.mp3","duration_ms":null,"voice":"zh-CN-XiaoxiaoNeural","rate":"+0%","volume":"+0%","pitch":"+0Hz","emotion":"welcoming","marks":[]}
 
-event: tts_audio_chunk
-data: {"type":"tts_audio_chunk","segment_id":"seg_001","segment_index":0,"sequence":0,"audio_format":"mp3","audio_profile":"edge_tts_raw_mp3","audio_base64":"SUQz..."}
-
-event: tts_audio_end
-data: {"type":"tts_audio_end","segment_id":"seg_001","segment_index":0,"audio_url":"/api/v1/tts/file/seg_001.mp3","file_name":"seg_001.mp3","duration_ms":1800,"stream_audio_duration_ms":1944,"stream_audio_offset_ms":96,"marks":[],"chunk_count":8}
+event: tts_segment_ready
+data: {"type":"tts_segment_ready","segment_id":"seg_001","segment_index":0,"audio_url":"/api/v1/tts/file/seg_001.mp3","duration_ms":1800,"marks":[{"word":"欢迎","start_ms":0,"end_ms":420}],"emotion":"welcoming"}
 
 event: done
 data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
 ```
+
+> **注**：`tts_audio_chunk` / `tts_audio_end` 事件后端仍保留发送，但 Android 端 `StreamingChatClient` 已忽略（返回 `null`），不再作为播放主链路。当前播放以 `tts_segment_ready` 中的 `audio_url` 为准。
 
 **事件类型说明**：
 
@@ -195,10 +194,9 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
 |------|------|------------|
 | `message_start` | 回答开始 | 绑定消息 ID 与会话 ID |
 | `text_delta` | 文本增量 | 追加到当前机器人消息 |
-| `tts_segment` | 可朗读分段元信息 | 创建片段队列项，记录文本、音色和 fallback URL |
-| `tts_audio_chunk` | Edge-TTS 实时音频块 | 按 `segment_index + sequence` 或 `segment_id + sequence` 追加到播放缓冲 |
-| `tts_audio_end` | 单段 TTS 合成完成 | 补齐真实 `duration_ms`、`marks`、最终 `audio_url`，关闭该片段输入 |
-| `tts_audio_error` | 单段 TTS 合成失败 | 跳过该段或等待整段 TTS 降级 |
+| `tts_segment` | 可朗读分段元信息 | 创建片段队列项，记录文本、音色和预告 URL |
+| `tts_segment_ready` | 音频文件已生成 | 播放 `audio_url`，用 `marks` 驱动口型 |
+| `tts_audio_error` | 某个 TTS 片段合成失败或被取消 | 跳过该片段，释放后续等待的片段 |
 | `avatar_action` | 数字人表情/动作 | 提前更新 Expression / Gesture |
 | `sources` | 来源引用 | 回填到当前消息 |
 | `route_data` | 路线规划结构化数据 | 回填路线卡片 |
@@ -206,6 +204,9 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
 | `done` | 后端事件流结束 | 关闭 loading，等待 TTS 队列自然播完 |
 | `aborted` | 后端确认取消 | 停止追加文本，清空本次 TTS 队列，恢复待机 |
 | `error` | 流式链路异常 | 停止流和 TTS，显示错误 |
+| `PrematurelyEnded` | 流未收到终止事件即断开（Android 端生成） | 触发自动续写逻辑，最多 3 次 |
+
+> **保留但不播放的事件**：`tts_audio_chunk`、`tts_audio_end` 后端仍可能发送，但 Android 端忽略不处理。`tts_audio_error` 仍会被解析，用于跳过失败片段。
 
 **`tts_segment` 响应结构**：
 ```json
@@ -225,49 +226,41 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
 }
 ```
 
-**`tts_audio_chunk` 响应结构**：
+**`tts_segment_ready` 响应结构**：
 ```json
 {
-  "type": "tts_audio_chunk",
-  "segment_id": "seg_001",
-  "segment_index": 0,
-  "sequence": 0,
-  "audio_format": "mp3",
-  "audio_profile": "edge_tts_raw_mp3",
-  "audio_base64": "SUQz..."
-}
-```
-
-**`tts_audio_end` 响应结构**：
-```json
-{
-  "type": "tts_audio_end",
+  "type": "tts_segment_ready",
   "segment_id": "seg_001",
   "segment_index": 0,
   "audio_url": "/api/v1/tts/file/seg_001.mp3",
-  "file_name": "seg_001.mp3",
   "duration_ms": 1800,
-  "stream_audio_duration_ms": 1944,
-  "stream_audio_offset_ms": 96,
   "marks": [
-    { "text": "欢迎", "start_ms": 0, "end_ms": 420 },
-    { "text": "来到", "start_ms": 430, "end_ms": 820 }
+    { "word": "欢迎", "start_ms": 0, "end_ms": 420 },
+    { "word": "来到", "start_ms": 430, "end_ms": 820 }
   ],
-  "chunk_count": 8
+  "emotion": "welcoming"
 }
 ```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `segment_id` | String | 是 | 对应 `tts_segment.segment_id` |
+| `segment_index` | Int | 是 | 对应 `tts_segment.segment_index` |
+| `audio_url` | String | 是 | 最终落盘 MP3，可直接播放 |
+| `duration_ms` | Int / null | 否 | 音频总时长（毫秒） |
+| `marks` | Array | 否 | 词级时间标记，用于口型同步 |
+| `emotion` | String | 否 | 该片段情绪 |
 
 **分段约束**：
 
 1. 不按 token 或单字合成 TTS，应按可朗读短句切分。
 2. 推荐遇到 `，。！？；：` 切分；首段超过 800ms 未遇到标点时可强制切分。
 3. `segment_index` 从 0 开始递增；移动端播放顺序应优先以该字段为准。
-4. `tts_segment` 只代表片段元信息，`audio_url` 通常到 `tts_audio_end` 后才保证可读取。
-5. `tts_audio_chunk` 内同一片段必须按 `sequence` 顺序写入；若发现乱序或缺失无法恢复，应等待 `tts_audio_end.audio_url` 兜底。
-6. 播放实时 chunk 原始流时，口型时间应使用 `max(0, player_position_ms - stream_audio_offset_ms)` 匹配 `marks`。
-7. `done` 表示后端事件发送完成，不表示移动端音频播放完成。
-8. `aborted` 后本次流不会再发送 `done`。
-9. 旧接口 `POST /api/v1/chat/text` 继续保留，作为非流式降级路径。
+4. `tts_segment` 只代表片段元信息；真实可播放音频以 `tts_segment_ready` 为准。
+5. `done` 表示后端事件发送完成，不表示移动端音频播放完成。
+6. `aborted` 后本次流不会再发送 `done`。
+7. `PrematurelyEnded` 由 Android 端在 EOF 但未收到 `done`/`aborted`/`error` 时生成，触发自动续写逻辑（最多 3 次）。
+8. 旧接口 `POST /api/v1/chat/text` 继续保留，作为非流式降级路径。
 
 详细重构方案见：`API_STREAMING.md`。
 
@@ -352,6 +345,193 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
 2. **会话隔离**：`session/create` 接口使用 `user_id` 创建会话；guest 用户（未认证）使用临时 UUID 作为 `user_id`。
 3. **多端登录**：同一账号可在多设备登录，各自拥有独立的 `session_id`，但 `user_id` 相同，后端历史记录按 `user_id` 聚合。
 4. **密码存储**：后端使用 bcrypt 等慢哈希算法存储密码，禁止明文存储。
+
+---
+
+### 3.6 会话管理接口
+
+#### 3.6.1 获取会话列表
+
+**接口**：`GET /api/v1/session/list`
+
+**请求参数**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| user_id | String | 是 | 用户唯一标识 |
+| status | String | 否 | 筛选状态：`active` / `archived`，默认 `active` |
+| page | Int | 否 | 页码，默认 1 |
+| page_size | Int | 否 | 每页条数，默认 20 |
+
+**响应**：
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "sessions": [
+      {
+        "session_id": "s_001",
+        "user_id": "u_001",
+        "scenic_id": "lingshan",
+        "title": "灵山大佛介绍",
+        "status": "active",
+        "created_at": "2026-05-01T10:00:00Z",
+        "updated_at": "2026-05-07T08:30:00Z"
+      }
+    ],
+    "total": 1,
+    "page": 1,
+    "page_size": 20
+  }
+}
+```
+
+---
+
+#### 3.6.2 获取会话详情
+
+**接口**：`GET /api/v1/session/{session_id}`
+
+**请求参数**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| session_id | String | 是 | 路径参数 |
+| user_id | String | 是 | 查询参数 |
+| include_messages | Boolean | 否 | 是否包含历史消息，默认 `true` |
+| message_limit | Int | 否 | 消息条数上限，默认 50 |
+
+**响应**：
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "session_id": "s_001",
+    "user_id": "u_001",
+    "scenic_id": "lingshan",
+    "title": "灵山大佛介绍",
+    "status": "active",
+    "created_at": "2026-05-01T10:00:00Z",
+    "updated_at": "2026-05-07T08:30:00Z",
+    "messages": [
+      {
+        "message_id": "m_001",
+        "role": "user",
+        "content": "请介绍灵山大佛",
+        "created_at": "2026-05-01T10:00:05Z"
+      },
+      {
+        "message_id": "m_002",
+        "role": "assistant",
+        "content": "灵山大佛坐落于江苏省无锡市滨湖区...",
+        "created_at": "2026-05-01T10:00:08Z"
+      }
+    ]
+  }
+}
+```
+
+---
+
+#### 3.6.3 归档会话
+
+**接口**：`POST /api/v1/session/{session_id}/archive`
+
+**请求体**：
+```json
+{
+  "user_id": "u_001"
+}
+```
+
+**响应**：
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "session_id": "s_001",
+    "status": "archived"
+  }
+}
+```
+
+---
+
+#### 3.6.4 删除会话
+
+**接口**：`DELETE /api/v1/session/{session_id}`
+
+**请求参数**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| session_id | String | 是 | 路径参数 |
+| user_id | String | 是 | 查询参数 |
+
+**响应**：
+```json
+{
+  "code": 0,
+  "message": "ok"
+}
+```
+
+---
+
+### 3.7 满意度反馈接口
+
+#### 3.7.1 提交反馈
+
+**接口**：`POST /api/v1/chat/feedback`
+
+**请求**：
+```json
+{
+  "scenic_id": "lingshan",
+  "rating": 5,
+  "session_id": "s_001",
+  "user_id": "u_001",
+  "message_id": "m_002",
+  "is_complaint": false,
+  "comment": "回答很详细，非常满意"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| scenic_id | String | 是 | 景区 ID |
+| rating | Int | 是 | 评分，1-5 星 |
+| session_id | String | 否 | 关联会话 ID |
+| user_id | String | 否 | 关联用户 ID |
+| message_id | String | 否 | 关联消息 ID |
+| is_complaint | Boolean | 否 | 是否为投诉，默认 `false` |
+| comment | String | 否 | 用户补充留言 |
+
+**响应**：
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "feedback_id": "fb_001",
+    "scenic_id": "lingshan",
+    "session_id": "s_001",
+    "user_id": "u_001",
+    "message_id": "m_002",
+    "rating": 5,
+    "is_complaint": false,
+    "created_at": "2026-05-07T10:30:00Z"
+  }
+}
+```
+
+**说明**：
+- 游客可在任意消息上触发反馈弹窗，对单条回答进行评分。
+- `rating` 为 1-2 星时建议同时勾选 `is_complaint`，前端标记为投诉态。
+- 未登录游客也可提交反馈，此时 `user_id` 可为空。
 
 ---
 
@@ -1246,3 +1426,4 @@ enum class VisemeType(val mouthOpen: Float, val mouthForm: Float = 0f) {
 | v7.0 | 2026-04-29 | **新增 `POST /api/v1/chat/text/stream` 流式接口摘要；引入 `text_delta`、`tts_segment`、`done` 等事件；明确分段 TTS 队列播放与非流式降级路径** |
 | v7.1 | 2026-04-30 | **同步流式 TTS chunk 协议：补充 `segment_index`、`tts_audio_chunk`、`tts_audio_end`、`tts_audio_error`、`aborted` 与 chunk 口型 offset 规则** |
 | v8.0 | 2026-05-06 | **新增用户认证接口：`POST /api/v1/auth/register`、`POST /api/v1/auth/login`，支持注册/登录、user_id 持久化与多端历史记录同步** |
+| v9.0 | 2026-05-07 | **新增会话管理接口（list/detail/archive/delete）与满意度反馈接口（`POST /api/v1/chat/feedback`）；流式 TTS 主事件切换为 `tts_segment_ready`；`tts_audio_chunk`/`tts_audio_end` 标记为已弃用；新增 `PrematurelyEnded` 事件与自动续写机制** |
