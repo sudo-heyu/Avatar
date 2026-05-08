@@ -6,6 +6,7 @@ import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Multipart
+import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Part
 import retrofit2.http.Path
@@ -93,10 +94,39 @@ interface ApiService {
     ): DeleteSessionResponse
 
     /**
+     * 修改会话标题
+     */
+    @PATCH("api/v1/session/{session_id}")
+    suspend fun patchSession(
+        @Path("session_id") sessionId: String,
+        @Query("user_id") userId: String,
+        @Body request: PatchSessionRequest
+    ): SessionDetailResponse
+
+    /**
      * 满意度反馈上报
      */
     @POST("api/v1/chat/feedback")
     suspend fun submitFeedback(@Body request: ChatFeedbackRequest): ChatFeedbackResponse
+
+    // ==================== 路线推荐 ====================
+
+    /**
+     * 路线推荐（GET）
+     */
+    @GET("api/v1/route/recommend")
+    suspend fun getRouteRecommend(
+        @Query("scenic_id") scenicId: String,
+        @Query("duration_min") durationMin: Int? = null,
+        @Query("current_spot") currentSpot: String? = null,
+        @Query("interest_tags") interestTags: String? = null
+    ): RouteRecommendResponse
+
+    /**
+     * 路线推荐（POST）
+     */
+    @POST("api/v1/route/recommend")
+    suspend fun postRouteRecommend(@Body request: RouteRecommendRequest): RouteRecommendResponse
 
     // ==================== 认证 ====================
 

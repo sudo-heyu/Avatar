@@ -24,6 +24,9 @@ class GuideRepository @Inject constructor(
     private val streamingChatClient: StreamingChatClient,
     private val settingsDataStore: SettingsDataStore
 ) {
+    private companion object {
+        const val MAX_UPLOAD_IMAGE_BYTES = 5 * 1024 * 1024
+    }
 
     /**
      * 健康检查
@@ -118,8 +121,6 @@ class GuideRepository @Inject constructor(
             mode = mode,
             imageUrl = imageUrl,
             options = ChatOptions(
-                needAvatar = true,
-                needSources = true,
                 voice = voiceId,
                 rate = rate,
                 volume = volume,
@@ -138,7 +139,8 @@ class GuideRepository @Inject constructor(
         return try {
             val request = ChatAbortRequest(
                 sessionId = sessionId,
-                messageId = messageId
+                messageId = messageId,
+                reason = "client_abort"
             )
             val response = apiService.abortChat(request)
             if (response.code == 0) {
@@ -158,12 +160,22 @@ class GuideRepository @Inject constructor(
      */
     suspend fun uploadImage(imageUri: Uri, context: Context): Result<String> {
         return try {
+            val mimeType = context.contentResolver.getType(imageUri)
+                ?: return Result.failure(Exception("无法识别图片类型"))
+            if (!mimeType.startsWith("image/")) {
+                return Result.failure(Exception("请选择图片文件"))
+            }
+
             val inputStream = context.contentResolver.openInputStream(imageUri)
                 ?: return Result.failure(Exception("无法打开图片"))
             val bytes = inputStream.use { it.readBytes() }
+            if (bytes.size > MAX_UPLOAD_IMAGE_BYTES) {
+                return Result.failure(Exception("图片不能超过 5MB"))
+            }
 
-            val requestBody = bytes.toRequestBody("image/*".toMediaTypeOrNull())
-            val multipartBody = MultipartBody.Part.createFormData("image", "upload.jpg", requestBody)
+            val requestBody = bytes.toRequestBody(mimeType.toMediaTypeOrNull())
+            val fileName = "upload.${mimeType.substringAfter('/', "jpg").substringBefore('+')}"
+            val multipartBody = MultipartBody.Part.createFormData("image", fileName, requestBody)
 
             val response = apiService.uploadImage(multipartBody)
             if (response.code == 0) {
@@ -188,20 +200,12 @@ class GuideRepository @Inject constructor(
      */
     suspend fun synthesizeTTS(
         text: String,
-        voice: String = "zh-CN-XiaoxiaoNeural",
-        rate: String = "+0%",
-        volume: String = "+0dB",
-        pitch: String = "+0Hz",
-        format: String = "audio_with_marks"
+        voice: String = "zh-CN-XiaoxiaoNeural"
     ): Result<TtsSynthesizeData> {
         return try {
             val request = TtsSynthesizeRequest(
                 text = text,
-                voice = voice,
-                rate = rate,
-                volume = volume,
-                pitch = pitch,
-                format = format
+                voice = voice
             )
             val response = apiService.ttsSynthesize(request)
             if (response.code == 0) {

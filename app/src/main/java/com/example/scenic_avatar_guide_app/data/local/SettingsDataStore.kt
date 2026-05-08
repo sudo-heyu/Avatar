@@ -35,7 +35,7 @@ class SettingsDataStore @Inject constructor(
         private val IS_AUTHENTICATED_KEY = booleanPreferencesKey("is_authenticated")
 
         const val DEFAULT_BASE_URL = "http://10.0.2.2:8000/"
-        const val DEFAULT_VOICE_ID = "zh-CN-XiaoxiaoNeural"
+        const val DEFAULT_VOICE_ID = "zh-CN-XiaoyiNeural"
         const val DEFAULT_RATE = "+0%"
         const val DEFAULT_VOLUME = "+0%"
         const val DEFAULT_PITCH = "+0Hz"

@@ -1,33 +1,42 @@
-# API 接口契约
+# Android 端 API 接口文档 v11.1
 
-版本：v9.0  
-日期：2026-05-07  
-状态：**新增会话管理、满意度反馈接口；流式 TTS 以 `tts_segment_ready` 为主事件；`tts_audio_error` 用于跳过合成失败片段；`tts_audio_chunk`/`tts_audio_end` 由后端保留但 Android 端已忽略；保留非流式接口作为降级路径**
+版本：v11.1  
+日期：2026-05-08  
+适用端：**Android 移动端**
+
+---
+
+## 变更记录
+
+| 版本 | 日期 | 变更内容 |
+|------|------|----------|
+| v11.1 | 2026-05-08 | 明确流式 TTS 当前契约：`tts_segment` 仅预告不可播放，`tts_segment_ready` 才可播放；`marks[].text` 为主字段，兼容旧 `word`；`audio_url` 为相对路径 |
+| v11.0 | 2026-05-08 | 综合补全：新增会话详情/归档/删除/改标题、聊天中止、TTS 独立接口、图片上传、路线推荐独立接口；修复 PATCH /session/{id} 500 bug |
+| v10.4 | 2026-05-06 | 新增 `POST /api/v1/auth/register` 和 `POST /api/v1/auth/login` 认证接口 |
+| v10.3 | 2026-05-05 | 会话列表响应新增 `first_user_message` 字段 |
+| v10.2 | 2026-05-04 | 新增 `POST /api/v1/chat/feedback` |
+| v10.0 | 2026-05-03 | `mode=route` 主链路优先读取 SQLite 路线模板 |
+| v9.0 | 2026-05-03 | TTS URL 方案，新增 `tts_segment_ready` |
+| v8.0 | 2026-05-02 | 会话管理接口与历史恢复 |
 
 ---
 
 ## 一、职责划分
 
 ### 后端负责
-- LLM 对话生成
+- LLM 对话生成（RAG 知识库检索 + 上下文注入）
 - 意图识别、情感分析
-- 数字人动作指令生成（表情、动作）
-- 知识库检索
-- **TTS 语音合成**（Edge-TTS 服务）
-- **音频文件生成与缓存**
-- **词级时间标记（marks）生成**
-- 流式问答事件输出（`text_delta` / `tts_segment` / 结构化收口事件）
-- 长回答按可朗读片段切分并生成分段音频
+- 数字人动作指令生成（Combo 表情/手势/动作队列）
+- TTS 语音合成（Edge-TTS）、音频文件管理、词级时间标记
+- 流式问答事件输出（SSE）
+- emotion 标签解析与 TTS 韵律参数映射
+- 用户认证（注册/登录）
 
 ### 移动端负责
 - UI 展示与交互
-- 请求后端 TTS 接口获取音频 URL
-- 音频播放（ExoPlayer）
-- 数字人渲染（Live2D）
-- 口型动画（根据 marks 或音频进度驱动）
-- 消费流式事件并增量更新消息气泡
-- 将后端返回的 `tts_segment` 分段音频排队播放
-- 在流式文本卡顿时停止口型并等待后续片段
+- 消费 SSE 流式事件，增量更新气泡
+- 仅在收到 `tts_segment_ready` 后，按 `segment_index` 顺序播放音频
+- 数字人渲染（Live2D）与口型动画（marks 驱动）
 
 ---
 
@@ -45,22 +54,21 @@
 |------|------|
 | 0 | 成功 |
 | 1001 | 参数缺失 |
-| 1002 | 参数格式错误 |
+| 1002 | 参数格式错误 / 不支持的景区 ID |
 | 1003 | 会话不存在 |
-| 2001 | 服务内部错误 |
-| 2002 | LLM 服务不可用 |
-| 2003 | 知识库检索失败 |
-| 3001 | 用户名已存在 |
-| 3002 | 用户名或密码错误 |
-| 3003 | 用户不存在 |
+| 404 | 资源不存在 |
+| 403 | 无权访问（会话不属于该用户） |
+| 2001 | 用户名已存在 |
+| 2002 | 用户名或密码错误 |
+| 2003 | 服务内部错误 |
+| 2004 | LLM 服务不可用 |
+| 2005 | 知识库检索失败 |
 
 ---
 
-## 三、核心接口
+## 三、健康检查
 
-### 3.1 健康检查
-
-**接口**：`GET /api/v1/health`
+### `GET /api/v1/health`
 
 **响应**：
 ```json
@@ -77,15 +85,100 @@
 
 ---
 
-### 3.2 创建会话
+## 四、用户认证
 
-**接口**：`POST /api/v1/session/create`
+### 4.1 注册
 
-**请求**：
+**`POST /api/v1/auth/register`**
+
+**请求体**：
+```json
+{
+  "username": "testuser",
+  "password": "password123",
+  "device_id": "android_001"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| username | String | 是 | 用户名，支持中文/字母/数字/下划线，长度 2–20 |
+| password | String | 是 | 密码，长度 6–64 |
+| device_id | String | 否 | 设备标识，最长 64 字符 |
+
+**成功响应**：
+```json
+{
+  "code": 0,
+  "message": "注册成功",
+  "data": {
+    "user_id": "u_xxxxxxxxxxxx",
+    "username": "testuser",
+    "created_at": "2026-05-08T05:30:00+08:00"
+  }
+}
+```
+
+**错误码**：
+
+| code | 说明 |
+|------|------|
+| 1002 | 用户名或密码格式不符合规则 |
+| 2001 | 用户名已存在 |
+
+---
+
+### 4.2 登录
+
+**`POST /api/v1/auth/login`**
+
+**请求体**：
+```json
+{
+  "username": "testuser",
+  "password": "password123",
+  "device_id": "android_001"
+}
+```
+
+**成功响应**：
+```json
+{
+  "code": 0,
+  "message": "登录成功",
+  "data": {
+    "user_id": "u_xxxxxxxxxxxx",
+    "username": "testuser",
+    "created_at": "2026-05-08T05:30:00+08:00"
+  }
+}
+```
+
+**错误码**：
+
+| code | 说明 |
+|------|------|
+| 1002 | 参数格式错误 |
+| 2002 | 用户名或密码错误 |
+
+**认证流程说明**：
+1. 前端将 `user_id` 存入 DataStore，作为后续所有接口的用户标识。
+2. 未认证用户可使用 `guest_{UUID}` 作为临时 `user_id`，功能不受影响，但数据不长期保存。
+3. 登录成功后前端调用 `clearSession()`，以新 `user_id` 创建会话。
+
+---
+
+## 五、会话管理
+
+### 5.1 创建会话
+
+**`POST /api/v1/session/create`**
+
+**请求体**：
 ```json
 {
   "user_id": "u_001",
-  "scenic_id": "scenic_001",
+  "scenic_id": "lingshan",
   "spot_id": "spot_001",
   "device_id": "android_001"
 }
@@ -93,8 +186,8 @@
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| user_id | String | 是 | 用户唯一标识 |
-| scenic_id | String | 是 | 景区 ID |
+| user_id | String | 是 | 用户 ID |
+| scenic_id | String | 是 | 景区 ID（须为服务端支持的 canonical ID） |
 | spot_id | String | 否 | 当前景点 ID |
 | device_id | String | 否 | 设备标识 |
 
@@ -106,262 +199,34 @@
   "data": {
     "session_id": "s_xxx",
     "user_id": "u_001",
-    "scenic_id": "scenic_001",
+    "scenic_id": "lingshan",
+    "spot_id": null,
+    "device_id": null,
     "status": "active",
-    "created_at": "2026-04-28T12:00:00Z"
+    "title": null,
+    "message_count": 0,
+    "context_summary": null,
+    "last_message_at": null,
+    "created_at": "2026-05-08T12:00:00.000000"
   }
 }
 ```
 
 ---
 
-### 3.3 统一交互接口（核心）
+### 5.2 会话列表
 
-**接口**：`POST /api/v1/chat/text`
+**`GET /api/v1/session/list`**
 
-> 自 v6.0 起，聊天问答与路线规划统一为同一个接口，通过 `mode` 字段区分交互模式。
-
-**请求**：
-```json
-{
-  "session_id": "s_xxx",
-  "user_id": "u_001",
-  "scenic_id": "scenic_001",
-  "question": "半天时间怎么游览？",
-  "spot_id": null,
-  "mode": "route",
-  "image_url": null
-}
-```
-
-**请求字段说明**：
+**Query 参数**：
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| session_id | String | 是 | 会话 ID |
 | user_id | String | 是 | 用户 ID |
-| scenic_id | String | 是 | 景区 ID |
-| question | String | 是 | 用户问题（最长 500 字） |
-| spot_id | String | 否 | 当前景点 ID |
-| mode | String | 否 | 交互模式：`chat`（聊天问答，默认）或 `route`（路线规划） |
-| image_url | String | 否 | 用户上传图片的 URL，聊天模式下支持图文问答 |
-
-**模式说明**：
-
-1. `mode=chat`：后端走 RAG 知识库问答，返回 `reply_text` 与 `sources`。
-2. `mode=route`：后端切换为路线规划 Prompt，返回 `reply_text` 与结构化的 `route_data`。
-3. 图片问答：先调用 `POST /api/v1/upload/image` 上传图片获取 `image_url`，再带 `image_url` 调用本接口。
-
----
-
-### 3.4 统一交互流式接口（新增）
-
-**接口**：`POST /api/v1/chat/text/stream`
-
-**请求头**：
-```http
-Accept: text/event-stream
-Content-Type: application/json
-```
-
-**请求体**：与 `POST /api/v1/chat/text` 保持一致。
-
-**传输格式**：当前后端使用 SSE；NDJSON 仅作为后续兼容备选。
-
-**核心事件示例**：
-```text
-event: message_start
-data: {"type":"message_start","message_id":"m_xxx","session_id":"s_xxx"}
-
-event: text_delta
-data: {"type":"text_delta","delta":"欢迎来到灵山胜境，"}
-
-event: tts_segment
-data: {"type":"tts_segment","segment_id":"seg_001","segment_index":0,"text":"欢迎来到灵山胜境，","audio_url":"/api/v1/tts/file/seg_001.mp3","duration_ms":null,"voice":"zh-CN-XiaoxiaoNeural","rate":"+0%","volume":"+0%","pitch":"+0Hz","emotion":"welcoming","marks":[]}
-
-event: tts_segment_ready
-data: {"type":"tts_segment_ready","segment_id":"seg_001","segment_index":0,"audio_url":"/api/v1/tts/file/seg_001.mp3","duration_ms":1800,"marks":[{"word":"欢迎","start_ms":0,"end_ms":420}],"emotion":"welcoming"}
-
-event: done
-data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
-```
-
-> **注**：`tts_audio_chunk` / `tts_audio_end` 事件后端仍保留发送，但 Android 端 `StreamingChatClient` 已忽略（返回 `null`），不再作为播放主链路。当前播放以 `tts_segment_ready` 中的 `audio_url` 为准。
-
-**事件类型说明**：
-
-| type | 说明 | 移动端动作 |
-|------|------|------------|
-| `message_start` | 回答开始 | 绑定消息 ID 与会话 ID |
-| `text_delta` | 文本增量 | 追加到当前机器人消息 |
-| `tts_segment` | 可朗读分段元信息 | 创建片段队列项，记录文本、音色和预告 URL |
-| `tts_segment_ready` | 音频文件已生成 | 播放 `audio_url`，用 `marks` 驱动口型 |
-| `tts_audio_error` | 某个 TTS 片段合成失败或被取消 | 跳过该片段，释放后续等待的片段 |
-| `avatar_action` | 数字人表情/动作 | 提前更新 Expression / Gesture |
-| `sources` | 来源引用 | 回填到当前消息 |
-| `route_data` | 路线规划结构化数据 | 回填路线卡片 |
-| `metadata` | 意图、情绪、耗时、置信度等 | 回填统计与降级字段 |
-| `done` | 后端事件流结束 | 关闭 loading，等待 TTS 队列自然播完 |
-| `aborted` | 后端确认取消 | 停止追加文本，清空本次 TTS 队列，恢复待机 |
-| `error` | 流式链路异常 | 停止流和 TTS，显示错误 |
-| `PrematurelyEnded` | 流未收到终止事件即断开（Android 端生成） | 触发自动续写逻辑，最多 3 次 |
-
-> **保留但不播放的事件**：`tts_audio_chunk`、`tts_audio_end` 后端仍可能发送，但 Android 端忽略不处理。`tts_audio_error` 仍会被解析，用于跳过失败片段。
-
-**`tts_segment` 响应结构**：
-```json
-{
-  "type": "tts_segment",
-  "segment_id": "seg_001",
-  "segment_index": 0,
-  "text": "欢迎来到灵山胜境，",
-  "audio_url": "/api/v1/tts/file/seg_001.mp3",
-  "duration_ms": null,
-  "voice": "zh-CN-XiaoxiaoNeural",
-  "rate": "+0%",
-  "volume": "+0%",
-  "pitch": "+0Hz",
-  "emotion": "welcoming",
-  "marks": []
-}
-```
-
-**`tts_segment_ready` 响应结构**：
-```json
-{
-  "type": "tts_segment_ready",
-  "segment_id": "seg_001",
-  "segment_index": 0,
-  "audio_url": "/api/v1/tts/file/seg_001.mp3",
-  "duration_ms": 1800,
-  "marks": [
-    { "word": "欢迎", "start_ms": 0, "end_ms": 420 },
-    { "word": "来到", "start_ms": 430, "end_ms": 820 }
-  ],
-  "emotion": "welcoming"
-}
-```
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `segment_id` | String | 是 | 对应 `tts_segment.segment_id` |
-| `segment_index` | Int | 是 | 对应 `tts_segment.segment_index` |
-| `audio_url` | String | 是 | 最终落盘 MP3，可直接播放 |
-| `duration_ms` | Int / null | 否 | 音频总时长（毫秒） |
-| `marks` | Array | 否 | 词级时间标记，用于口型同步 |
-| `emotion` | String | 否 | 该片段情绪 |
-
-**分段约束**：
-
-1. 不按 token 或单字合成 TTS，应按可朗读短句切分。
-2. 推荐遇到 `，。！？；：` 切分；首段超过 800ms 未遇到标点时可强制切分。
-3. `segment_index` 从 0 开始递增；移动端播放顺序应优先以该字段为准。
-4. `tts_segment` 只代表片段元信息；真实可播放音频以 `tts_segment_ready` 为准。
-5. `done` 表示后端事件发送完成，不表示移动端音频播放完成。
-6. `aborted` 后本次流不会再发送 `done`。
-7. `PrematurelyEnded` 由 Android 端在 EOF 但未收到 `done`/`aborted`/`error` 时生成，触发自动续写逻辑（最多 3 次）。
-8. 旧接口 `POST /api/v1/chat/text` 继续保留，作为非流式降级路径。
-
-详细重构方案见：`API_STREAMING.md`。
-
----
-
-### 3.5 用户认证接口
-
-#### 3.5.1 注册
-
-**接口**：`POST /api/v1/auth/register`
-
-**请求**：
-```json
-{
-  "username": "testuser",
-  "password": "123456",
-  "device_id": "android_001"
-}
-```
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| username | String | 是 | 用户名，长度 3-32 字符，仅支持字母、数字、下划线 |
-| password | String | 是 | 密码，长度 6-64 字符 |
-| device_id | String | 否 | 设备标识，用于多端绑定 |
-
-**响应**：
-```json
-{
-  "code": 0,
-  "message": "ok",
-  "data": {
-    "user_id": "u_abc123",
-    "username": "testuser",
-    "created_at": "2026-05-06T10:30:00Z"
-  }
-}
-```
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| user_id | String | 用户唯一标识，此后所有会话均使用该 ID |
-| username | String | 用户名 |
-| created_at | String | 注册时间（ISO 8601） |
-
-**错误码**：
-- `3001`：用户名已存在
-- `1002`：参数格式错误（用户名/密码长度不合规）
-
----
-
-#### 3.5.2 登录
-
-**接口**：`POST /api/v1/auth/login`
-
-**请求**：
-```json
-{
-  "username": "testuser",
-  "password": "123456",
-  "device_id": "android_001"
-}
-```
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| username | String | 是 | 用户名 |
-| password | String | 是 | 密码 |
-| device_id | String | 否 | 设备标识 |
-
-**响应**：与注册接口一致，返回 `user_id`、`username`、`created_at`。
-
-**错误码**：
-- `3002`：用户名或密码错误
-- `3003`：用户不存在
-
----
-
-#### 3.5.3 认证后端逻辑
-
-1. **user_id 生成规则**：后端保证同一 `username` 永远对应同一个 `user_id`。
-2. **会话隔离**：`session/create` 接口使用 `user_id` 创建会话；guest 用户（未认证）使用临时 UUID 作为 `user_id`。
-3. **多端登录**：同一账号可在多设备登录，各自拥有独立的 `session_id`，但 `user_id` 相同，后端历史记录按 `user_id` 聚合。
-4. **密码存储**：后端使用 bcrypt 等慢哈希算法存储密码，禁止明文存储。
-
----
-
-### 3.6 会话管理接口
-
-#### 3.6.1 获取会话列表
-
-**接口**：`GET /api/v1/session/list`
-
-**请求参数**：
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| user_id | String | 是 | 用户唯一标识 |
-| status | String | 否 | 筛选状态：`active` / `archived`，默认 `active` |
+| scenic_id | String | 否 | 景区 ID 筛选 |
+| status | String | 否 | `active` / `archived` |
 | page | Int | 否 | 页码，默认 1 |
-| page_size | Int | 否 | 每页条数，默认 20 |
+| page_size | Int | 否 | 每页数量，1–50，默认 20 |
 
 **响应**：
 ```json
@@ -369,75 +234,108 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
   "code": 0,
   "message": "ok",
   "data": {
+    "total": 15,
+    "page": 1,
+    "page_size": 20,
     "sessions": [
       {
-        "session_id": "s_001",
+        "session_id": "s_xxx",
         "user_id": "u_001",
         "scenic_id": "lingshan",
-        "title": "灵山大佛介绍",
+        "spot_id": "buddha",
+        "title": "灵山大佛游览咨询",
         "status": "active",
-        "created_at": "2026-05-01T10:00:00Z",
-        "updated_at": "2026-05-07T08:30:00Z"
-      }
-    ],
-    "total": 1,
-    "page": 1,
-    "page_size": 20
-  }
-}
-```
-
----
-
-#### 3.6.2 获取会话详情
-
-**接口**：`GET /api/v1/session/{session_id}`
-
-**请求参数**：
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| session_id | String | 是 | 路径参数 |
-| user_id | String | 是 | 查询参数 |
-| include_messages | Boolean | 否 | 是否包含历史消息，默认 `true` |
-| message_limit | Int | 否 | 消息条数上限，默认 50 |
-
-**响应**：
-```json
-{
-  "code": 0,
-  "message": "ok",
-  "data": {
-    "session_id": "s_001",
-    "user_id": "u_001",
-    "scenic_id": "lingshan",
-    "title": "灵山大佛介绍",
-    "status": "active",
-    "created_at": "2026-05-01T10:00:00Z",
-    "updated_at": "2026-05-07T08:30:00Z",
-    "messages": [
-      {
-        "message_id": "m_001",
-        "role": "user",
-        "content": "请介绍灵山大佛",
-        "created_at": "2026-05-01T10:00:05Z"
-      },
-      {
-        "message_id": "m_002",
-        "role": "assistant",
-        "content": "灵山大佛坐落于江苏省无锡市滨湖区...",
-        "created_at": "2026-05-01T10:00:08Z"
+        "message_count": 12,
+        "first_user_message": "灵山大佛有多高？",
+        "last_message": "祝您游览愉快！",
+        "last_message_at": "2026-05-08T14:30:00Z",
+        "created_at": "2026-05-08T10:00:00Z"
       }
     ]
   }
 }
 ```
 
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| first_user_message | String? | 第一条用户消息（用于显示会话标题，最多 100 字符） |
+| last_message | String? | 最后一条消息内容（最多 100 字符） |
+| last_message_at | String? | 最后消息时间（ISO 8601） |
+
 ---
 
-#### 3.6.3 归档会话
+### 5.3 获取会话详情
 
-**接口**：`POST /api/v1/session/{session_id}/archive`
+**`GET /api/v1/session/{session_id}`**
+
+**Path 参数**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| session_id | String | 会话 ID |
+
+**Query 参数**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| user_id | String | 是 | 用户 ID（用于鉴权） |
+| include_messages | Boolean | 否 | 是否返回消息列表，默认 `true` |
+| message_limit | Int | 否 | 返回消息数量上限，1–200，默认 50 |
+
+**响应**：
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "session_id": "s_xxx",
+    "user_id": "u_001",
+    "scenic_id": "lingshan",
+    "spot_id": null,
+    "device_id": null,
+    "status": "active",
+    "title": null,
+    "message_count": 3,
+    "context_summary": null,
+    "last_message_at": "2026-05-08T14:30:00Z",
+    "created_at": "2026-05-08T10:00:00Z",
+    "messages": [
+      {
+        "message_id": "m_xxx",
+        "session_id": "s_xxx",
+        "role": "user",
+        "content": "灵山大佛有多高？",
+        "created_at": "2026-05-08T10:01:00Z"
+      },
+      {
+        "message_id": "m_yyy",
+        "session_id": "s_xxx",
+        "role": "assistant",
+        "content": "灵山大佛高达88米。",
+        "avatar_action": {},
+        "sources": [],
+        "emotion": "excited",
+        "intent": "introduction",
+        "latency_ms": 1200,
+        "created_at": "2026-05-08T10:01:02Z"
+      }
+    ]
+  }
+}
+```
+
+**错误码**：
+
+| code | 说明 |
+|------|------|
+| 1003 | 会话不存在 |
+| 403 | 会话不属于该用户 |
+
+---
+
+### 5.4 归档会话
+
+**`POST /api/v1/session/{session_id}/archive`**
 
 **请求体**：
 ```json
@@ -452,7 +350,7 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
   "code": 0,
   "message": "ok",
   "data": {
-    "session_id": "s_001",
+    "session_id": "s_xxx",
     "status": "archived"
   }
 }
@@ -460,55 +358,15 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
 
 ---
 
-#### 3.6.4 删除会话
+### 5.5 删除会话
 
-**接口**：`DELETE /api/v1/session/{session_id}`
+**`DELETE /api/v1/session/{session_id}`**
 
-**请求参数**：
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| session_id | String | 是 | 路径参数 |
-| user_id | String | 是 | 查询参数 |
-
-**响应**：
-```json
-{
-  "code": 0,
-  "message": "ok"
-}
-```
-
----
-
-### 3.7 满意度反馈接口
-
-#### 3.7.1 提交反馈
-
-**接口**：`POST /api/v1/chat/feedback`
-
-**请求**：
-```json
-{
-  "scenic_id": "lingshan",
-  "rating": 5,
-  "session_id": "s_001",
-  "user_id": "u_001",
-  "message_id": "m_002",
-  "is_complaint": false,
-  "comment": "回答很详细，非常满意"
-}
-```
+**Query 参数**：
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| scenic_id | String | 是 | 景区 ID |
-| rating | Int | 是 | 评分，1-5 星 |
-| session_id | String | 否 | 关联会话 ID |
-| user_id | String | 否 | 关联用户 ID |
-| message_id | String | 否 | 关联消息 ID |
-| is_complaint | Boolean | 否 | 是否为投诉，默认 `false` |
-| comment | String | 否 | 用户补充留言 |
+| user_id | String | 是 | 用户 ID |
 
 **响应**：
 ```json
@@ -516,53 +374,458 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
   "code": 0,
   "message": "ok",
   "data": {
-    "feedback_id": "fb_001",
-    "scenic_id": "lingshan",
-    "session_id": "s_001",
-    "user_id": "u_001",
-    "message_id": "m_002",
-    "rating": 5,
-    "is_complaint": false,
-    "created_at": "2026-05-07T10:30:00Z"
+    "session_id": "s_xxx",
+    "deleted": true
   }
 }
 ```
 
-**说明**：
-- 游客可在任意消息上触发反馈弹窗，对单条回答进行评分。
-- `rating` 为 1-2 星时建议同时勾选 `is_complaint`，前端标记为投诉态。
-- 未登录游客也可提交反馈，此时 `user_id` 可为空。
+---
+
+### 5.6 修改会话标题
+
+**`PATCH /api/v1/session/{session_id}`**
+
+**Query 参数**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| user_id | String | 是 | 用户 ID |
+
+**请求体**：
+```json
+{
+  "title": "新标题"
+}
+```
+
+**响应**：返回完整会话对象（同 §5.3 的 `data`，不含 `messages`）。
 
 ---
 
-## 四、TTS 接口（Edge-TTS 方案）
+## 六、聊天接口
 
-> 自 v5.0 起，TTS 由后端统一提供。Android 端通过以下接口请求音频合成，使用 ExoPlayer 播放返回的音频 URL。
->
-> 自 v7.0 起，流式问答推荐由后端在 `POST /api/v1/chat/text/stream` 中直接返回 `tts_segment` 事件。独立 TTS 接口仍用于非流式播放、测试、缓存预热和降级。
+### 6.1 非流式对话
 
-### 4.1 获取发音人列表
+**`POST /api/v1/chat/text`**
 
-**接口**：`GET /api/v1/tts/voices`
+**请求体**：
+```json
+{
+  "session_id": "s_xxx",
+  "user_id": "u_001",
+  "scenic_id": "lingshan",
+  "profile_id": null,
+  "question": "灵山大佛有多高？",
+  "spot_id": null,
+  "mode": "chat",
+  "image_url": null,
+  "options": {}
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| session_id | String | 是 | 会话 ID |
+| user_id | String | 是 | 用户 ID |
+| scenic_id | String | 是 | 景区 ID（须为支持的 canonical ID） |
+| profile_id | String | 否 | 指定数字人设 ID；不传则用该景区当前激活人设 |
+| question | String | 是 | 用户问题，最长 500 字 |
+| spot_id | String | 否 | 当前景点 ID |
+| mode | String | 否 | `chat`（默认）或 `route` |
+| image_url | String | 否 | 图文问答时的图片 URL |
+| options | Object | 否 | TTS 等扩展参数（见 §6.2 流式接口） |
+
+**模式说明**：
+- `mode=chat`：RAG 知识库检索 + LLM 作答；对于问候、闲聊、自我介绍等意图直接走 LLM，跳过 RAG。
+- `mode=route`：优先使用后台已启用的路线模板返回结构化 `route_data`，未命中时回退通用推荐。
+
+**成功响应**（`data` 字段）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| message_id | String | 消息唯一标识 |
+| session_id | String | 会话 ID |
+| reply_text | String | 回复文本（已去除 emotion/combo 标签） |
+| avatar_action | Object? | 数字人动作（见 §十一 AvatarAction / §十二 Combo） |
+| sources | Array | RAG 知识引用列表（见 §十五 RAG） |
+| metadata | Object | 意图、情绪、置信度等（见 §十五 §6.2） |
+| latency_ms | Int | 响应延迟（毫秒） |
+| is_fallback | Boolean | 是否为降级回答 |
+| route_data | Object? | 路线数据，仅 `mode=route` 返回（见 §十路线响应） |
+| created_at | String | 消息创建时间 |
+
+---
+
+### 6.2 流式对话
+
+**`POST /api/v1/chat/text/stream`**
+
+请求体字段与 §6.1 完全一致，另支持 `options` 中的 TTS 参数：
+
+```json
+{
+  "options": {
+    "voice": "zh-CN-XiaoxiaoNeural",
+    "rate": "+0%",
+    "volume": "+0%",
+    "pitch": "+0Hz"
+  }
+}
+```
+
+**传输格式**：SSE（Server-Sent Events），`Content-Type: text/event-stream`。
+
+**事件序列**（实际以服务端为准）：
+
+```
+message_start
+  → avatar_action（可选，基于 combo 标签实时推送）
+  → text_delta × N（纯文本增量，无 emotion 标签）
+  → tts_segment × N（分段预告，含 audio_url；文件可能尚未生成）
+  → tts_segment_ready × N（音频就绪，含 duration_ms / marks；此时才可播放）
+  → tts_audio_error（可选，与分段事件交替出现，表示某分段 TTS 合成失败）
+  → avatar_action（收尾动作，可选）
+  → sources（RAG 引用，mode=chat）
+  → route_data（可选，mode=route）
+  → metadata
+  → done
+```
+
+> 异常中止时发送 `error` 或 `aborted` 事件。
+
+**各事件格式**：
+
+| type | 说明 | 移动端动作 |
+|------|------|------------|
+| `message_start` | 回答开始 | 绑定 `message_id` / `session_id` |
+| `avatar_action` | 表情 / 手势 / Combo | 更新数字人 |
+| `text_delta` | 纯文本增量 | 追加消息气泡 |
+| `tts_segment` | 分段预告 | 仅记录 `segment_id` / `segment_index`，不下载、不播放 |
+| `tts_segment_ready` | 音频就绪 | 拼接服务器 base URL 后用 ExoPlayer 播放 `audio_url` |
+| `tts_audio_error` | 分段合成失败 | 跳过该分段，继续后续分段 |
+| `sources` | RAG 引用 | 回填消息来源 |
+| `route_data` | 路线结构化数据 | `mode=route` 时使用 |
+| `metadata` | 意图/情绪/耗时等 | 统计与 UI |
+| `done` | 流结束 | 关闭 loading |
+| `aborted` | 流被中止 | 停止 loading，不提示错误 |
+| `error` | 异常 | 提示用户 |
+
+**SSE 示例片段**：
+
+```text
+event: message_start
+data: {"type":"message_start","message_id":"m_xxx","session_id":"s_xxx","created_at":"..."}
+
+event: text_delta
+data: {"type":"text_delta","delta":"欢迎来到灵山胜境，"}
+
+event: tts_segment
+data: {"type":"tts_segment","segment_id":"m_xxx_000","segment_index":0,"text":"欢迎来到灵山胜境！","audio_url":"/api/v1/tts/file/tts_m_xxx_000.mp3","duration_ms":null,"voice":"zh-CN-XiaoxiaoNeural","rate":"+0%","volume":"+0%","pitch":"+0Hz","emotion":"neutral","marks":[]}
+
+event: tts_segment_ready
+data: {"type":"tts_segment_ready","segment_id":"m_xxx_000","segment_index":0,"audio_url":"/api/v1/tts/file/tts_m_xxx_000.mp3","file_name":"tts_m_xxx_000.mp3","duration_ms":2400,"marks":[{"text":"欢","start_ms":0,"end_ms":256,"phonemes":["h","u","an"]},{"text":"迎","start_ms":256,"end_ms":513,"phonemes":["i","ng"]}],"emotion":"neutral"}
+
+event: sources
+data: {"type":"sources","data":[]}
+
+event: metadata
+data: {"type":"metadata","data":{"intent":"greeting","emotion":"welcoming","confidence":0.9,"is_fallback":false,"latency_ms":800,"combo":"C3"}}
+
+event: done
+data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
+```
+
+---
+
+### 6.3 中止流式
+
+**`POST /api/v1/chat/abort`**
+
+主动中止正在进行的流式请求，服务端会向对应流发送 `aborted` 事件。
+
+**请求体**：
+```json
+{
+  "session_id": "s_xxx",
+  "message_id": "m_xxx",
+  "reason": "client_abort"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| session_id | String | 否 | 目标会话 ID |
+| message_id | String | 否 | 目标消息 ID（精确匹配） |
+| reason | String | 否 | 中止原因，最长 100 字符，默认 `client_abort` |
 
 **响应**：
 ```json
 {
   "code": 0,
   "message": "ok",
-  "data": [
+  "data": {
+    "aborted": true,
+    "aborted_message_ids": ["m_xxx"],
+    "reason": "client_abort"
+  }
+}
+```
+
+> `aborted: false` 表示未找到匹配的活跃流（已自然结束或 ID 有误）。
+
+---
+
+### 6.4 满意度反馈
+
+**`POST /api/v1/chat/feedback`**
+
+> 管理后台大盘的满意度统计**完全依赖本接口写入**，App 需在用户打分/投诉时调用。
+
+**请求体**：
+```json
+{
+  "scenic_id": "lingshan",
+  "session_id": "s_xxx",
+  "user_id": "u_001",
+  "message_id": "m_yyy",
+  "rating": 5,
+  "is_complaint": false,
+  "comment": ""
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| scenic_id | String | 是 | 景区 ID |
+| rating | Int | 是 | 满意度 **1–5**，5 为最满意 |
+| session_id | String | 否 | 关联会话 ID |
+| user_id | String | 否 | 用户 ID |
+| message_id | String | 否 | 关联助手消息 ID |
+| is_complaint | Boolean | 否 | 是否为投诉，默认 `false` |
+| comment | String | 否 | 文字反馈，最长 500 字 |
+
+**成功响应**（`data`）：
+```json
+{
+  "feedback_id": "fb_xxxxxxxxxxxx",
+  "scenic_id": "lingshan",
+  "session_id": "s_xxx",
+  "user_id": "u_001",
+  "message_id": "m_yyy",
+  "rating": 5,
+  "is_complaint": false,
+  "comment": null,
+  "created_at": "2026-05-08T12:00:00+08:00"
+}
+```
+
+**错误码**：
+
+| code | 说明 |
+|------|------|
+| 1002 | `rating` 不在 1–5 范围内或参数格式错误 |
+| 404 | `session_id` 已传但会话不存在或与景区不匹配 |
+
+---
+
+## 七、路线推荐（独立接口）
+
+> 该接口直接返回路线推荐结果，无需先建会话。与聊天接口的 `mode=route` 逻辑一致，优先读取已启用的路线模板。
+
+### 7.1 路线推荐（GET）
+
+**`GET /api/v1/route/recommend`**
+
+**Query 参数**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| scenic_id | String | 是 | 景区 ID |
+| duration_min | Int | 否 | 期望游览时长（分钟），30–720 |
+| current_spot | String | 否 | 当前所在景点 |
+| interest_tags | String | 否 | 兴趣标签，逗号分隔，如 `亲子,文化` |
+
+### 7.2 路线推荐（POST）
+
+**`POST /api/v1/route/recommend`**
+
+**请求体**：
+```json
+{
+  "scenic_id": "lingshan",
+  "duration_min": 240,
+  "interest_tags": ["亲子", "文化"],
+  "current_spot": "游客中心",
+  "question": "我们一家三口想玩半天，有什么推荐路线？"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| scenic_id | String | 是 | 景区 ID |
+| duration_min | Int | 否 | 期望游览时长（分钟），30–720 |
+| interest_tags | Array | 否 | 兴趣标签列表 |
+| current_spot | String | 否 | 当前所在景点 |
+| question | String | 否 | 原始用户问题（用于 fallback 推理） |
+
+**成功响应**（`data` 为 `route_data` 结构，见 §十路线规划响应）。
+
+---
+
+## 八、TTS 接口
+
+### 8.1 获取语音列表
+
+**`GET /api/v1/tts/voices`**
+
+返回 Edge-TTS 支持的所有语音。
+
+**响应**（`data` 为数组）：
+```json
+[
+  {
+    "id": "zh-CN-XiaoxiaoNeural",
+    "locale": "zh-CN",
+    "gender": "Female",
+    "friendly_name": "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)"
+  },
+  {
+    "id": "zh-CN-XiaoyiNeural",
+    "locale": "zh-CN",
+    "gender": "Female",
+    "friendly_name": "Microsoft Xiaoyi Online (Natural) - Chinese (Mainland)"
+  }
+]
+```
+
+> 流式接口当前仅支持 `zh-CN-XiaoxiaoNeural` 和 `zh-CN-XiaoyiNeural`，其他语音可用于独立合成接口。
+
+---
+
+### 8.2 合成语音
+
+**`POST /api/v1/tts/synthesize`**
+
+**请求体**：
+```json
+{
+  "text": "欢迎来到灵山胜境！",
+  "voice": "zh-CN-XiaoxiaoNeural"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| text | String | 是 | 合成文本，最长 500 字，不可为纯标点/空白 |
+| voice | String | 是 | 语音 ID（见 §8.1） |
+
+**成功响应**（`data`）：
+```json
+{
+  "file_name": "tts_m_xxx_000.mp3",
+  "audio_url": "/api/v1/tts/file/tts_m_xxx_000.mp3",
+  "duration_ms": 2400,
+  "marks": [
+    {"text": "欢", "start_ms": 0, "end_ms": 256, "phonemes": ["h", "u", "an"]},
+    {"text": "迎", "start_ms": 256, "end_ms": 513, "phonemes": ["i", "ng"]}
+  ]
+}
+```
+
+**错误响应**：
+
+| HTTP | 说明 |
+|------|------|
+| 400 | 文本不含可朗读内容（仅标点或空白） |
+| 422 | 文本超过 500 字（Pydantic 校验） |
+| 502 | TTS 合成失败（上游服务异常） |
+
+---
+
+### 8.3 获取音频文件
+
+**`GET /api/v1/tts/file/{file_name}`**
+
+返回 MP3 音频文件内容（`Content-Type: audio/mpeg`）。
+
+**Path 参数**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| file_name | String | 音频文件名，如 `tts_m_xxx_000.mp3` |
+
+**响应**：直接返回二进制音频内容（`FileResponse`），无 JSON 外层。
+
+**错误**：文件不存在时返回 HTTP 404，body 为 `{"detail":"audio file not found"}`。
+
+---
+
+## 九、文件上传
+
+### 9.1 上传图片
+
+**`POST /api/v1/upload/image`**
+
+**Content-Type**：`multipart/form-data`
+
+**表单字段**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| image | File | 是 | 图片文件（MIME 类型须以 `image/` 开头），最大 5MB |
+
+**成功响应**：
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "image_url": "/uploads/img_xxxxxxxx.jpg"
+  }
+}
+```
+
+上传后的 `image_url` 可直接传入聊天接口的 `image_url` 字段实现图文问答。
+
+**错误响应**：
+
+| HTTP / code | 说明 |
+|------|------|
+| 400 | 文件 MIME 类型不是图片 |
+| 400 | 文件超过 5MB |
+
+---
+
+## 十、路线规划响应详解
+
+`mode=route` 时，`data.route_data` 结构如下：
+
+```json
+{
+  "route_id": "rt_001",
+  "title": "亲子家庭路线",
+  "scenic_id": "lingshan",
+  "interest_tags": ["亲子", "家庭"],
+  "current_spot": "游客中心",
+  "total_duration_min": 240,
+  "total_distance_m": 3200,
+  "reason": "适合亲子游客轻松游览。",
+  "highlights": ["九龙灌浴", "大佛打卡"],
+  "tips": ["提前准备饮水"],
+  "spots": [
     {
-      "id": "zh-CN-XiaoxiaoNeural",
-      "locale": "zh-CN",
-      "gender": "Female",
-      "friendly_name": "晓晓"
-    },
-    {
-      "id": "zh-CN-YunyangNeural",
-      "locale": "zh-CN",
-      "gender": "Male",
-      "friendly_name": "云扬"
+      "name": "游客中心",
+      "lat": 31.4875,
+      "lng": 120.1234,
+      "order": 1,
+      "stay_min": 30,
+      "description": "推荐停留点。"
     }
+  ],
+  "polyline": [
+    {"lat": 31.4875, "lng": 120.1234},
+    {"lat": 31.4880, "lng": 120.1240}
   ]
 }
 ```
@@ -571,269 +834,18 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | String | 发音人标识，用于 `synthesize` 请求 |
-| locale | String | 语言区域，如 `zh-CN` |
-| gender | String | `Male` / `Female` |
-| friendly_name | String | 展示用中文名 |
-
----
-
-### 4.2 文本合成
-
-**接口**：`POST /api/v1/tts/synthesize`
-
-**请求**：
-```json
-{
-  "text": "您好，欢迎来到灵山胜境。",
-  "voice": "zh-CN-XiaoxiaoNeural",
-  "rate": "+0%",
-  "volume": "+0%",
-  "pitch": "+0Hz",
-  "format": "audio"
-}
-```
-
-**请求字段说明**：
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| text | String | 是 | 待合成文本，最长 500 字 |
-| voice | String | 否 | 发音人 ID，默认 `zh-CN-XiaoxiaoNeural` |
-| rate | String | 否 | 语速，如 `+10%`、`-20%`，默认 `+0%` |
-| volume | String | 否 | 音量，如 `+10%`，默认 `+0%` |
-| pitch | String | 否 | 音调，如 `+5Hz`、`-5Hz`，默认 `+0Hz` |
-| format | String | 否 | `audio` 或 `audio_with_marks`，默认 `audio` |
-
-**响应示例（format=audio）**：
-```json
-{
-  "code": 0,
-  "message": "ok",
-  "data": {
-    "audio_url": "/api/v1/tts/file/7d4f1f.mp3",
-    "duration_ms": 4200,
-    "voice": "zh-CN-XiaoxiaoNeural"
-  }
-}
-```
-
-**响应示例（format=audio_with_marks）**：
-```json
-{
-  "code": 0,
-  "message": "ok",
-  "data": {
-    "audio_url": "/api/v1/tts/file/7d4f1f.mp3",
-    "duration_ms": 4200,
-    "voice": "zh-CN-XiaoxiaoNeural",
-    "marks": [
-      { "text": "您好", "start_ms": 0, "end_ms": 320 },
-      { "text": "欢迎", "start_ms": 340, "end_ms": 760 },
-      { "text": "来到", "start_ms": 780, "end_ms": 1100 },
-      { "text": "灵山胜境", "start_ms": 1120, "end_ms": 2100 }
-    ]
-  }
-}
-```
-
-**响应字段说明**：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| audio_url | String | 音频文件相对路径，需拼接 base URL 访问 |
-| duration_ms | Long / null | 音频总时长（毫秒），后端暂时未计算时可返回 null |
-| voice | String | 实际使用的发音人 |
-| marks | Array | 词级时间标记，仅 `audio_with_marks` 返回 |
-
-**marks 结构**：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| text | String | 对应文本片段 |
-| start_ms | Long | 开始时间（毫秒） |
-| end_ms | Long | 结束时间（毫秒） |
-
----
-
-### 4.3 音频文件读取
-
-**接口**：`GET /api/v1/tts/file/{file_name}`
-
-**返回**：`audio/mpeg` 音频流
-
-**说明**：
-- 该接口用于 ExoPlayer 直接播放
-- 音频文件由后端缓存管理，有效期 7 天
-- 若文件不存在返回 `404`
-
----
-
-## 五、聊天响应结构
-
-### 5.1 图片上传接口（前置）
-
-**接口**：`POST /api/v1/upload/image`
-
-**请求**：multipart/form-data
-- `image`：图片文件（JPEG/PNG，最大 5MB）
-
-**响应**：
-```json
-{
-  "code": 0,
-  "message": "ok",
-  "data": {
-    "image_url": "/uploads/img_abc123.jpg"
-  }
-}
-```
-
-**说明**：
-- 用户上传图片后，将返回的 `image_url` 填入 `chat/text` 请求的 `image_url` 字段，实现图文问答。
-
----
-
-### 5.2 完整响应示例（聊天问答模式）
-
-```json
-{
-  "code": 0,
-  "message": "ok",
-  "data": {
-    "message_id": "m_xxx",
-    "session_id": "s_xxx",
-    "reply_text": "欢迎来到黄山！这是著名的迎客松，它已有八百多年的历史了。",
-    "latency_ms": 1200,
-    "confidence": 0.95,
-    "is_fallback": false,
-
-    "avatar_action": {
-      "expression": {
-        "type": "excited",
-        "intensity": 0.8
-      },
-      "gesture": {
-        "type": "point_right"
-      },
-      "motion_queue": [
-        {"type": "wave", "start_offset_ms": 0},
-        {"type": "point_right", "start_offset_ms": 2000}
-      ]
-    },
-
-    "sources": [
-      {
-        "document_id": "doc_huangshan_faq",
-        "chunk_id": "ck_001",
-        "title": "黄山景区导览手册",
-        "source_path": "data/raw/scenic_docs/huangshan_faq.md",
-        "score": 0.92,
-        "snippet": "迎客松位于玉屏楼左侧，是黄山代表性景观之一。"
-      }
-    ],
-
-    "metadata": {
-      "intent": "introduction",
-      "emotion": "joy",
-      "confidence": 0.95,
-      "latency_ms": 1200,
-      "is_fallback": false
-    },
-
-    "created_at": "2026-04-28T12:00:00Z"
-  }
-}
-```
-
-### 5.3 响应字段说明
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| message_id | String | 否 | 消息唯一标识；若后端直接暴露 stage1 源结果，可暂不返回 |
-| session_id | String | 否 | 会话 ID；若 HTTP 层已知上下文，可不重复返回 |
-| reply_text | String | 是 | 回复文本（后端 TTS 合成后移动端播放） |
-| latency_ms | Long | 否 | 阶段一主链路直接返回的耗时字段 |
-| confidence | Float | 否 | 阶段一主链路直接返回的置信度 |
-| is_fallback | Boolean | 否 | 阶段一主链路直接返回的降级标记 |
-| avatar_action | Object | 否 | 数字人动作数据 |
-| sources | Array | 否 | 来源引用列表 |
-| metadata | Object | 否 | 增强版元数据；若存在则优先于同名顶层字段 |
-| created_at | String | 否 | 创建时间 |
-| route_data | Object | 否 | 路线规划数据，仅在 `mode=route` 时返回 |
-
-兼容说明：
-
-1. **阶段一最小可用返回**：`reply_text + sources + latency_ms + confidence + is_fallback`
-2. **增强版返回**：在最小字段基础上，增加 `avatar_action`、`metadata`、`message_id`、`created_at`、`route_data`
-3. Android 客户端应兼容上述两种返回形态
-
----
-
-### 5.4 路线规划模式响应示例
-
-```json
-{
-  "code": 0,
-  "message": "ok",
-  "data": {
-    "message_id": "m_003",
-    "session_id": "s_001",
-    "reply_text": "建议您从九龙灌浴开始，游览约1小时后前往灵山大佛，最后到梵宫结束行程。全程约4小时。",
-    "route_data": {
-      "title": "灵山胜境半日精华游",
-      "total_duration_min": 240,
-      "total_distance_m": 3200,
-      "spots": [
-        {
-          "name": "九龙灌浴",
-          "lat": 31.4875,
-          "lng": 120.1234,
-          "order": 1,
-          "stay_min": 60,
-          "description": "整点有水景表演，非常震撼"
-        },
-        {
-          "name": "灵山大佛",
-          "lat": 31.4880,
-          "lng": 120.1240,
-          "order": 2,
-          "stay_min": 90,
-          "description": "核心地标，高88米"
-        },
-        {
-          "name": "梵宫",
-          "lat": 31.4885,
-          "lng": 120.1245,
-          "order": 3,
-          "stay_min": 60,
-          "description": "金碧辉煌的建筑艺术殿堂"
-        }
-      ],
-      "polyline": [
-        {"lat": 31.4875, "lng": 120.1234},
-        {"lat": 31.4880, "lng": 120.1240},
-        {"lat": 31.4885, "lng": 120.1245}
-      ]
-    },
-    "avatar_action": {
-      "expression": {"type": "happy"},
-      "gesture": {"type": "guide"}
-    },
-    "metadata": {"intent": "route_recommendation", "latency_ms": 1500}
-  }
-}
-```
-
-**route_data 字段说明**：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
+| route_id | String? | 路线模板 ID；通用推荐时可为空 |
 | title | String | 路线名称 |
+| scenic_id | String | 景区 ID |
+| interest_tags | Array | 命中的兴趣标签 |
+| current_spot | String? | 当前景点 |
 | total_duration_min | Int | 预计总时长（分钟） |
-| total_distance_m | Int | 预计总距离（米），可选 |
+| total_distance_m | Int? | 预计总距离（米） |
+| reason | String | 推荐理由 |
+| highlights | Array | 路线亮点 |
+| tips | Array | 游玩提醒 |
 | spots | Array | 景点节点列表 |
-| polyline | Array | 地图路径坐标数组，用于绘制路线 |
+| polyline | Array | 地图路径坐标 |
 
 **spots 节点结构**：
 
@@ -845,585 +857,394 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
 | order | Int | 游览顺序 |
 | stay_min | Int | 建议停留时长（分钟） |
 | description | String | 景点简介 |
-| image_url | String | 景点图片，可选 |
+| image_url | String? | 景点图片（可选） |
 
 ---
 
-## 六、AvatarAction 结构
+## 十一、TTS 流式事件详解
 
-### 6.1 数据模型
+### 11.1 tts_segment（分段预告，不可播放）
+
+TTS 开始生成时发送，告知前端即将有新分段。此时音频文件可能尚未写盘完成，移动端不能请求或播放该事件中的 `audio_url`，否则可能得到 404。
+
+```json
+{
+  "type": "tts_segment",
+  "segment_id": "m_xxx_000",
+  "segment_index": 0,
+  "text": "欢迎来到灵山胜境！",
+  "audio_url": "/api/v1/tts/file/tts_m_xxx_000.mp3",
+  "duration_ms": null,
+  "voice": "zh-CN-XiaoxiaoNeural",
+  "rate": "+0%",
+  "volume": "+0%",
+  "pitch": "+0Hz",
+  "emotion": "neutral",
+  "marks": []
+}
+```
+
+### 11.2 tts_segment_ready（音频就绪）
+
+音频文件已生成完成，包含完整元数据。移动端只在收到该事件后播放分段音频：
+
+```json
+{
+  "type": "tts_segment_ready",
+  "segment_id": "m_xxx_000",
+  "segment_index": 0,
+  "audio_url": "/api/v1/tts/file/tts_m_xxx_000.mp3",
+  "file_name": "tts_m_xxx_000.mp3",
+  "duration_ms": 2400,
+  "marks": [
+    {"text": "欢", "start_ms": 0, "end_ms": 256, "phonemes": ["h", "u", "an"]},
+    {"text": "迎", "start_ms": 256, "end_ms": 513, "phonemes": ["i", "ng"]},
+    {"text": "，", "start_ms": 513, "end_ms": 650, "phonemes": ["SIL"]}
+  ],
+  "emotion": "neutral"
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| segment_id | String | 分段唯一标识 |
+| segment_index | Int | 分段序号（从 0 开始，按顺序播放） |
+| audio_url | String | 音频文件相对 URL，完整 URL 为 `baseUrl + audio_url` |
+| file_name | String | 音频文件名 |
+| duration_ms | Int | 音频时长（毫秒） |
+| marks | Array | 字/词级时间标记（用于口型同步）；主字段为 `text`，移动端兼容旧字段 `word` |
+| emotion | String | 情绪标签 |
+
+### 11.3 tts_audio_error（分段合成失败）
+
+某个分段合成失败时发送。移动端应跳过该 `segment_index`，继续等待或播放后续分段：
+
+```json
+{
+  "type": "tts_audio_error",
+  "segment_id": "m_xxx_001",
+  "segment_index": 1,
+  "message": "tts synthesis failed"
+}
+```
+
+---
+
+### 11.4 marks 字段
+
+```json
+{
+  "text": "欢",
+  "start_ms": 0,
+  "end_ms": 256,
+  "phonemes": ["h", "u", "an"]
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| text | String | 当前 mark 对应文本，当前推荐字段 |
+| word | String | 旧字段名，移动端兼容读取 |
+| start_ms | Int | 当前分段音频内起始时间 |
+| end_ms | Int | 当前分段音频内结束时间 |
+| phonemes | String[] | 可选音素数组；`["SIL"]` 表示静音 |
+
+---
+
+## 十二、Emotion 标签策略
+
+### 12.1 LLM 输出示例
+
+LLM 只对需要强调的词语标注 emotion：
+
+```
+欢迎来到灵山胜境！<emotion="excited">非常</emotion>壮观！
+这里是太湖之滨最著名的佛教文化景区。
+```
+
+### 12.2 前端收到的文本
+
+前端通过 `text_delta` 收到**纯文本**，不含任何标签：
+
+```
+欢迎来到灵山胜境！非常壮观！
+这里是太湖之滨最著名的佛教文化景区。
+```
+
+### 12.3 Emotion → TTS 韵律映射
+
+| emotion | rate | volume | pitch | 用途 |
+|---------|------|--------|-------|------|
+| excited | +15% | +10% | +0Hz | 强调词、惊叹 |
+| surprised | +10% | +10% | +0Hz | 意外、惊叹 |
+| welcoming | +10% | +5% | +0Hz | 欢迎 |
+| happy | +5% | +0% | +0Hz | 开心 |
+| grateful | +0% | +5% | +0Hz | 感谢 |
+| playful | +10% | +5% | +0Hz | 活泼 |
+| focused | +0% | +0% | +0Hz | 专注介绍 |
+| concerned | -5% | -5% | +0Hz | 关心、提醒 |
+| thinking | -5% | +0% | +0Hz | 思考 |
+| apologetic | -10% | -5% | +0Hz | 道歉 |
+| reverent | -10% | -10% | +0Hz | 庄重 |
+| neutral | +0% | +0% | +0Hz | 默认（大部分文本） |
+
+> `pitch` 统一为 `+0Hz`，避免同一人声因音调差异听起来像换了声音。
+
+### 12.4 无 Emotion 标签时的处理
+
+当 LLM 输出的文本段落不包含 emotion 标签时，TTS 韵律使用 **neutral**（+0%/+0%/+0Hz）。服务端不对无标签文本做意图推断。
+
+---
+
+## 十三、数字人 Combo 系统
+
+### 13.1 概述
+
+LLM 可在回复中插入 `<combo="C1"/>` 格式的短促情绪反馈标签。服务端解析后通过 `avatar_action` 事件返回结构化 Combo 数据，移动端据此驱动数字人执行表情+动作序列。
+
+### 13.2 Combo 数据结构
+
+每个 Combo 包含文本、表情、手势和动作队列：
+
+```json
+{
+  "text": "嘻嘻",
+  "expression": {
+    "type": "happy",
+    "intensity": 0.7,
+    "transition_ms": 200
+  },
+  "gesture": {
+    "type": "nod"
+  },
+  "motion_queue": [
+    {"type": "nod", "start_offset_ms": 0, "duration_ms": 600},
+    {"type": "nod", "start_offset_ms": 800, "duration_ms": 600}
+  ]
+}
+```
+
+### 13.3 预设 Combo 列表
+
+| Combo | 文本 | 表情 | 手势 | 典型场景 |
+|-------|------|------|------|----------|
+| C1 | 嘻嘻 | happy 0.7 | nod | 轻松互动 |
+| C2 | 太棒了 | excited 0.88 | nod | 表示赞扬 |
+| C3 | 您好呀 | welcoming 0.8 | wave | 欢迎迎接 |
+| C4 | 这边请 | welcoming 0.8 | guide | 引导方向 |
+| C5 | 往左走 | neutral 0.5 | point_left | 左侧指引 |
+| C6 | 往右走 | neutral 0.5 | point_right | 右侧指引 |
+| C7 | 往前走 | neutral 0.5 | point_forward | 前方指引 |
+| C8 | 哇！ | surprised 0.9 | surprised_pose | 表达惊喜 |
+| C9 | 真厉害！ | surprised 0.9 | clap | 赞赏肯定 |
+| C10 | 请跟我来 | reverent 0.85 | guide | 引导讲解 |
+| C11 | 嗯嗯 | happy 0.7 | nod | 肯定认可 |
+| C12 | 嗯～ | thinking 0.7 | thinking_pose | 思考回应 |
+| C13 | 不好意思 | apologetic 0.8 | bow | 道歉 |
+| C14 | 请注意 | concerned 0.7 | concern_pose | 安全提醒 |
+| C15 | 感谢您 | grateful 0.8 | bow | 表达感谢 |
+| C16 | 再见啦 | welcoming 0.8 | wave | 送别 |
+| C17 | 哈哈 | playful 0.8 | nod | 轻松幽默 |
+| C18 | 了解！ | focused 0.6 | nod | 理解确认 |
+
+---
+
+## 十四、RAG 知识引用
+
+### 14.1 sources 字段
+
+当 `mode=chat` 时，非流式 `data.sources` 和流式 `type: "sources"` 事件的 `data` 数组结构：
+
+```json
+[
+  {
+    "document_id": "doc_xxx",
+    "chunk_id": "ck_001",
+    "title": "灵山胜境景区导览手册",
+    "source_path": "storage/knowledge/lingshan/doc_xxx.md",
+    "score": 0.92,
+    "snippet": "灵山大佛高达88米，是全球最高的青铜露天释迦牟尼立像。"
+  }
+]
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| document_id | String | 文档标识 |
+| chunk_id | String | 切片标识 |
+| title | String | 展示标题 |
+| source_path | String | 存储路径（便于排错） |
+| score | Float | 相似度分数 |
+| snippet | String | 命中摘要片段 |
+
+> `sources` 为空数组表示无知识库命中（fallback 场景）。
+
+### 14.2 metadata 事件
+
+```json
+{
+  "type": "metadata",
+  "data": {
+    "intent": "introduction",
+    "emotion": "excited",
+    "confidence": 0.85,
+    "is_fallback": false,
+    "latency_ms": 800,
+    "combo": "C3"
+  }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| intent | String | 识别出的用户意图 |
+| emotion | String | 本次回复的情绪 |
+| confidence | Float | 知识库检索置信度 |
+| is_fallback | Boolean | 是否为降级回答 |
+| latency_ms | Int | 总延迟（毫秒） |
+| combo | String? | 触发的 Combo 键名 |
+
+---
+
+## 十五、AvatarAction 结构
 
 ```kotlin
 @Serializable
 data class AvatarAction(
-    @SerialName("expression")
-    val expression: AvatarExpressionData? = null,
-
-    @SerialName("gesture")
-    val gesture: AvatarGestureData? = null,
-
-    @SerialName("motion_queue")
-    val motionQueue: List<MotionQueueItem>? = null,
-
-    @SerialName("marks")
-    val marks: List<AvatarMarkData>? = null
+    @SerialName("text")     val text: String? = null,
+    @SerialName("expression") val expression: AvatarExpressionData? = null,
+    @SerialName("gesture")  val gesture: AvatarGestureData? = null,
+    @SerialName("motion_queue") val motionQueue: List<MotionQueueItem>? = null
 )
-```
 
-### 6.2 表情系统
-
-```kotlin
 @Serializable
 data class AvatarExpressionData(
-    @SerialName("type")
-    val type: String = "neutral",
+    @SerialName("type")         val type: String = "neutral",
+    @SerialName("intensity")    val intensity: Float = 0.7f,
+    @SerialName("transition_ms") val transitionMs: Long = 200
+)
 
-    @SerialName("intensity")
-    val intensity: Float = 0.7f,
+@Serializable
+data class AvatarGestureData(
+    @SerialName("type") val type: String = "idle"
+)
 
-    @SerialName("transition_ms")
-    val transitionMs: Long = 200
+@Serializable
+data class MotionQueueItem(
+    @SerialName("type")             val type: String,
+    @SerialName("start_offset_ms")  val startOffsetMs: Long,
+    @SerialName("duration_ms")      val durationMs: Long = 0
 )
 ```
 
 **表情类型**：
 
-| 类型 | 说明 | 典型场景 |
-|------|------|---------|
-| `neutral` | 中性 | 普通回复 |
-| `happy` | 开心 | 欢迎、推荐 |
-| `thinking` | 思考 | 回答问题 |
-| `surprised` | 惊讶 | 意外信息 |
-| `excited` | 兴奋 | 介绍亮点 |
-| `concerned` | 关切 | 提醒注意 |
-| `apologetic` | 抱歉 | 无法回答 |
-| `welcoming` | 欢迎 | 开场白 |
-
----
-
-### 6.3 动作系统
-
-```kotlin
-@Serializable
-data class AvatarGestureData(
-    @SerialName("type")
-    val type: String = "idle",
-
-    @SerialName("loop")
-    val loop: Boolean = false,
-
-    @SerialName("speed")
-    val speed: Float = 1.0f,
-
-    @SerialName("priority")
-    val priority: String = "normal"
-)
-```
-
-**动作类型**：
-
-| 类型 | 说明 | 典型场景 |
-|------|------|---------|
-| `idle` | 待机 | 默认状态 |
-| `nod` | 点头 | 肯定、同意 |
-| `shake` | 摇头 | 否定 |
-| `wave` | 挥手 | 欢迎、再见 |
-| `point_left` | 指左 | 介绍左侧景点 |
-| `point_right` | 指右 | 介绍右侧景点 |
-| `point_forward` | 指前 | 介绍前方景点 |
-| `bow` | 鞠躬 | 感谢、道歉 |
-| `thinking_pose` | 思考姿势 | 回答问题 |
-| `guide` | 引导姿势 | 路线指引 |
-
----
-
-### 6.4 动作队列
-
-```kotlin
-@Serializable
-data class MotionQueueItem(
-    @SerialName("type")
-    val type: String,
-
-    @SerialName("start_offset_ms")
-    val startOffsetMs: Long,
-
-    @SerialName("duration_ms")
-    val durationMs: Long = 0
-)
-```
-
-**示例**：
-
-```json
-{
-  "motion_queue": [
-    {"type": "wave", "start_offset_ms": 0, "duration_ms": 1500},
-    {"type": "point_right", "start_offset_ms": 2000, "duration_ms": 3000}
-  ]
-}
-```
-
----
-
-### 6.5 特效标记
-
-```kotlin
-@Serializable
-data class AvatarMarkData(
-    @SerialName("position")
-    val position: Float,  // 0.0-1.0 相对位置
-
-    @SerialName("type")
-    val type: String
-)
-```
-
-**标记类型**：
-
 | 类型 | 说明 |
 |------|------|
-| `emphasis` | 强调 |
-| `blink` | 眨眼 |
-| `pause` | 停顿 |
+| `neutral` | 中性默认 |
+| `happy` | 开心 |
+| `excited` | 兴奋 |
+| `welcoming` | 欢迎 |
+| `surprised` | 惊讶 |
+| `thinking` | 思考 |
+| `concerned` | 关切 |
+| `apologetic` | 抱歉 |
+| `grateful` | 感激 |
+| `reverent` | 庄重 |
+| `playful` | 活泼 |
+| `focused` | 专注 |
 
 ---
 
-## 七、来源引用结构
+## 十六、分段约束
 
-```kotlin
-@Serializable
-data class SourceInfo(
-    @SerialName("document_id")
-    val documentId: String? = null,
-
-    @SerialName("chunk_id")
-    val chunkId: String? = null,
-
-    @SerialName("title")
-    val title: String? = null,
-
-    @SerialName("content")
-    val content: String? = null,
-
-    @SerialName("url")
-    val url: String? = null,
-
-    @SerialName("source_path")
-    val sourcePath: String? = null,
-
-    @SerialName("score")
-    val score: Float? = null,
-
-    @SerialName("snippet")
-    val snippet: String? = null,
-
-    @SerialName("relevance_score")
-    val relevanceScore: Float? = null
-)
-```
-
-其中：
-
-- `document_id / chunk_id / source_path / score / snippet` 来自同事新增的 `stage1-api.md`
-- `title / content / url / relevance_score` 保留为兼容旧版文档与前端展示需求
+1. **分段规则**：按标点切分，max_chars=60，min_chars=15
+2. **emotion 边界**：emotion 标签会强制分段
+3. **顺序播放**：前端按 `segment_index` 顺序播放
+4. **纯文本**：`text_delta` 不包含任何标签（emotion/combo 均已去除）
 
 ---
 
-## 八、元数据结构
+## 十七、移动端播放逻辑
 
 ```kotlin
-@Serializable
-data class ResponseMetadata(
-    @SerialName("intent")
-    val intent: String? = null,
+val pendingSegments = mutableMapOf<String, TtsSegmentEvent>()
+val readyQueue = PriorityQueue<TtsSegmentReadyEvent>(compareBy { it.segmentIndex })
+var isPlaying = false
+var nextExpectedIndex = 0
 
-    @SerialName("emotion")
-    val emotion: String? = null,
-
-    @SerialName("confidence")
-    val confidence: Float? = null,
-
-    @SerialName("is_fallback")
-    val isFallback: Boolean? = null,
-
-    @SerialName("latency_ms")
-    val latencyMs: Long? = null
-)
-```
-
-**意图类型**：
-
-| intent | 说明 |
-|--------|------|
-| `greeting` | 打招呼 |
-| `farewell` | 告别 |
-| `introduction` | 景点介绍 |
-| `direction` | 方向指引 |
-| `route_recommendation` | 路线推荐 |
-| `unknown` | 未知意图 |
-
----
-
-## 九、端侧处理流程
-
-### 8.1 完整播放流程
-
-```
-用户发送问题
-      │
-      ▼
-  THINKING        显示思考状态
-      │
-      │ 后端返回响应
-      ▼
-┌─────────────────────────────────────┐
-│ 解析响应数据                          │
-│ ├── reply_text → 请求后端 TTS 合成    │
-│ ├── avatar_action.expression → 表情   │
-│ ├── avatar_action.gesture → 动作      │
-│ └── avatar_action.motion_queue → 队列 │
-└─────────────────────────────────────┘
-      │
-      ▼
-┌─────────────────────────────────────┐
-│ 后端 TTS 合成（Edge-TTS）             │
-│ ├── 生成音频文件                      │
-│ ├── 返回 audio_url + duration_ms      │
-│ └── 可选返回 marks（词级时间戳）      │
-└─────────────────────────────────────┘
-      │
-      ▼
-┌─────────────────────────────────────┐
-│ Android 播放与口型同步                │
-│ ├── ExoPlayer 播放 audio_url          │
-│ ├── marks 驱动口型动画（如可用）      │
-│ └── 无 marks 时按字符时长估算兜底     │
-└─────────────────────────────────────┘
-      │
-      ▼
-  SPEAKING        音频播放 + 口型同步 + 动作
-      │
-      ▼
-    IDLE          恢复待机状态
-```
-
-### 8.1.1 流式播放流程
-
-```
-用户发送问题
-      │
-      ▼
-  THINKING        等待首个文本/音频事件
-      │
-      │ 后端持续返回 SSE/NDJSON 事件
-      ▼
-┌─────────────────────────────────────┐
-│ 事件流处理                            │
-│ ├── text_delta → 消息气泡增量展示      │
-│ ├── tts_segment → 音频片段入队播放     │
-│ ├── avatar_action → 表情/动作提前生效  │
-│ ├── sources/route_data → 回填结构化数据│
-│ └── done → 后端流结束                 │
-└─────────────────────────────────────┘
-      │
-      ▼
-┌─────────────────────────────────────┐
-│ TTS 分段队列                          │
-│ ├── 队列有片段：播放下一段             │
-│ ├── 队列为空且流未结束：停顿等待       │
-│ └── 队列为空且流已结束：恢复 IDLE      │
-└─────────────────────────────────────┘
-```
-
-### 8.2 口型同步机制
-
-#### 方案 A：基于 marks 的精确同步（推荐）
-
-```
-后端返回 marks：
-[
-  { "text": "您好", "start_ms": 0, "end_ms": 320 },
-  { "text": "欢迎", "start_ms": 340, "end_ms": 760 }
-]
-    │
-    ▼
-ExoPlayer 播放进度回调（currentPosition）
-    │
-    ▼
-按时间匹配当前 mark → VisemeType 映射
-    │
-    ▼
-设置 Live2D 口型参数：
-├── ParamMouthOpenY = viseme.mouthOpen
-└── ParamMouthForm = viseme.mouthForm
-```
-
-#### 方案 B：字符时长估算（兜底）
-
-当后端未返回 marks 或请求 `format=audio` 时：
-
-```
-reply_text
-    │
-    ▼
-按字符估算时长（中文约 180ms/字，标点约 300ms）
-    │
-    ▼
-定时器推进口型状态
-    │
-    ▼
-设置 Live2D 口型参数
-```
-
----
-
-## 十、移动端数据模型（Kotlin）
-
-### 9.1 后端响应模型
-
-```kotlin
-@Serializable
-data class ChatResponseData(
-    @SerialName("message_id")
-    val messageId: String? = null,
-
-    @SerialName("session_id")
-    val sessionId: String? = null,
-
-    @SerialName("reply_text")
-    val replyText: String,
-
-    @SerialName("avatar_action")
-    val avatarAction: AvatarAction? = null,
-
-    @SerialName("sources")
-    val sources: List<SourceInfo> = emptyList(),
-
-    @SerialName("latency_ms")
-    val latencyMs: Long? = null,
-
-    @SerialName("confidence")
-    val confidence: Float? = null,
-
-    @SerialName("is_fallback")
-    val isFallback: Boolean? = null,
-
-    @SerialName("metadata")
-    val metadata: ResponseMetadata? = null,
-
-    @SerialName("created_at")
-    val createdAt: String? = null
-)
-
-@Serializable
-data class AvatarAction(
-    @SerialName("expression")
-    val expression: AvatarExpressionData? = null,
-
-    @SerialName("gesture")
-    val gesture: AvatarGestureData? = null,
-
-    @SerialName("motion_queue")
-    val motionQueue: List<MotionQueueItem>? = null,
-
-    @SerialName("marks")
-    val marks: List<AvatarMarkData>? = null
-)
-```
-
-### 9.2 端侧状态模型
-
-```kotlin
-enum class AvatarState {
-    IDLE, LISTENING, THINKING, SPEAKING, ERROR
-}
-
-enum class AvatarExpression(val value: String) {
-    NEUTRAL("neutral"),
-    HAPPY("happy"),
-    THINKING("thinking"),
-    SURPRISED("surprised"),
-    EXCITED("excited"),
-    CONCERNED("concerned"),
-    APologetic("apologetic"),
-    WELCOMING("welcoming");
-
-    companion object {
-        fun fromValue(value: String?) =
-            entries.find { it.value == value } ?: NEUTRAL
+when (event.type) {
+    "tts_segment" -> {
+        // 预告事件：只记录，不下载、不播放。
+        pendingSegments[event.segmentId] = event
+    }
+    "tts_segment_ready" -> {
+        readyQueue.add(event)
+        if (!isPlaying) playNextInOrder()
+    }
+    "tts_audio_error" -> {
+        nextExpectedIndex++
+        if (!isPlaying) playNextInOrder()
     }
 }
 
-enum class AvatarGesture(val value: String) {
-    IDLE("idle"),
-    NOD("nod"),
-    SHAKE("shake"),
-    WAVE("wave"),
-    POINT_LEFT("point_left"),
-    POINT_RIGHT("point_right"),
-    POINT_FORWARD("point_forward"),
-    BOW("bow"),
-    THINKING_POSE("thinking_pose"),
-    GUIDE("guide");
+fun playNextInOrder() {
+    val segment = readyQueue.peek() ?: return
+    if (segment.segmentIndex != nextExpectedIndex) return
+    readyQueue.poll()
+    isPlaying = true
 
-    companion object {
-        fun fromValue(value: String?) =
-            entries.find { it.value == value } ?: IDLE
-    }
-}
-
-enum class VisemeType(val mouthOpen: Float, val mouthForm: Float = 0f) {
-    CLOSED(0.0f),
-    SLIGHT(0.25f),
-    HALF(0.5f),
-    OPEN(0.9f),
-    WIDE(0.6f, -0.3f),
-    ROUND(0.5f, 0.6f),
-    NEUTRAL(0.1f);
-
-    companion object {
-        fun fromPhoneme(phoneme: String): VisemeType { ... }
-    }
+    val fullUrl = baseUrl.removeSuffix("/") + "/" + segment.audioUrl.removePrefix("/")
+    exoPlayer.setMediaItem(MediaItem.fromUri(fullUrl))
+    exoPlayer.prepare()
+    exoPlayer.play()
+    exoPlayer.addListener(object : Player.Listener {
+        override fun onPlaybackStateChanged(state: Int) {
+            if (state == Player.STATE_ENDED) {
+                nextExpectedIndex++
+                isPlaying = false
+                playNextInOrder()
+            }
+        }
+    })
 }
 ```
 
 ---
 
-## 十一、场景示例
+## 十八、FAQ
 
-### 场景 1：欢迎问候
-
-**用户**：你好
-
-**响应**：
-```json
-{
-  "message_id": "m_001",
-  "session_id": "s_001",
-  "reply_text": "您好！欢迎来到黄山风景区，我是您的智能导游。请问有什么可以帮您？",
-  "avatar_action": {
-    "expression": {"type": "welcoming", "intensity": 0.8},
-    "gesture": {"type": "wave"}
-  },
-  "metadata": {"intent": "greeting", "emotion": "joy", "latency_ms": 500}
-}
-```
-
-### 场景 2：景点介绍
-
-**用户**：迎客松有什么故事？
-
-**响应**：
-```json
-{
-  "message_id": "m_002",
-  "session_id": "s_001",
-  "reply_text": "迎客松是黄山的标志性景观，树龄已有八百多年。它姿态优美，像一位热情好客的主人。",
-  "avatar_action": {
-    "expression": {"type": "excited", "intensity": 0.7},
-    "gesture": {"type": "point_right"},
-    "motion_queue": [
-      {"type": "wave", "start_offset_ms": 0, "duration_ms": 1500},
-      {"type": "point_right", "start_offset_ms": 2500}
-    ]
-  },
-  "sources": [
-    {
-      "document_id": "doc_huangshan_manual",
-      "chunk_id": "ck_001",
-      "title": "黄山景区导览手册",
-      "source_path": "data/raw/scenic_docs/huangshan_manual.md",
-      "score": 0.95,
-      "snippet": "迎客松是黄山标志性景观。"
-    }
-  ],
-  "latency_ms": 1200,
-  "confidence": 0.95,
-  "is_fallback": false,
-  "metadata": {"intent": "introduction", "latency_ms": 1200, "confidence": 0.95, "is_fallback": false}
-}
-```
-
-### 场景 3：路线推荐
-
-**用户**：半天时间怎么游览？
-
-**响应**：
-```json
-{
-  "message_id": "m_003",
-  "session_id": "s_001",
-  "reply_text": "建议您从慈光阁乘索道上山，游览迎客松和莲花峰，约需4小时。",
-  "avatar_action": {
-    "expression": {"type": "happy"},
-    "gesture": {"type": "guide"}
-  },
-  "metadata": {"intent": "route_recommendation", "latency_ms": 1500}
-}
-```
-
-### 场景 4：无法回答
-
-**用户**：今天股票行情怎么样？
-
-**响应**：
-```json
-{
-  "message_id": "m_004",
-  "session_id": "s_001",
-  "reply_text": "抱歉，我主要提供景区导览服务，暂时无法回答其他问题。",
-  "avatar_action": {
-    "expression": {"type": "apologetic", "intensity": 0.7},
-    "gesture": {"type": "bow"}
-  },
-  "metadata": {"intent": "unknown", "latency_ms": 300}
-}
-```
-
----
-
-## 十二、当前确认结论
-
-### 必须确认
-
-| # | 问题 | 建议 |
+| # | 问题 | 答案 |
 |---|------|------|
 | 1 | TTS 是否由移动端完成？ | **否**（v5.0 起改为后端 Edge-TTS） |
 | 2 | 问答主链路最小返回 | `reply_text + sources + latency_ms + confidence + is_fallback` |
-| 3 | `sources` 是否按 `stage1-api.md` 扩展？ | **是** |
-| 4 | `scenic_id` 是否属于问答主请求必填？ | **是** |
-| 5 | `avatar_action` 是否必返？ | 否，属于增强字段 |
-| 6 | TTS 接口是否独立于 chat 接口？ | **是**，`POST /api/v1/tts/synthesize` |
-| 7 | 口型同步优先用什么驱动？ | **marks（词级时间戳）**，无 marks 时字符估算兜底 |
-| 8 | 交互模式是否统一为 `chat/text` 接口？ | **是**，通过 `mode` 字段区分 `chat` / `route` |
-| 9 | `route_data` 是否只在 `mode=route` 时返回？ | **是**，`mode=chat` 时返回 null |
-| 10 | 流式接口是否替代非流式接口？ | **否**，流式接口新增，非流式接口保留为降级路径 |
-| 11 | 流式 TTS 是否由移动端自行按 delta 调用合成？ | **否**，推荐后端随流返回 `tts_segment` |
-
-### 可选确认
-
-| # | 问题 | 说明 |
-|---|------|------|
-| 12 | 是否返回 `emotion` 字段 | 可用于表情降级，推荐保留 |
-| 13 | 是否返回 `intent` 字段 | 可用于动作降级，推荐保留 |
-| 14 | 流式传输是否兼容 NDJSON | 推荐兼容，便于后端实现与调试 |
+| 3 | `scenic_id` 是否必填？ | **是**，须为服务端支持的 canonical ID（别名会被自动规范） |
+| 4 | `avatar_action` 是否必返？ | 否，为增强字段；无 Combo 触发时返回 `null` |
+| 5 | 流式与非流式接口是否对齐？ | **是**，逻辑对齐，非流式为降级路径 |
+| 6 | `route_data` 何时返回？ | 仅 `mode=route` 时返回 |
+| 7 | 满意度统计依赖哪个接口？ | `POST /api/v1/chat/feedback`，App 需主动调用 |
+| 8 | 口型同步优先用什么驱动？ | **marks（词级时间戳）**，无 marks 时字符估算兜底 |
+| 9 | 闲聊/问候是否走 RAG？ | **否**，greeting/farewell/self_identity/casual_chat 意图直接走 LLM |
+| 10 | 无 emotion 标签时 TTS 用什么参数？ | neutral（+0%/+0%/+0Hz） |
+| 11 | Combo 和 AvatarAction 是什么关系？ | Combo 是预设的完整 AvatarAction，包含 text/expression/gesture/motion_queue |
+| 12 | 图片上传后如何用于问答？ | 上传后获得 `image_url`，传入聊天接口的 `image_url` 字段 |
+| 13 | `profile_id` 不传时用哪个人设？ | 该景区当前 `is_active=true` 的人设 |
+| 14 | 路线推荐有几种方式？ | 两种：独立接口（§七）；聊天接口 `mode=route`（§六），逻辑相同 |
 
 ---
 
-## 十三、版本历史
+## 十九、版本历史
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
 | v1.0 | 2026-04-28 | 初始版本 |
 | v2.0 | 2026-04-28 | 完善数字人系统 |
-| v2.1 | 2026-04-28 | 修正：TTS 由后端完成 |
-| v3.0 | 2026-04-28 | **修正：TTS 由移动端完成，移除 audio 字段** |
-| v4.0 | 2026-04-28 | **同步 `stage1-api.md`：补充 `scenic_id`、`sources` 新结构、`latency_ms/confidence/is_fallback` 兼容说明** |
-| v5.0 | 2026-04-28 | **TTS 方案切换为后端 Edge-TTS：新增 `/api/v1/tts/*` 接口，更新职责划分与播放流程，marks 驱动口型同步** |
-| v5.1 | 2026-04-29 | **Edge-TTS 接口已完成 Android 端联调；修正 `duration_ms` 可空类型；确认系统 TTS 降级兜底正常** |
-| v6.0 | 2026-04-29 | **交互模式重构：三种模式缩减为两种（聊天问答 + 路线规划），统一 `POST /api/v1/chat/text` 接口，通过 `mode` 字段区分；新增 `route_data` 响应结构；新增图片上传接口** |
-| v7.0 | 2026-04-29 | **新增 `POST /api/v1/chat/text/stream` 流式接口摘要；引入 `text_delta`、`tts_segment`、`done` 等事件；明确分段 TTS 队列播放与非流式降级路径** |
-| v7.1 | 2026-04-30 | **同步流式 TTS chunk 协议：补充 `segment_index`、`tts_audio_chunk`、`tts_audio_end`、`tts_audio_error`、`aborted` 与 chunk 口型 offset 规则** |
-| v8.0 | 2026-05-06 | **新增用户认证接口：`POST /api/v1/auth/register`、`POST /api/v1/auth/login`，支持注册/登录、user_id 持久化与多端历史记录同步** |
-| v9.0 | 2026-05-07 | **新增会话管理接口（list/detail/archive/delete）与满意度反馈接口（`POST /api/v1/chat/feedback`）；流式 TTS 主事件切换为 `tts_segment_ready`；`tts_audio_chunk`/`tts_audio_end` 标记为已弃用；新增 `PrematurelyEnded` 事件与自动续写机制** |
+| v5.0 | 2026-04-28 | TTS 方案切换为后端 Edge-TTS |
+| v6.0 | 2026-04-29 | 交互模式重构：三种缩减为两种，新增 route_data 和图片上传接口 |
+| v7.0 | 2026-04-29 | 新增 SSE 流式接口：text_delta / tts_segment / done 等事件 |
+| v8.0 | 2026-05-02 | 新增会话管理接口（list/get/archive/delete/patch） |
+| v9.0 | 2026-05-03 | 聊天接口新增 `profile_id` 字段，支持指定数字人设 |
+| v10.0 | 2026-05-03 | `mode=route` 优先读取 SQLite 路线模板 |
+| v10.2 | 2026-05-04 | 新增 `POST /api/v1/chat/feedback` |
+| v10.4 | 2026-05-06 | 新增用户认证接口（注册/登录） |
+| v11.0 | 2026-05-08 | 综合补全：会话详情/归档/删除/改标题、聊天中止、TTS 独立接口、图片上传、路线推荐独立接口；pitch 统一为 +0Hz |

@@ -1,8 +1,8 @@
 # 流式输入输出重构方案
 
-版本：v3.0
-日期：2026-05-07  
-状态：**Android 端已完成全部接入**：`StreamingChatClient` SSE 解析、`StreamingTtsQueue` 分段播放、`TypewriterController` 打字机效果、自动续写、`AuthDialog` 认证、`FeedbackDialog` 满意度反馈。流式 TTS 主事件为 `tts_segment_ready`；`tts_audio_error` 用于跳过合成失败片段；`tts_audio_chunk`/`tts_audio_end` 后端保留发送但 Android 端已忽略
+版本：v3.1
+日期：2026-05-08  
+状态：**Android 端已完成全部接入**：`StreamingChatClient` SSE 解析、`StreamingTtsQueue` 分段播放、`TypewriterController` 打字机效果、自动续写、`AuthDialog` 认证、`FeedbackDialog` 满意度反馈。流式 TTS 主事件为 `tts_segment_ready`；`tts_segment` 仅作预告不播放；`tts_audio_error` 用于跳过合成失败片段；`tts_audio_chunk`/`tts_audio_end` 后端保留发送但 Android 端已忽略
 
 ---
 
@@ -13,8 +13,8 @@
 核心体验目标：
 
 1. 后端生成文本时，移动端消息气泡立即增量展示。
-2. 一旦有可朗读文本片段，TTS 也立即开始播放。
-3. 若 LLM 生成文本卡顿，TTS 播完已有片段后自然停顿，口型归零，数字人保持等待状态。
+2. 一旦收到 `tts_segment_ready`，TTS 分段立即按序播放。
+3. 若 LLM 生成文本卡顿，TTS 播完已有片段后自然停顿，数字人保持等待状态。
 4. 后续文本继续到达后，TTS 自动继续播放后续片段。
 5. 用户发送新问题、退出页面或手动停止时，旧流与旧音频队列必须被取消。
 6. 保留现有 `POST /api/v1/chat/text` 作为非流式降级路径。
@@ -194,7 +194,7 @@ data: {"type":"tts_segment","segment_id":"seg_001","segment_index":0,"text":"欢
 
 ```text
 event: tts_segment_ready
-data: {"type":"tts_segment_ready","segment_id":"seg_001","segment_index":0,"audio_url":"/api/v1/tts/file/seg_001.mp3","file_name":"seg_001.mp3","duration_ms":1800,"marks":[{"word":"欢迎","start_ms":0,"end_ms":420},{"word":"来到","start_ms":430,"end_ms":820}],"emotion":"neutral"}
+data: {"type":"tts_segment_ready","segment_id":"seg_001","segment_index":0,"audio_url":"/api/v1/tts/file/seg_001.mp3","file_name":"seg_001.mp3","duration_ms":1800,"marks":[{"text":"欢","start_ms":0,"end_ms":210,"phonemes":["h","u","an"]},{"text":"迎","start_ms":210,"end_ms":420,"phonemes":["i","ng"]}],"emotion":"neutral"}
 ```
 
 NDJSON 不再作为当前后端实现目标，只作为后续兼容备选：
@@ -217,7 +217,7 @@ Android 端应优先实现 SSE 解析，同时可将解析器设计为按行读�
 |------|----------|----------|------------|
 | `message_start` | 流开始 | 当前已实现 | 绑定 `message_id`、`session_id` |
 | `text_delta` | 每次文本增量 | 是 | 追加到机器人消息气泡 |
-| `tts_segment` | 可朗读片段切出后立即发送 | 已实现 | 创建片段队列项，记录文本、音色和预告 URL |
+| `tts_segment` | 可朗读片段切出后立即发送 | 已实现 | 记录片段元信息和预告 URL，不下载、不播放 |
 | `tts_segment_ready` | **音频文件已生成** | 已实现 | **播放 `audio_url`，用 `marks` 驱动口型** |
 | `tts_audio_error` | 某个 TTS 片段合成失败或被取消 | 已实现 | 标记该片段失败，跳过播放并释放后续排队片段 |
 | `avatar_action` | 流开始后立即发送（基于用户问题推断） | 当前已实现 | 更新数字人表情、动作 |
@@ -259,7 +259,7 @@ Android 端应优先实现 SSE 解析，同时可将解析器设计为按行读�
 
 ### 5.4 `tts_segment`
 
-> 后端已发送该事件。`ChatService.stream_chat_events()` 在接收 `text_delta` 的同时按情绪边界优先、句子边界次之的策略缓冲文本，切分出可朗读片段后立即推送 `tts_segment`，随后后台调用 `TTSService.stream_synthesize()` 推送音频 chunk。
+> 后端已发送该事件。`ChatService.stream_chat_events()` 在接收 `text_delta` 的同时按情绪边界优先、句子边界次之的策略缓冲文本，切分出可朗读片段后立即推送 `tts_segment`。音频合成在后台执行，文件写盘完成后再推送 `tts_segment_ready`。
 
 ```json
 {
@@ -297,7 +297,7 @@ Android 端应优先实现 SSE 解析，同时可将解析器设计为按行读�
 约束：
 
 - `tts_segment.text` 必须是已通过 `text_delta` 展示过的文本子串。
-- `tts_segment` 只负责让移动端提前建立队列项；不要立即请求 `audio_url` 强依赖文件已存在。
+- `tts_segment` 只负责让移动端记录队列元信息；不要立即请求 `audio_url`，此时文件可能不存在并返回 404。
 - 移动端播放下一段前，应重置或重新启动该片段的口型时间轴。
 
 ### 5.5 `tts_segment_ready`（当前主事件）
@@ -308,10 +308,11 @@ Android 端应优先实现 SSE 解析，同时可将解析器设计为按行读�
   "segment_id": "seg_001",
   "segment_index": 0,
   "audio_url": "/api/v1/tts/file/seg_001.mp3",
+  "file_name": "seg_001.mp3",
   "duration_ms": 1800,
   "marks": [
-    { "word": "欢迎", "start_ms": 0, "end_ms": 420 },
-    { "word": "来到", "start_ms": 430, "end_ms": 820 }
+    { "text": "欢", "start_ms": 0, "end_ms": 210, "phonemes": ["h", "u", "an"] },
+    { "text": "迎", "start_ms": 210, "end_ms": 420, "phonemes": ["i", "ng"] }
   ],
   "emotion": "welcoming"
 }
@@ -323,14 +324,16 @@ Android 端应优先实现 SSE 解析，同时可将解析器设计为按行读�
 |------|------|------|------|
 | `segment_id` | String | 是 | 对应 `tts_segment.segment_id` |
 | `segment_index` | Int | 是 | 对应 `tts_segment.segment_index` |
-| `audio_url` | String | 是 | 最终落盘 MP3，可直接播放 |
+| `audio_url` | String | 是 | 最终落盘 MP3 的相对路径，拼接服务器 base URL 后播放 |
+| `file_name` | String | 否 | 音频文件名 |
 | `duration_ms` | Int / null | 否 | 音频总时长（毫秒） |
-| `marks` | Array | 否 | 词级时间标记，用于口型同步 |
+| `marks` | Array | 否 | 字/词级时间标记，用于口型同步；`text` 为主字段，Android 兼容旧 `word` 字段 |
 | `emotion` | String | 否 | 该片段情绪 |
 
 约束：
 
-- 移动端收到 `tts_segment_ready` 后立即用 ExoPlayer 播放 `audio_url`。
+- 移动端收到 `tts_segment_ready` 后，按 `segment_index` 排序，用 ExoPlayer 播放 `audio_url`。
+- `audio_url` 是相对路径，播放前用当前服务器 base URL 拼成完整地址。
 - 口型同步直接用播放器当前进度匹配 `marks.start_ms/end_ms`。
 - `marks[-1].end_ms` 与 `duration_ms` 对齐；不要按字符数或其它时长重新拉伸 marks。
 - 若 `audio_url` 播放失败，跳过该段，等待后续片段或 `done` 后整段 TTS 降级。
@@ -548,7 +551,7 @@ TTS 合成短句（携带情绪对应韵律参数）
       ├─ 立即发送 tts_segment（段落元信息预告）
       └─ 合成完成后发送 tts_segment_ready（audio_url / duration_ms / marks）
       ▼
-移动端直接播放 audio_url
+移动端收到 tts_segment_ready 后拼接完整 audio_url 并排队播放
 ```
 
 当前后端实现中，`text_delta`、`tts_segment` 和 TTS 合成已解耦：原始 delta 会先解析并剥离情绪标签后发送给移动端，TTS 合成在后台任务中执行，音频文件生成完成后通过 `tts_segment_ready` 推送，避免语音合成阻塞后续文字展示。
@@ -693,7 +696,9 @@ data class TtsAudioErrorData(
 data class TtsSegmentData(
     @SerialName("segment_id")
     val segmentId: String,
-    val text: String,
+    @SerialName("segment_index")
+    val segmentIndex: Int? = null,
+    val text: String = "",
     @SerialName("audio_url")
     val audioUrl: String,
     @SerialName("duration_ms")
@@ -705,6 +710,22 @@ data class TtsSegmentData(
     val emotion: String? = null,
     val marks: List<TtsMarkItem>? = null
 )
+
+@Serializable
+data class TtsMarkItem(
+    @SerialName("word")
+    val word: String = "",
+    @SerialName("text")
+    val text: String? = null,
+    @SerialName("start_ms")
+    val startMs: Int,
+    @SerialName("end_ms")
+    val endMs: Int,
+    val phonemes: List<String>? = null
+) {
+    val spokenText: String
+        get() = word.ifBlank { text.orEmpty() }
+}
 ```
 
 ### 7.4 流式解析内部 DTO
@@ -1029,11 +1050,13 @@ class StreamingTtsQueue @Inject constructor(
 
 | 场景 | 行为 |
 |------|------|
+| 收到 `tts_segment` | 仅记录元信息和 `segment_index`，不请求、不播放 `audio_url` |
 | 收到 `tts_segment_ready` | 入队；若当前空闲则立即播放 |
 | 当前片段播放中，收到新 `tts_segment_ready` | 加入队列尾部，顺序播放 |
 | 当前片段播完，队列有下一段 | 立即播放下一段 |
-| 当前片段播完，队列为空，流未结束 | 进入等待状态，口型归零 |
+| 当前片段播完，队列为空，流未结束 | 进入等待状态；后续 ready 到达后从 ENDED 状态恢复播放 |
 | 当前片段播完，队列为空，流已结束 | 恢复 IDLE |
+| 收到 `tts_audio_error` | 跳过对应 `segment_index`，释放后续可播放片段 |
 | 用户发送新问题 | 取消当前音频、清空队列、epoch 递增 |
 | `sessionEpoch` 不匹配 | 丢弃该事件，防止旧流串扰 |
 
@@ -1141,7 +1164,7 @@ _isLoading = false
 ### 阶段 5：TTS 片段队列
 
 1. 新增 `StreamingTtsQueue`。
-2. 消费 `tts_segment_ready.audio_url` 直接播放（ExoPlayer）。
+2. 消费 `tts_segment_ready.audio_url`，拼接当前服务器 base URL 后交给 ExoPlayer 播放。
 3. 使用 `Channel<TtsSegmentData>(20)` 有界缓冲，防止内存无限增长。
 4. 实现 `PlaybackState` 状态机：`Idle` → `Receiving` → `Draining` → `Idle`。
 5. 实现 `sessionEpoch` 机制，防止旧流事件串扰。
@@ -1175,9 +1198,9 @@ _isLoading = false
 
 ### 15.2 流式 TTS
 
-- 收到 `tts_segment_ready` 后直接播放 `audio_url`。
+- 收到 `tts_segment_ready` 后，拼接完整 `audio_url` 并按 `segment_index` 入队播放。
 - 当前片段播放时，后续片段可以继续入队。
-- 文本卡顿且队列为空时，TTS 自然停顿，口型归零。
+- 文本卡顿且队列为空时，TTS 自然停顿，等待后续 ready 片段。
 - 后续新片段到达后，TTS 自动继续播放。
 - 所有片段播放完成后，数字人恢复 IDLE。
 
@@ -1206,7 +1229,7 @@ _isLoading = false
 | 2 | `tts_segment` 由后端生成还是移动端拿 delta 后再请求 TTS | **已采用后端生成**；Android 端仍需保留整段 TTS 降级 |
 | 3 | 首段最短长度 | 建议 8-12 个中文字符或 800ms 超时强制切分 |
 | 4 | `tts_segment.text` 与展示文本不一致时如何处理 | 允许不完全一致，但必须语义一致 |
-| 5 | TTS 播放失败是否跳过该段 | **直接播放 `tts_segment_ready.audio_url`**；播放失败则跳过该段，继续播放下一段 |
+| 5 | TTS 播放失败是否跳过该段 | **播放 `tts_segment_ready.audio_url` 拼接后的完整 URL**；播放失败则跳过该段，继续播放下一段 |
 | 6 | 是否保留非流式开关 | **已保留**：`POST /api/v1/chat/text` 作为降级路径 |
 | 7 | `tts_audio_chunk` 是否仍需解析 | **已确认：Android 端忽略**，后端保留发送但 `StreamingChatClient` 返回 `null` |
 | 8 | 自动续写次数上限 | **已确认：3 次**（`MAX_STREAM_CONTINUATION_ATTEMPTS = 3`） |
@@ -1216,7 +1239,7 @@ _isLoading = false
 
 ## 十七、与现有接口文档的关系
 
-- `API_CONTRACT.md` v9.0 已正式纳入 `POST /api/v1/chat/text/stream` 及全部事件定义。
+- [`../api/API_CONTRACT.md`](../api/API_CONTRACT.md) 已正式纳入 `POST /api/v1/chat/text/stream` 及全部事件定义。
 - 本文档描述流式链路的完整实现与 Android 端架构。
 - 当前稳定范围：**文本 SSE + 结构化事件 + `tts_segment_ready` 分段音频 + `PrematurelyEnded` 自动续写 + 认证/反馈/会话管理**。
-- `API_TTS_USAGE.md` 中的独立 TTS 接口仍保留，作为非流式与降级能力。
+- [`../tts/API_TTS_USAGE.md`](../tts/API_TTS_USAGE.md) 中的独立 TTS 接口仍保留，作为非流式与降级能力。

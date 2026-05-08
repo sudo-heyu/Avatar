@@ -174,6 +174,7 @@ class AudioPlayer(private val context: Context) {
     fun enqueue(url: String) {
         checkMainThread()
         Log.d(TAG, "enqueue: $url, state=${player.playbackState}, items=${player.mediaItemCount}, idx=${player.currentMediaItemIndex}")
+        currentUrl = url
         val mediaItem = MediaItem.Builder()
             .setUri(url)
             .setMediaId(url)
@@ -186,8 +187,10 @@ class AudioPlayer(private val context: Context) {
             }
             Player.STATE_ENDED -> {
                 val targetIdx = (player.currentMediaItemIndex + 1).coerceAtMost(player.mediaItemCount - 1)
-                Log.d(TAG, "从 ENDED 恢复，seekTo $targetIdx")
+                Log.d(TAG, "从 ENDED 恢复，seekTo $targetIdx 并继续播放")
                 player.seekToDefaultPosition(targetIdx)
+                player.prepare()
+                player.playWhenReady = true
             }
             else -> {
                 if (!player.playWhenReady) {

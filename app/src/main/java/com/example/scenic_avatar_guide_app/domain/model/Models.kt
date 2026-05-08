@@ -73,19 +73,12 @@ data class ChatTextRequest(
     val userId: String,
     @SerialName("scenic_id")
     val scenicId: String,
+    @SerialName("profile_id")
+    val profileId: String? = null,
     val question: String,
     @SerialName("spot_id")
     val spotId: String? = null,
-    /**
-     * 交互模式
-     * "chat" = 聊天问答（纯文本或图文）
-     * "route" = 路线规划（返回结构化路线数据）
-     */
     val mode: String = "chat",
-    /**
-     * 用户上传图片的 URL
-     * 聊天模式下，若用户上传了图片，先调用 /api/v1/upload/image 获取 url 后填入
-     */
     @SerialName("image_url")
     val imageUrl: String? = null,
     val options: ChatOptions? = null
@@ -93,49 +86,46 @@ data class ChatTextRequest(
 
 @Serializable
 data class ChatOptions(
-    @SerialName("need_avatar")
-    val needAvatar: Boolean = true,
-    @SerialName("need_sources")
-    val needSources: Boolean = true,
-    /**
-     * TTS 发音人 ID（如 zh-CN-XiaoxiaoNeural）
-     */
     val voice: String? = null,
-    /**
-     * 流式 TTS 语速，如 +10%、-20%，默认 +0%
-     */
     val rate: String? = null,
-    /**
-     * 流式 TTS 音量，如 +10%，默认 +0%
-     */
     val volume: String? = null,
-    /**
-     * 流式 TTS 音调，如 +5Hz、-5Hz，默认 +0Hz
-     */
     val pitch: String? = null
 )
 
 @Serializable
 data class ChatAbortRequest(
     @SerialName("session_id")
-    val sessionId: String,
+    val sessionId: String? = null,
     @SerialName("message_id")
-    val messageId: String
+    val messageId: String? = null,
+    val reason: String? = null
 )
 
 @Serializable
 data class ChatAbortResponse(
     val code: Int,
-    val message: String
+    val message: String,
+    val data: ChatAbortResponseData? = null
+)
+
+@Serializable
+data class ChatAbortResponseData(
+    val aborted: Boolean,
+    @SerialName("aborted_message_ids")
+    val abortedMessageIds: List<String> = emptyList(),
+    val reason: String? = null
 )
 
 // ==================== 数字人动作系统 ====================
 
 /**
- * 数字人动作数据
+ * 数字人动作数据（Combo 预设或实时动作）
  */
 @Serializable
 data class AvatarAction(
+    @SerialName("text")
+    val text: String? = null,
+
     @SerialName("expression")
     val expression: AvatarExpressionData? = null,
 
@@ -261,7 +251,10 @@ data class ResponseMetadata(
     val isFallback: Boolean? = null,
 
     @SerialName("latency_ms")
-    val latencyMs: Long? = null
+    val latencyMs: Long? = null,
+
+    @SerialName("combo")
+    val combo: String? = null
 )
 
 // ==================== 图片上传 ====================
@@ -286,16 +279,34 @@ data class UploadImageData(
  */
 @Serializable
 data class RouteData(
+    @SerialName("route_id")
+    val routeId: String? = null,
+
     val title: String,
+
+    @SerialName("scenic_id")
+    val scenicId: String? = null,
+
+    @SerialName("interest_tags")
+    val interestTags: List<String>? = null,
+
+    @SerialName("current_spot")
+    val currentSpot: String? = null,
+
     @SerialName("total_duration_min")
     val totalDurationMin: Int,
+
     @SerialName("total_distance_m")
     val totalDistanceM: Int? = null,
+
+    val reason: String? = null,
+
+    val highlights: List<String>? = null,
+
+    val tips: List<String>? = null,
+
     val spots: List<RouteSpot>,
-    /**
-     * 地图路径坐标数组（可选）
-     * 用于在地图上绘制路线 polyline
-     */
+
     val polyline: List<LatLngPoint>? = null
 )
 
@@ -395,12 +406,22 @@ data class SessionDetailData(
     val sessionId: String,
     @SerialName("user_id")
     val userId: String,
+    @SerialName("scenic_id")
+    val scenicId: String? = null,
+    @SerialName("spot_id")
+    val spotId: String? = null,
+    @SerialName("device_id")
+    val deviceId: String? = null,
     val title: String? = null,
     val status: String,
     @SerialName("message_count")
     val messageCount: Int = 0,
     @SerialName("context_summary")
     val contextSummary: String? = null,
+    @SerialName("last_message_at")
+    val lastMessageAt: String? = null,
+    @SerialName("created_at")
+    val createdAt: String? = null,
     val messages: List<MessageInfo> = emptyList()
 )
 
@@ -408,6 +429,8 @@ data class SessionDetailData(
 data class MessageInfo(
     @SerialName("message_id")
     val messageId: String,
+    @SerialName("session_id")
+    val sessionId: String? = null,
     val role: String,
     val content: String,
     @SerialName("avatar_action")
@@ -416,6 +439,10 @@ data class MessageInfo(
     val sources: List<SourceInfo>? = null,
     @SerialName("route_data")
     val routeData: RouteData? = null,
+    val emotion: String? = null,
+    val intent: String? = null,
+    @SerialName("latency_ms")
+    val latencyMs: Int? = null,
     @SerialName("created_at")
     val createdAt: String? = null
 )
@@ -445,7 +472,44 @@ data class ArchiveSessionData(
 @Serializable
 data class DeleteSessionResponse(
     val code: Int,
-    val message: String
+    val message: String,
+    val data: DeleteSessionData? = null
+)
+
+@Serializable
+data class DeleteSessionData(
+    @SerialName("session_id")
+    val sessionId: String,
+    val deleted: Boolean
+)
+
+// ==================== 会话标题修改 ====================
+
+@Serializable
+data class PatchSessionRequest(
+    val title: String
+)
+
+// ==================== 路线推荐 ====================
+
+@Serializable
+data class RouteRecommendRequest(
+    @SerialName("scenic_id")
+    val scenicId: String,
+    @SerialName("duration_min")
+    val durationMin: Int? = null,
+    @SerialName("interest_tags")
+    val interestTags: List<String>? = null,
+    @SerialName("current_spot")
+    val currentSpot: String? = null,
+    val question: String? = null
+)
+
+@Serializable
+data class RouteRecommendResponse(
+    val code: Int,
+    val message: String,
+    val data: RouteData? = null
 )
 
 // ==================== UI 模型 ====================

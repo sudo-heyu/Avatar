@@ -361,7 +361,7 @@ class MainViewModel @Inject constructor(
     val volumeLevel: StateFlow<Float> = _volumeLevel.asStateFlow()
 
     // 测试面板是否显示
-    private val _showTestPanel = MutableStateFlow(true)
+    private val _showTestPanel = MutableStateFlow(false)
     val showTestPanel: StateFlow<Boolean> = _showTestPanel.asStateFlow()
 
     // 待发送图片 URI
@@ -372,13 +372,13 @@ class MainViewModel @Inject constructor(
     private val _showScenicSelection = MutableStateFlow(false)
     val showScenicSelection: StateFlow<Boolean> = _showScenicSelection.asStateFlow()
 
-    // 当前发音人（默认 Edge-TTS 晓晓）
+    // 当前发音人（默认 Edge-TTS 晓伊）
     private val _currentVoice = MutableStateFlow(VoiceInfo(
-        id = "zh-CN-XiaoxiaoNeural",
-        displayName = "晓晓",
-        description = "亲和女声",
+        id = "zh-CN-XiaoyiNeural",
+        displayName = "晓伊",
+        description = "活泼女声",
         gender = com.example.scenic_avatar_guide_app.core.tts.Gender.FEMALE,
-        style = VoiceStyle.FRIENDLY
+        style = VoiceStyle.GENTLE
     ))
     val currentVoice: StateFlow<VoiceInfo> = _currentVoice.asStateFlow()
 

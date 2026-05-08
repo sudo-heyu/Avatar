@@ -129,23 +129,10 @@ class RemoteTTSController(
         CoroutineScope(Dispatchers.Main).launch {
             try {
                 Log.d(TAG, "TTS 请求文本: $cleanText")
-                var result = repository.synthesizeTTS(
+                val result = repository.synthesizeTTS(
                     text = cleanText,
-                    voice = currentVoiceId,
-                    rate = formatRate(currentSpeed),
-                    pitch = formatPitch(currentPitch),
-                    format = "audio_with_marks"
+                    voice = currentVoiceId
                 )
-                if (result.isFailure) {
-                    Log.w(TAG, "audio_with_marks 请求失败，重试普通 audio 格式", result.exceptionOrNull())
-                    result = repository.synthesizeTTS(
-                        text = cleanText,
-                        voice = currentVoiceId,
-                        rate = formatRate(currentSpeed),
-                        pitch = formatPitch(currentPitch),
-                        format = "audio"
-                    )
-                }
                 result.fold(
                     onSuccess = { data ->
                         updatePendingPhonemeEvents(cleanText, data)

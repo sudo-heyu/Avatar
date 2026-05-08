@@ -76,7 +76,7 @@ data class TtsSegmentData(
     val segmentId: String,
     @SerialName("segment_index")
     val segmentIndex: Int? = null,
-    val text: String,
+    val text: String = "",
     @SerialName("audio_url")
     val audioUrl: String,
     @SerialName("duration_ms")

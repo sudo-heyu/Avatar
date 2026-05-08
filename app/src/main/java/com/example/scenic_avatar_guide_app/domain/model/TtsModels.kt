@@ -8,11 +8,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class TtsSynthesizeRequest(
     val text: String,
-    val voice: String = "zh-CN-XiaoxiaoNeural",
-    val rate: String = "+0%",
-    val volume: String = "+0dB",
-    val pitch: String = "+0Hz",
-    val format: String = "audio_with_marks"
+    val voice: String
 )
 
 // ==================== TTS 合成响应 ====================
@@ -26,24 +22,25 @@ data class TtsSynthesizeResponse(
 
 @Serializable
 data class TtsSynthesizeData(
+    @SerialName("file_name")
+    val fileName: String? = null,
+
     @SerialName("audio_url")
     val audioUrl: String,
 
-    /**
-     * 音频总时长（毫秒）
-     * 后端暂未计算时可返回 null，因此使用可空类型
-     */
     @SerialName("duration_ms")
     val durationMs: Int? = null,
-
-    val voice: String,
 
     val marks: List<TtsMarkItem>? = null
 )
 
 @Serializable
 data class TtsMarkItem(
-    val text: String,
+    @SerialName("word")
+    val word: String = "",
+
+    @SerialName("text")
+    val text: String? = null,
 
     @SerialName("start_ms")
     val startMs: Int,
@@ -51,11 +48,11 @@ data class TtsMarkItem(
     @SerialName("end_ms")
     val endMs: Int,
 
-    /**
-     * 该字的音素序列（可选，后端未提供时由 Android 端本地生成）
-     */
     val phonemes: List<String>? = null
-)
+) {
+    val spokenText: String
+        get() = word.ifBlank { text.orEmpty() }
+}
 
 // ==================== TTS 发音人列表 ====================
 

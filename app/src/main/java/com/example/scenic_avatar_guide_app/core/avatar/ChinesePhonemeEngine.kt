@@ -233,7 +233,7 @@ object ChinesePhonemeEngine {
         val events = mutableListOf<PhonemeEvent>()
 
         marks.forEachIndexed { index, mark ->
-            val char = mark.text.firstOrNull() ?: return@forEachIndexed
+            val char = mark.spokenText.firstOrNull() ?: return@forEachIndexed
             val markDuration = (mark.endMs - mark.startMs).toLong()
 
             // 优先按后端提供的 phonemes 处理

@@ -443,4 +443,4 @@ find storage/audio -name "*.mp3" -mtime +7 -delete
 - Edge-TTS GitHub：`https://github.com/rany2/edge-tts`
 - FastAPI 文档：`https://fastapi.tiangolo.com/`
 - Android 端接口契约：`../api/API_CONTRACT.md`
-- 流式重构方案：`../api/API_STREAMING.md`
+- 流式重构方案：`../streaming/API_STREAMING.md`

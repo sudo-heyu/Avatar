@@ -1,20 +1,30 @@
-# TTS Marks 规范 — 字级音素时间戳
+# TTS Marks 规范 — WordBoundary 对齐的字级音素时间戳
 
-版本：v1.0  
-日期：2026-04-29  
+版本：v1.2  
+日期：2026-05-08  
 定位：Android 端高精度中文口型同步数据源
 
 ---
 
 ## 1. 概述
 
-`marks` 是 TTS 合成接口或流式 `tts_segment` 事件返回的**字级时间戳数组**，每个元素包含：
+`marks` 是 TTS 合成接口返回的**字级时间戳数组**。后端使用 Edge-TTS `WordBoundary` 获取真实词级边界，再把词内时长分配到单个汉字，因此 marks 不再按整句平均分配。
+
+每个元素包含：
 
 - 字符文本
 - 开始/结束时间（毫秒）
 - 拼音音素数组（声母 + 韵母拆分）
 
-Android 端 `LipSyncAnimator` 消费 `marks` 驱动口型动画，替代原来的固定 180ms/字估算。非流式场景中，`marks` 对齐整段音频；流式场景中，每个 `tts_segment.marks` 只对齐该分段音频，时间戳从该片段的 0ms 开始。
+Android 端 `LipSyncAnimator` 消费 `marks` 驱动口型动画，替代原来的固定 180ms/字估算。
+
+关键约束：
+
+- `duration_ms` 是保存后的 MP3 真实帧时长，供播放队列和片段续播使用。
+- `marks.start_ms` / `marks.end_ms` 是当前音频片段内的相对时间，从 0 开始。
+- `marks[-1].end_ms` 会对齐到 `duration_ms`，尾部 MP3 帧余量会作为 `SIL` 处理。
+- Android 端应直接按音频播放进度匹配 marks，不要按 `duration_ms` 再次拉伸 marks。
+- `marks[].text` 是当前推荐文本字段；Android 端兼容旧字段 `marks[].word`，读取时以 `word.ifBlank { text }` 兜底。
 
 ---
 
@@ -33,7 +43,7 @@ Android 端 `LipSyncAnimator` 消费 `marks` 驱动口型动画，替代原来�
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `text` | string | 单个字符（中文、英文、数字、标点或空格） |
+| `text` | string | 单个字符（中文、英文、数字、标点或空格）；尾部补齐静音时可为空字符串 |
 | `start_ms` | int | 该字符在音频中的起始时间（毫秒，从 0 开始） |
 | `end_ms` | int | 该字符在音频中的结束时间（毫秒） |
 | `phonemes` | list[string] | 音素数组；非 CJK 字符为空列表，纯标点为 `["SIL"]` |
@@ -65,42 +75,26 @@ Android 端 `LipSyncAnimator` 消费 `marks` 驱动口型动画，替代原来�
 
 ---
 
-### 2.3 流式 `tts_segment` 示例
-
-```json
-{
-  "type": "tts_segment",
-  "segment_id": "seg_001",
-  "text": "欢迎来到灵山胜境，",
-  "audio_url": "/api/v1/tts/file/seg_001.mp3",
-  "duration_ms": 1800,
-  "voice": "zh-CN-XiaoxiaoNeural",
-  "marks": [
-    { "text": "欢", "start_ms": 0, "end_ms": 220, "phonemes": ["h", "u", "an"] },
-    { "text": "迎", "start_ms": 220, "end_ms": 450, "phonemes": ["i", "ng"] }
-  ]
-}
-```
-
-约束：
-
-1. `start_ms` / `end_ms` 是片段内相对时间。
-2. 播放下一段 `tts_segment` 前，应重启该段口型时间轴。
-3. 队列为空但后端流未结束时，应停止口型并等待后续片段。
-
----
-
 ## 3. 音素分解规则
 
 ### 3.1 处理流程
 
 ```text
-文本 -> edge-tts SentenceBoundary（句子级时长）
-  -> 均分到每个字符
+文本 -> edge-tts WordBoundary（真实词级边界）
+  -> 按词边界定位到原文本
+  -> 词内时长均分到单个字符
+  -> 标点/词间间隙写入 SIL
+  -> MP3 帧时长补齐到 marks 尾部
   -> pypinyin 获取拼音/声母/韵母
   -> 音素拆分
   -> marks
 ```
+
+说明：
+
+- Edge-TTS 的 `WordBoundary` 对中文通常返回词组，例如“您好”“欢迎”“来到”“灵山”“胜境”。
+- 词组内部仍然没有单字真实边界，因此后端只在词内均分；这比整句均分精度高很多。
+- 若 Edge-TTS 未返回 `WordBoundary`，后端保留 `SentenceBoundary` 均分兜底。
 
 ### 3.2 声母处理
 
@@ -124,6 +118,7 @@ Android 端 `LipSyncAnimator` 消费 `marks` 驱动口型动画，替代原来�
 | 中文标点/空格/换行 | `["SIL"]` | 静音停顿 |
 | 英文字母/数字 | `[]` | 空数组，Android 端用振幅兜底 |
 | 非 CJK 符号 | `[]` | 同上 |
+| 尾部 MP3 帧补齐 | `["SIL"]` | `text` 可为空，用于让 `marks[-1].end_ms == duration_ms` |
 
 ---
 
@@ -144,6 +139,13 @@ marks.forEach { mark ->
 }
 ```
 
+同步建议：
+
+- 使用播放器当前播放进度作为唯一时间源。
+- 按 `currentPositionMs` 查找 `start_ms <= currentPositionMs < end_ms` 的 mark。
+- `duration_ms` 只用于音频队列、续播等待和片段总时长展示。
+- 不要根据字符数量重新计算 mark 时长，也不要把 marks 缩放到其它时长。
+
 ### 4.2 Fallback 策略
 
 | 场景 | Android 处理 |
@@ -152,6 +154,7 @@ marks.forEach { mark ->
 | `phonemes == []` | 使用音频振幅微调 mouthOpen |
 | `phonemes == ["SIL"]` | 强制闭嘴（mouthOpen = 0） |
 | marks 缺失 | 退回到字符时长估算（180ms/字） |
+| `text == "" && phonemes == ["SIL"]` | 尾部静音补齐，保持闭嘴 |
 
 ### 4.3 口型参数映射
 
@@ -198,6 +201,8 @@ storage/audio/output/
 └── tts_xxxx.json     # marks 数据
 ```
 
+缓存键包含文本、音色、语速、音量、音调、返回格式和后端缓存版本。当前 marks 算法升级为 `WordBoundary` 后，旧的整句均分缓存不会继续复用。
+
 ---
 
 ## 6. 相关文件
@@ -208,4 +213,4 @@ storage/audio/output/
 | `backend/app/services/tts_service.py` | marks 缓存与返回 |
 | `backend/app/api/v1/tts.py` | API 校验与响应 |
 | `backend/app/schemas/tts.py` | 数据模型定义 |
-| `docs/android/HIGH_PRECISION_CHINESE_LIP_SYNC.md` | Android 端口型同步方案 |
+| `docs/architecture/android/HIGH_PRECISION_CHINESE_LIP_SYNC.md` | Android 端口型同步方案 |

@@ -127,5 +127,5 @@ sealed class UiState<out T> {
 架构和需求文档位于：
 - `app/src/main/java/com/example/scenic_avatar_guide_app/docs/product/APP_REQUIREMENTS.md` - Android 端需求基线
 - `app/src/main/java/com/example/scenic_avatar_guide_app/docs/api/API_CONTRACT.md` - 移动端 API 接口契约
-- `app/src/main/java/com/example/scenic_avatar_guide_app/docs/api/API_STREAMING.md` - 流式输入输出方案
+- `app/src/main/java/com/example/scenic_avatar_guide_app/docs/streaming/API_STREAMING.md` - 流式输入输出方案
 - `app/src/main/java/com/example/scenic_avatar_guide_app/docs/backend/backend_architecture.md` - 后端对接基线与历史架构设计

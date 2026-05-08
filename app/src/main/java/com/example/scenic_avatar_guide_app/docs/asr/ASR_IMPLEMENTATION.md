@@ -45,7 +45,7 @@
 - `audio_url`
 - 服务端回传音频
 
-说明：`audio_url` 不作为 ASR 接口字段；在流式问答中，音频由 `tts_segment.audio_url` 随事件流返回，详见 `../api/API_STREAMING.md`。
+说明：`audio_url` 不作为 ASR 接口字段；在流式问答中，音频由 `tts_segment.audio_url` 随事件流返回，详见 `../streaming/API_STREAMING.md`。
 
 ---
 

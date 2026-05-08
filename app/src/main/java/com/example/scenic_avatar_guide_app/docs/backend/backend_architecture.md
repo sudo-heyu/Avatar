@@ -2,7 +2,7 @@
 
 > 2026-04-30 更新：本文件下方的大型”完整版后端目录设计”属于历史规划稿，**不再作为当前 Android 联调依据**。
 >
-> 当前正式基线以 [API_CONTRACT.md](./API_CONTRACT.md) 为准，Android 客户端依赖以下接口：
+> 当前正式基线以 [API_CONTRACT.md](../api/API_CONTRACT.md) 为准，Android 客户端依赖以下接口：
 >
 > **Android 端核心接口（streaming-only）**：
 > 1. `GET /api/v1/health`
@@ -43,7 +43,7 @@
 > 2. Android 端通过设置页配置同网段电脑的 `IP + 端口` 访问当前测试后端；
 > 3. 系统 TTS 仅作为 **极端离线场景的兜底**，用于独立文本合成测试；主链路不再依赖端侧 TTS。
 > 4. `POST /api/v1/chat/text`（非流式）已从 Android 端移除，仅作为后端内部保留接口。
-> 5. 流式接口详细方案见 `../api/API_STREAMING.md`。
+> 5. 流式接口详细方案见 `../streaming/API_STREAMING.md`。
 > 6. Android 端音频播放通过 `audio_url` 拼接 Base URL 访问 `GET /api/v1/tts/file/{file_name}`，不通过 Retrofit 直接调用。
 >
 > 以下能力都只能视为后续扩展，不能当作当前联调事实：
