@@ -1,0 +1,41 @@
+{
+  "mcpServers": {
+    "android": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "android-mcp-server"
+      ],
+      "env": {
+        "ANDROID_HOME": "F:\\Software\\AndroidStudioSDK"
+      }
+    },
+    "fadcat": {
+      "type": "stdio",
+      "command": "F:/Software/anaconda/python",
+      "args": [
+        "-m",
+        "src.mcp"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONPATH": "C:/Users/xumin/fadcat"
+      }
+    },
+    "gradle": {
+      "type": "stdio",
+      "command": "C:/Users/xumin/.jbang/bin/jbang",
+      "args": [
+        "run",
+        "--quiet",
+        "--fresh",
+        "dev.rnett.gradle-mcp:gradle-mcp:+"
+      ],
+      "env": {
+        "GRADLE_MCP_PROJECT_ROOT": "E:/scenic_avatar_guide_app",
+        "JAVA_HOME": "F:/Software/AndroidStudio/jbr"
+      }
+    }
+  }
+}
