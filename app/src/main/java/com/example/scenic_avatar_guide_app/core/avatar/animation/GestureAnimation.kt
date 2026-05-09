@@ -6,12 +6,12 @@ import com.example.scenic_avatar_guide_app.domain.model.AvatarGesture
  * 动作关键帧
  * @param durationMs 从上一帧到这一帧的持续时间
  * @param params 目标参数值
- * @param easing 缓动类型
+ * @param easing 缓动类型（默认使用更平滑的三次缓动）
  */
 data class GestureKeyframe(
     val durationMs: Long,
     val params: GestureParams,
-    val easing: EasingType = EasingType.EASE_IN_OUT_QUAD
+    val easing: EasingType = EasingType.EASE_IN_OUT_CUBIC
 )
 
 /**
@@ -27,41 +27,55 @@ data class GestureAnimation(
         /**
          * 点头动画
          * 自然的点头：两次下低，带身体前倾
+         *
+         * 缓动策略：
+         * - 启动帧：EASE_OUT（平滑启动，无停顿感）
+         * - 动作帧：EASE_IN_OUT（保持流畅）
+         * - 结束帧：EASE_IN（平滑减速到静止）
          */
         val NOD = GestureAnimation(
             keyframes = listOf(
-                // 初始状态
-                GestureKeyframe(0, GestureParams.IDLE),
-                // 下低（主要动作）
-                GestureKeyframe(200, GestureParams(angleY = 30f, bodyAngleY = 5f)),
-                // 回升
-                GestureKeyframe(160, GestureParams(angleY = 10f, bodyAngleY = 2f)),
-                // 再次下低（第二次点头）
-                GestureKeyframe(200, GestureParams(angleY = 28f, bodyAngleY = 4f)),
-                // 回到中间
-                GestureKeyframe(240, GestureParams.IDLE)
+                // 初始状态 -> 预备（平滑启动）
+                GestureKeyframe(200, GestureParams(angleY = -5f, bodyAngleY = -1f), EasingType.EASE_OUT_CUBIC),
+                // 预备 -> 下低（流畅过渡）
+                GestureKeyframe(300, GestureParams(angleY = 25f, bodyAngleY = 4f), EasingType.EASE_IN_OUT_CUBIC),
+                // 下低 -> 回升
+                GestureKeyframe(280, GestureParams(angleY = 8f, bodyAngleY = 1f), EasingType.EASE_IN_OUT_CUBIC),
+                // 回升 -> 再次下低
+                GestureKeyframe(300, GestureParams(angleY = 20f, bodyAngleY = 3f), EasingType.EASE_IN_OUT_CUBIC),
+                // 再次下低 -> 回升
+                GestureKeyframe(250, GestureParams(angleY = 5f, bodyAngleY = 1f), EasingType.EASE_OUT_CUBIC),
+                // 回升 -> 完全回正（平滑减速）
+                GestureKeyframe(350, GestureParams.IDLE, EasingType.EASE_IN_CUBIC)
             ),
             loopCount = 1
         )
 
         /**
          * 摇头动画
-         * 自然的摇头：左右摆动，带轻微歪头（幅度已调低，更克制自然）
+         * 自然的摇头：左右摆动，带轻微歪头
+         *
+         * 缓动策略：
+         * - 启动帧：EASE_OUT（平滑启动）
+         * - 中间摆动：EASE_IN_OUT（保持流畅）
+         * - 结束帧：EASE_IN（平滑减速）
          */
         val SHAKE = GestureAnimation(
             keyframes = listOf(
-                // 初始状态
-                GestureKeyframe(0, GestureParams.IDLE),
-                // 向左
-                GestureKeyframe(200, GestureParams(angleX = -12f, angleZ = 3f)),
-                // 向右
-                GestureKeyframe(250, GestureParams(angleX = 12f, angleZ = -3f)),
-                // 再向左
-                GestureKeyframe(250, GestureParams(angleX = -10f, angleZ = 2.5f)),
-                // 再向右
-                GestureKeyframe(220, GestureParams(angleX = 8f, angleZ = -2f)),
-                // 回到中间
-                GestureKeyframe(180, GestureParams.IDLE)
+                // 初始 -> 预备（平滑启动）
+                GestureKeyframe(200, GestureParams(angleX = 5f), EasingType.EASE_OUT_CUBIC),
+                // 预备 -> 向左
+                GestureKeyframe(350, GestureParams(angleX = -15f, angleZ = 4f), EasingType.EASE_IN_OUT_CUBIC),
+                // 向左 -> 经过中间
+                GestureKeyframe(250, GestureParams(angleX = 0f, angleZ = 0f), EasingType.EASE_IN_OUT_CUBIC),
+                // 中间 -> 向右
+                GestureKeyframe(350, GestureParams(angleX = 15f, angleZ = -4f), EasingType.EASE_IN_OUT_CUBIC),
+                // 向右 -> 经过中间
+                GestureKeyframe(250, GestureParams(angleX = 0f, angleZ = 0f), EasingType.EASE_OUT_CUBIC),
+                // 中间 -> 轻微向左
+                GestureKeyframe(250, GestureParams(angleX = -8f, angleZ = 2f), EasingType.EASE_IN_OUT_CUBIC),
+                // 向左 -> 完全回正（平滑减速）
+                GestureKeyframe(300, GestureParams.IDLE, EasingType.EASE_IN_CUBIC)
             ),
             loopCount = 1
         )
@@ -71,9 +85,10 @@ data class GestureAnimation(
          */
         val NOD_LIGHT = GestureAnimation(
             keyframes = listOf(
-                GestureKeyframe(0, GestureParams.IDLE),
-                GestureKeyframe(150, GestureParams(angleY = 12f, angleZ = 2f)),
-                GestureKeyframe(180, GestureParams.IDLE)
+                GestureKeyframe(250, GestureParams(angleY = -3f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(300, GestureParams(angleY = 12f, angleZ = 2f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(250, GestureParams(angleY = 3f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(300, GestureParams.IDLE, EasingType.EASE_IN_CUBIC)
             ),
             loopCount = 1
         )
@@ -83,13 +98,14 @@ data class GestureAnimation(
          */
         val SHAKE_STRONG = GestureAnimation(
             keyframes = listOf(
-                GestureKeyframe(0, GestureParams.IDLE),
-                GestureKeyframe(180, GestureParams(angleX = -15f, angleZ = 5f)),
-                GestureKeyframe(220, GestureParams(angleX = 15f, angleZ = -5f)),
-                GestureKeyframe(220, GestureParams(angleX = -14f, angleZ = 4.5f)),
-                GestureKeyframe(200, GestureParams(angleX = 12f, angleZ = -4f)),
-                GestureKeyframe(180, GestureParams(angleX = -8f, angleZ = 2.5f)),
-                GestureKeyframe(200, GestureParams.IDLE)
+                GestureKeyframe(250, GestureParams(angleX = 8f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(300, GestureParams(angleX = -18f, angleZ = 6f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(250, GestureParams(angleX = 5f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(300, GestureParams(angleX = 16f, angleZ = -5f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(250, GestureParams(angleX = -5f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(300, GestureParams(angleX = 12f, angleZ = -3f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(250, GestureParams(angleX = -4f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(350, GestureParams.IDLE, EasingType.EASE_IN_CUBIC)
             ),
             loopCount = 1
         )
@@ -97,22 +113,14 @@ data class GestureAnimation(
         /**
          * 挥手致意（欢迎场景）
          * 自然的侧首致意：头部向左倾斜，轻微下低，然后回正
-         * 配合身体微转，表达欢迎姿态
          */
         val WAVE = GestureAnimation(
             keyframes = listOf(
-                // 初始状态
-                GestureKeyframe(0, GestureParams.IDLE),
-                // 开始侧首（头向左倾斜）
-                GestureKeyframe(180, GestureParams(angleX = -12f, angleZ = -8f)),
-                // 加深致意（微低头 + 身体前倾）
-                GestureKeyframe(220, GestureParams(angleX = -15f, angleY = 8f, angleZ = -12f, bodyAngleY = 2f)),
-                // 保持姿态
-                GestureKeyframe(200, GestureParams(angleX = -14f, angleY = 6f, angleZ = -10f, bodyAngleY = 2f)),
-                // 开始回正
-                GestureKeyframe(180, GestureParams(angleX = -8f, angleZ = -5f)),
-                // 完全回正
-                GestureKeyframe(200, GestureParams.IDLE)
+                GestureKeyframe(350, GestureParams(angleX = -10f, angleZ = -6f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(400, GestureParams(angleX = -14f, angleY = 10f, angleZ = -10f, bodyAngleY = 3f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(350, GestureParams(angleX = -12f, angleY = 8f, angleZ = -9f, bodyAngleY = 2f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(350, GestureParams(angleX = -6f, angleY = 3f, angleZ = -4f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(350, GestureParams.IDLE, EasingType.EASE_IN_CUBIC)
             ),
             loopCount = 1
         )
@@ -120,22 +128,14 @@ data class GestureAnimation(
         /**
          * 鞠躬/欠身（感谢、道歉场景）
          * 庄重的鞠躬：身体前倾 + 头部下低，节奏较慢
-         * 表达敬意或歉意
          */
         val BOW = GestureAnimation(
             keyframes = listOf(
-                // 初始状态
-                GestureKeyframe(0, GestureParams.IDLE),
-                // 开始前倾（预备）
-                GestureKeyframe(200, GestureParams(angleY = 12f, bodyAngleY = 2f)),
-                // 鞠躬（头部下低 + 身体前倾 + 肩膀微耸）
-                GestureKeyframe(350, GestureParams(angleY = 28f, angleZ = 5f, bodyAngleY = 6f, shoulder = 0.5f)),
-                // 保持鞠躬姿态
-                GestureKeyframe(300, GestureParams(angleY = 26f, angleZ = 4f, bodyAngleY = 5f, shoulder = 0.4f)),
-                // 开始起身
-                GestureKeyframe(250, GestureParams(angleY = 15f, bodyAngleY = 3f, shoulder = 0.2f)),
-                // 完全回正
-                GestureKeyframe(200, GestureParams.IDLE)
+                GestureKeyframe(350, GestureParams(angleY = 10f, bodyAngleY = 2f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(500, GestureParams(angleY = 25f, angleZ = 4f, bodyAngleY = 8f, shoulder = 0.5f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(450, GestureParams(angleY = 23f, angleZ = 3f, bodyAngleY = 7f, shoulder = 0.4f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(400, GestureParams(angleY = 12f, bodyAngleY = 4f, shoulder = 0.2f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(350, GestureParams.IDLE, EasingType.EASE_IN_CUBIC)
             ),
             loopCount = 1
         )
@@ -143,22 +143,14 @@ data class GestureAnimation(
         /**
          * 向左示意（引导游客向左）
          * 头部转向左侧 + 眼球跟随 + 身体微转
-         * 表达"请往这边看"
          */
         val POINT_LEFT = GestureAnimation(
             keyframes = listOf(
-                // 初始状态
-                GestureKeyframe(0, GestureParams.IDLE),
-                // 开始转向左侧
-                GestureKeyframe(180, GestureParams(angleX = -18f, angleZ = 8f, eyeBallX = -0.6f)),
-                // 加深转向（眼球完全向左）
-                GestureKeyframe(220, GestureParams(angleX = -26f, angleY = 3f, angleZ = 12f, bodyAngleX = -3f, eyeBallX = -1.0f)),
-                // 保持示意姿态
-                GestureKeyframe(300, GestureParams(angleX = -24f, angleZ = 11f, bodyAngleX = -2f, eyeBallX = -0.9f)),
-                // 开始回正
-                GestureKeyframe(200, GestureParams(angleX = -12f, angleZ = 5f, eyeBallX = -0.4f)),
-                // 完全回正
-                GestureKeyframe(180, GestureParams.IDLE)
+                GestureKeyframe(350, GestureParams(angleX = -15f, angleZ = 6f, eyeBallX = -0.4f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(400, GestureParams(angleX = -22f, angleY = 2f, angleZ = 10f, bodyAngleX = -2f, eyeBallX = -0.8f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(450, GestureParams(angleX = -20f, angleZ = 9f, bodyAngleX = -1f, eyeBallX = -0.7f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(350, GestureParams(angleX = -10f, angleZ = 4f, eyeBallX = -0.3f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(350, GestureParams.IDLE, EasingType.EASE_IN_CUBIC)
             ),
             loopCount = 1
         )
@@ -170,18 +162,11 @@ data class GestureAnimation(
          */
         val POINT_RIGHT = GestureAnimation(
             keyframes = listOf(
-                // 初始状态
-                GestureKeyframe(0, GestureParams.IDLE),
-                // 开始转向右侧
-                GestureKeyframe(180, GestureParams(angleX = 18f, angleZ = -8f, eyeBallX = 0.6f)),
-                // 加深转向（眼球完全向右）
-                GestureKeyframe(220, GestureParams(angleX = 26f, angleY = 3f, angleZ = -12f, bodyAngleX = 3f, eyeBallX = 1.0f)),
-                // 保持示意姿态
-                GestureKeyframe(300, GestureParams(angleX = 24f, angleZ = -11f, bodyAngleX = 2f, eyeBallX = 0.9f)),
-                // 开始回正
-                GestureKeyframe(200, GestureParams(angleX = 12f, angleZ = -5f, eyeBallX = 0.4f)),
-                // 完全回正
-                GestureKeyframe(180, GestureParams.IDLE)
+                GestureKeyframe(350, GestureParams(angleX = 15f, angleZ = -6f, eyeBallX = 0.4f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(400, GestureParams(angleX = 22f, angleY = 2f, angleZ = -10f, bodyAngleX = 2f, eyeBallX = 0.8f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(450, GestureParams(angleX = 20f, angleZ = -9f, bodyAngleX = 1f, eyeBallX = 0.7f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(350, GestureParams(angleX = 10f, angleZ = -4f, eyeBallX = 0.3f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(350, GestureParams.IDLE, EasingType.EASE_IN_CUBIC)
             ),
             loopCount = 1
         )
@@ -192,18 +177,12 @@ data class GestureAnimation(
          */
         val POINT_FORWARD = GestureAnimation(
             keyframes = listOf(
-                // 初始状态
-                GestureKeyframe(0, GestureParams.IDLE),
-                // 开始前倾
-                GestureKeyframe(150, GestureParams(angleY = 15f, angleX = 5f, angleZ = -4f)),
-                // 颔首示意（眼球向下看）
-                GestureKeyframe(200, GestureParams(angleY = 22f, angleX = 8f, angleZ = -6f, eyeBallY = 0.3f)),
-                // 保持示意
-                GestureKeyframe(250, GestureParams(angleY = 20f, angleX = 6f, angleZ = -5f, eyeBallY = 0.25f)),
-                // 开始回正
-                GestureKeyframe(180, GestureParams(angleY = 10f, angleX = 3f)),
-                // 完全回正
-                GestureKeyframe(150, GestureParams.IDLE)
+                GestureKeyframe(300, GestureParams(angleY = -5f, angleZ = 3f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(350, GestureParams(angleY = 12f, angleX = 4f, angleZ = -5f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(400, GestureParams(angleY = 22f, angleX = 8f, angleZ = -8f, eyeBallY = 0.4f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(450, GestureParams(angleY = 20f, angleX = 6f, angleZ = -7f, eyeBallY = 0.35f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(350, GestureParams(angleY = 10f, angleX = 3f, angleZ = -3f, eyeBallY = 0.15f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(350, GestureParams.IDLE, EasingType.EASE_IN_CUBIC)
             ),
             loopCount = 1
         )
@@ -211,24 +190,16 @@ data class GestureAnimation(
         /**
          * 思考姿态（沉思场景）
          * 头部侧偏 + 微仰，表达思考状态
-         * 这是一个姿态性动作，保持时间较长
          */
         val THINKING_POSE = GestureAnimation(
             keyframes = listOf(
-                // 初始状态
-                GestureKeyframe(0, GestureParams.IDLE),
-                // 开始偏转
-                GestureKeyframe(200, GestureParams(angleX = 12f, angleZ = 10f)),
-                // 进入思考姿态（侧偏 + 微仰）
-                GestureKeyframe(300, GestureParams(angleX = 18f, angleY = -10f, angleZ = 18f, eyeBallX = 0.3f)),
-                // 保持思考（轻微晃动模拟自然感）
-                GestureKeyframe(400, GestureParams(angleX = 16f, angleY = -8f, angleZ = 20f)),
-                // 继续保持
-                GestureKeyframe(350, GestureParams(angleX = 19f, angleY = -11f, angleZ = 17f)),
-                // 开始回正
-                GestureKeyframe(250, GestureParams(angleX = 10f, angleY = -5f, angleZ = 8f)),
-                // 完全回正
-                GestureKeyframe(200, GestureParams.IDLE)
+                GestureKeyframe(350, GestureParams(angleX = 6f, angleZ = 5f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(400, GestureParams(angleX = 12f, angleY = -6f, angleZ = 12f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(450, GestureParams(angleX = 18f, angleY = -12f, angleZ = 20f, eyeBallX = 0.35f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(550, GestureParams(angleX = 16f, angleY = -10f, angleZ = 22f, eyeBallX = 0.3f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(500, GestureParams(angleX = 19f, angleY = -13f, angleZ = 18f, eyeBallX = 0.4f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(400, GestureParams(angleX = 10f, angleY = -6f, angleZ = 10f, eyeBallX = 0.15f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(350, GestureParams.IDLE, EasingType.EASE_IN_CUBIC)
             ),
             loopCount = 1
         )
@@ -236,22 +207,15 @@ data class GestureAnimation(
         /**
          * 引导姿态（路线指引场景）
          * 侧身 + 头部跟随，引导游客前往某方向
-         * 表达"请跟我来"
          */
         val GUIDE = GestureAnimation(
             keyframes = listOf(
-                // 初始状态
-                GestureKeyframe(0, GestureParams.IDLE),
-                // 开始侧转
-                GestureKeyframe(180, GestureParams(angleX = 15f, angleZ = -6f, bodyAngleX = 3f)),
-                // 引导姿态（侧身 + 头部跟随 + 眼球引导）
-                GestureKeyframe(250, GestureParams(angleX = 22f, angleY = 8f, angleZ = -8f, bodyAngleX = 5f, bodyAngleY = 3f, eyeBallX = 0.5f, eyeBallY = 0.2f)),
-                // 保持引导
-                GestureKeyframe(350, GestureParams(angleX = 20f, angleY = 6f, angleZ = -7f, bodyAngleX = 4f, eyeBallX = 0.4f)),
-                // 开始回正
-                GestureKeyframe(220, GestureParams(angleX = 10f, angleZ = -3f, bodyAngleX = 2f, eyeBallX = 0.2f)),
-                // 完全回正
-                GestureKeyframe(200, GestureParams.IDLE)
+                GestureKeyframe(350, GestureParams(angleX = 8f, angleZ = -4f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(400, GestureParams(angleX = 15f, angleZ = -7f, bodyAngleX = 3f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(450, GestureParams(angleX = 22f, angleY = 10f, angleZ = -10f, bodyAngleX = 5f, bodyAngleY = 4f, eyeBallX = 0.55f, eyeBallY = 0.25f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(500, GestureParams(angleX = 20f, angleY = 8f, angleZ = -9f, bodyAngleX = 4f, eyeBallX = 0.45f, eyeBallY = 0.2f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(400, GestureParams(angleX = 10f, angleZ = -4f, bodyAngleX = 2f, eyeBallX = 0.2f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(350, GestureParams.IDLE, EasingType.EASE_IN_CUBIC)
             ),
             loopCount = 1
         )
@@ -259,24 +223,16 @@ data class GestureAnimation(
         /**
          * 仰望姿态（观看高大景物场景）
          * 头部上仰 + 眼球向上，表达惊叹和敬畏
-         * 用于观看大佛、高塔等场景
          */
         val LOOK_UP = GestureAnimation(
             keyframes = listOf(
-                // 初始状态
-                GestureKeyframe(0, GestureParams.IDLE),
-                // 开始抬头
-                GestureKeyframe(200, GestureParams(angleY = -20f, eyeBallY = 0.5f)),
-                // 仰望姿态（头部上仰 + 身体微后仰 + 眼球向上）
-                GestureKeyframe(280, GestureParams(angleY = -32f, angleZ = 8f, bodyAngleY = -8f, eyeBallY = 0.9f)),
-                // 保持仰望（表达敬畏）
-                GestureKeyframe(350, GestureParams(angleY = -30f, angleZ = 7f, bodyAngleY = -7f, eyeBallY = 0.85f)),
-                // 轻微点头（表示震撼）
-                GestureKeyframe(200, GestureParams(angleY = -25f, angleZ = 6f, bodyAngleY = -5f, eyeBallY = 0.7f)),
-                // 开始回正
-                GestureKeyframe(220, GestureParams(angleY = -12f, eyeBallY = 0.3f)),
-                // 完全回正
-                GestureKeyframe(180, GestureParams.IDLE)
+                GestureKeyframe(350, GestureParams(angleY = 5f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(400, GestureParams(angleY = -18f, eyeBallY = 0.45f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(450, GestureParams(angleY = -35f, angleZ = 10f, bodyAngleY = -10f, eyeBallY = 0.95f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(550, GestureParams(angleY = -32f, angleZ = 8f, bodyAngleY = -8f, eyeBallY = 0.9f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(400, GestureParams(angleY = -28f, angleZ = 7f, bodyAngleY = -6f, eyeBallY = 0.75f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(400, GestureParams(angleY = -15f, eyeBallY = 0.35f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(350, GestureParams.IDLE, EasingType.EASE_IN_CUBIC)
             ),
             loopCount = 1
         )
@@ -284,24 +240,16 @@ data class GestureAnimation(
         /**
          * 聆听姿态（倾听用户说话场景）
          * 头部侧偏前倾，表达专注聆听
-         * 表达"我在认真听您说"
          */
         val LISTEN = GestureAnimation(
             keyframes = listOf(
-                // 初始状态
-                GestureKeyframe(0, GestureParams.IDLE),
-                // 开始侧转
-                GestureKeyframe(150, GestureParams(angleX = 12f, angleZ = -8f)),
-                // 聆听姿态（侧偏 + 前倾 + 眼球专注）
-                GestureKeyframe(200, GestureParams(angleX = 18f, angleY = 12f, angleZ = -14f, eyeBallX = -0.3f, eyeBallY = 0.15f)),
-                // 保持聆听（轻微晃动表示在听）
-                GestureKeyframe(350, GestureParams(angleX = 16f, angleY = 11f, angleZ = -12f)),
-                // 继续保持
-                GestureKeyframe(300, GestureParams(angleX = 19f, angleY = 13f, angleZ = -15f)),
-                // 开始回正
-                GestureKeyframe(200, GestureParams(angleX = 8f, angleY = 5f, angleZ = -6f)),
-                // 完全回正
-                GestureKeyframe(150, GestureParams.IDLE)
+                GestureKeyframe(350, GestureParams(angleX = 6f, angleZ = -5f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(400, GestureParams(angleX = 14f, angleZ = -10f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(450, GestureParams(angleX = 18f, angleY = 14f, angleZ = -16f, eyeBallX = -0.35f, eyeBallY = 0.18f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(550, GestureParams(angleX = 16f, angleY = 12f, angleZ = -14f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(500, GestureParams(angleX = 19f, angleY = 15f, angleZ = -17f, eyeBallX = -0.3f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(400, GestureParams(angleX = 8f, angleY = 6f, angleZ = -7f, eyeBallX = -0.15f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(350, GestureParams.IDLE, EasingType.EASE_IN_CUBIC)
             ),
             loopCount = 1
         )
@@ -309,29 +257,249 @@ data class GestureAnimation(
         /**
          * 欢迎手势（热情欢迎场景）
          * 更热情的致意，配合点头
-         * 用于初次见面或重要欢迎场合
          */
         val WELCOME_GESTURE = GestureAnimation(
             keyframes = listOf(
-                // 初始状态
-                GestureKeyframe(0, GestureParams.IDLE),
-                // 开始致意
-                GestureKeyframe(160, GestureParams(angleX = -10f, angleZ = -8f, bodyAngleY = 2f)),
-                // 加深欢迎姿态
-                GestureKeyframe(200, GestureParams(angleX = -16f, angleY = 10f, angleZ = -14f, bodyAngleY = 4f)),
-                // 配合点头（第一次）
-                GestureKeyframe(180, GestureParams(angleX = -14f, angleY = 18f, angleZ = -12f, bodyAngleY = 3f)),
-                // 抬头
-                GestureKeyframe(160, GestureParams(angleX = -12f, angleY = 8f, angleZ = -10f)),
-                // 再次点头（第二次，更轻）
-                GestureKeyframe(180, GestureParams(angleX = -10f, angleY = 14f, angleZ = -8f)),
-                // 开始回正
-                GestureKeyframe(200, GestureParams(angleX = -6f, angleZ = -4f)),
-                // 完全回正
-                GestureKeyframe(180, GestureParams.IDLE)
+                GestureKeyframe(350, GestureParams(angleY = 5f, bodyAngleY = 1f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(400, GestureParams(angleX = -10f, angleZ = -8f, bodyAngleY = 3f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(450, GestureParams(angleX = -16f, angleY = 12f, angleZ = -14f, bodyAngleY = 5f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(400, GestureParams(angleX = -14f, angleY = 20f, angleZ = -12f, bodyAngleY = 4f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(350, GestureParams(angleX = -12f, angleY = 10f, angleZ = -10f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(400, GestureParams(angleX = -10f, angleY = 16f, angleZ = -9f), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(350, GestureParams(angleX = -5f, angleZ = -4f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(350, GestureParams.IDLE, EasingType.EASE_IN_CUBIC)
             ),
             loopCount = 1
         )
+
+        // ==================== 待机动画系列 ====================
+        // 参考 Hiyori 模型的官方 Idle 动作设计
+        // 多个变体随机播放，增加自然感
+        // 待机动画使用柔和的缓动曲线
+
+        /**
+         * 待机动画 1：左顾右盼
+         * 头部左右转动，带身体跟随
+         */
+        val IDLE_1 = GestureAnimation(
+            keyframes = listOf(
+                GestureKeyframe(500, GestureParams(angleX = 5f, angleZ = -3f, breath = 0.3f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(1000, GestureParams(
+                    angleX = -18f, angleY = 0f, angleZ = 8f,
+                    bodyAngleX = 2f, bodyAngleY = 0f, bodyAngleZ = 3f,
+                    eyeBallX = -0.31f, eyeBallY = 0.21f,
+                    breath = 0.5f
+                ), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(400, GestureParams(
+                    angleX = -18f, angleY = 0f, angleZ = 8f,
+                    bodyAngleX = 2f, bodyAngleY = 0f, bodyAngleZ = 3f,
+                    eyeBallX = -0.31f, eyeBallY = 0.21f,
+                    eyeOpen = 0f,
+                    breath = 0.8f
+                ), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(300, GestureParams(
+                    angleX = -18f, angleY = 0f, angleZ = 8f,
+                    bodyAngleX = 2f, bodyAngleY = 0f, bodyAngleZ = 3f,
+                    eyeBallX = -0.31f, eyeBallY = 0.21f,
+                    eyeOpen = 1f,
+                    breath = 1f
+                ), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(600, GestureParams(
+                    angleX = 0f, angleZ = 0f,
+                    bodyAngleX = 0f,
+                    eyeBallX = 0f, eyeBallY = 0.15f,
+                    breath = 0.6f
+                ), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(1000, GestureParams(
+                    angleX = 18f, angleY = 0f, angleZ = -8f,
+                    bodyAngleX = -2f, bodyAngleY = 0f, bodyAngleZ = -3f,
+                    eyeBallX = 0.31f, eyeBallY = 0.21f,
+                    breath = 0.5f
+                ), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(800, GestureParams(
+                    angleX = 0f, angleY = 0f, angleZ = 0f,
+                    bodyAngleX = 0f, bodyAngleY = 0f, bodyAngleZ = 0f,
+                    eyeBallX = 0f, eyeBallY = 0.1f,
+                    breath = 0f
+                ), EasingType.EASE_IN_CUBIC)
+            ),
+            loopCount = 1
+        )
+
+        /**
+         * 待机动画 2：点头微笑
+         * 轻微点头，眼睛微笑
+         */
+        val IDLE_2 = GestureAnimation(
+            keyframes = listOf(
+                GestureKeyframe(500, GestureParams(angleY = -6f, bodyAngleY = -2f, breath = 0.3f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(800, GestureParams(
+                    angleX = 0f, angleY = -10f, angleZ = 0f,
+                    bodyAngleX = 0f, bodyAngleY = -3f,
+                    eyeBallX = 0f, eyeBallY = 0.1f,
+                    eyeSmile = 0.2f,
+                    breath = 0.5f
+                ), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(600, GestureParams(
+                    angleX = 0f, angleY = 15f, angleZ = 0f,
+                    bodyAngleX = 0f, bodyAngleY = 4f,
+                    eyeBallX = 0f, eyeBallY = 0.2f,
+                    eyeSmile = 0.5f,
+                    breath = 0.8f
+                ), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(500, GestureParams(
+                    angleX = 0f, angleY = 10f, angleZ = 0f,
+                    bodyAngleX = 0f, bodyAngleY = 3f,
+                    eyeBallX = 0f, eyeBallY = 0.15f,
+                    eyeOpen = 0.3f,
+                    eyeSmile = 0.7f,
+                    breath = 1f
+                ), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(700, GestureParams(
+                    angleX = 0f, angleY = 3f, angleZ = 0f,
+                    bodyAngleX = 0f, bodyAngleY = 1f,
+                    eyeBallX = 0f, eyeBallY = 0.1f,
+                    eyeSmile = 0.3f,
+                    breath = 0.5f
+                ), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(600, GestureParams.IDLE, EasingType.EASE_IN_CUBIC)
+            ),
+            loopCount = 1
+        )
+
+        /**
+         * 待机动画 3：歪头思考
+         * 头部歪斜，眼球移动
+         */
+        val IDLE_3 = GestureAnimation(
+            keyframes = listOf(
+                GestureKeyframe(500, GestureParams(angleX = -5f, angleZ = 5f, breath = 0.3f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(1000, GestureParams(
+                    angleX = 10f, angleY = -5f, angleZ = 15f,
+                    bodyAngleX = -1f, bodyAngleY = 0f, bodyAngleZ = -4f,
+                    eyeBallX = 0.2f, eyeBallY = 0.38f,
+                    browY = 0.1f,
+                    breath = 0.5f
+                ), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(400, GestureParams(
+                    angleX = 10f, angleY = -5f, angleZ = 15f,
+                    bodyAngleX = -1f, bodyAngleY = 0f, bodyAngleZ = -4f,
+                    eyeBallX = 0.2f, eyeBallY = 0.38f,
+                    eyeOpen = 0f,
+                    browY = 0.1f,
+                    breath = 0.8f
+                ), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(350, GestureParams(
+                    angleX = 10f, angleY = -5f, angleZ = 15f,
+                    bodyAngleX = -1f, bodyAngleY = 0f, bodyAngleZ = -4f,
+                    eyeBallX = 0.2f, eyeBallY = 0.38f,
+                    eyeOpen = 1f,
+                    browY = 0.1f,
+                    breath = 1f
+                ), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(700, GestureParams(
+                    angleX = 0f, angleZ = 0f,
+                    bodyAngleX = 0f,
+                    eyeBallX = 0f, eyeBallY = 0.2f,
+                    browY = 0f,
+                    breath = 0.6f
+                ), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(1000, GestureParams(
+                    angleX = -10f, angleY = -5f, angleZ = -15f,
+                    bodyAngleX = 1f, bodyAngleY = 0f, bodyAngleZ = 4f,
+                    eyeBallX = -0.2f, eyeBallY = 0.38f,
+                    browY = 0f,
+                    breath = 0.5f
+                ), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(800, GestureParams(
+                    angleX = 0f, angleY = 0f, angleZ = 0f,
+                    bodyAngleX = 0f, bodyAngleY = 0f, bodyAngleZ = 0f,
+                    eyeBallX = 0f, eyeBallY = 0.1f,
+                    breath = 0f
+                ), EasingType.EASE_IN_CUBIC)
+            ),
+            loopCount = 1
+        )
+
+        /**
+         * 待机动画 4：深呼吸
+         * 身体起伏，肩膀运动
+         */
+        val IDLE_4 = GestureAnimation(
+            keyframes = listOf(
+                GestureKeyframe(500, GestureParams(angleY = 3f, breath = 0.2f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(900, GestureParams(
+                    angleX = 0f, angleY = -5f, angleZ = 0f,
+                    bodyAngleX = 0f, bodyAngleY = -3f, bodyAngleZ = 0f,
+                    shoulder = -0.3f,
+                    breath = 0.6f
+                ), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(800, GestureParams(
+                    angleX = 0f, angleY = -10f, angleZ = 0f,
+                    bodyAngleX = 0f, bodyAngleY = -6f, bodyAngleZ = 0f,
+                    shoulder = -0.6f,
+                    breath = 1f
+                ), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(700, GestureParams(
+                    angleX = 0f, angleY = -10f, angleZ = 0f,
+                    bodyAngleX = 0f, bodyAngleY = -6f, bodyAngleZ = 0f,
+                    shoulder = -0.6f,
+                    breath = 1f
+                ), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(900, GestureParams(
+                    angleX = 0f, angleY = 0f, angleZ = 0f,
+                    bodyAngleX = 0f, bodyAngleY = 0f, bodyAngleZ = 0f,
+                    shoulder = 0f,
+                    breath = 0.4f
+                ), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(800, GestureParams(
+                    angleX = 0f, angleY = 5f, angleZ = 0f,
+                    bodyAngleX = 0f, bodyAngleY = 3f, bodyAngleZ = 0f,
+                    shoulder = 0.3f,
+                    breath = 0f
+                ), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(700, GestureParams.IDLE, EasingType.EASE_IN_CUBIC)
+            ),
+            loopCount = 1
+        )
+
+        /**
+         * 待机动画 5：轻微晃动
+         * 非常轻微的动作，作为过渡
+         */
+        val IDLE_5 = GestureAnimation(
+            keyframes = listOf(
+                GestureKeyframe(600, GestureParams(breath = 0.3f), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(1400, GestureParams(
+                    angleX = -5f, angleY = 0f, angleZ = 3f,
+                    bodyAngleX = 1f, bodyAngleY = 0f,
+                    eyeBallX = -0.1f, eyeBallY = 0.05f,
+                    breath = 0.6f
+                ), EasingType.EASE_IN_OUT_CUBIC),
+                GestureKeyframe(700, GestureParams(
+                    angleX = -2f, angleZ = 1f,
+                    eyeBallX = -0.05f,
+                    breath = 0.4f
+                ), EasingType.EASE_OUT_CUBIC),
+                GestureKeyframe(900, GestureParams(
+                    angleX = 0f, angleY = 0f, angleZ = 0f,
+                    bodyAngleX = 0f, bodyAngleY = 0f,
+                    eyeBallX = 0f, eyeBallY = 0.05f,
+                    breath = 0f
+                ), EasingType.EASE_IN_CUBIC)
+            ),
+            loopCount = 1
+        )
+
+        /**
+         * 所有待机动画列表
+         */
+        val IDLE_ANIMATIONS = listOf(IDLE_1, IDLE_2, IDLE_3, IDLE_4, IDLE_5)
+
+        /**
+         * 随机获取一个待机动画
+         */
+        fun randomIdle(): GestureAnimation = IDLE_ANIMATIONS.random()
 
         /**
          * 根据动作类型获取动画
@@ -349,7 +517,7 @@ data class GestureAnimation(
             AvatarGesture.LOOK_UP -> LOOK_UP
             AvatarGesture.LISTEN -> LISTEN
             AvatarGesture.WELCOME_GESTURE -> WELCOME_GESTURE
-            AvatarGesture.IDLE -> null
+            AvatarGesture.IDLE -> randomIdle()  // 随机选择待机动画
         }
     }
 

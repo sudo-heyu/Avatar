@@ -173,9 +173,14 @@ class MotionTransitionManager {
                 bodyAngleX = weightedParams.bodyAngleX + layer.params.bodyAngleX * layer.weight,
                 bodyAngleY = weightedParams.bodyAngleY + layer.params.bodyAngleY * layer.weight,
                 bodyAngleZ = weightedParams.bodyAngleZ + layer.params.bodyAngleZ * layer.weight,
-                shoulder = weightedParams.shoulder + layer.params.shoulder * layer.weight,
                 eyeBallX = weightedParams.eyeBallX + layer.params.eyeBallX * layer.weight,
-                eyeBallY = weightedParams.eyeBallY + layer.params.eyeBallY * layer.weight
+                eyeBallY = weightedParams.eyeBallY + layer.params.eyeBallY * layer.weight,
+                eyeOpen = weightedParams.eyeOpen + layer.params.eyeOpen * layer.weight,
+                eyeSmile = weightedParams.eyeSmile + layer.params.eyeSmile * layer.weight,
+                browY = weightedParams.browY + layer.params.browY * layer.weight,
+                browAngle = weightedParams.browAngle + layer.params.browAngle * layer.weight,
+                breath = weightedParams.breath + layer.params.breath * layer.weight,
+                shoulder = weightedParams.shoulder + layer.params.shoulder * layer.weight
             )
         }
 
@@ -188,9 +193,14 @@ class MotionTransitionManager {
                 bodyAngleX = weightedParams.bodyAngleX / totalWeight,
                 bodyAngleY = weightedParams.bodyAngleY / totalWeight,
                 bodyAngleZ = weightedParams.bodyAngleZ / totalWeight,
-                shoulder = weightedParams.shoulder / totalWeight,
                 eyeBallX = weightedParams.eyeBallX / totalWeight,
-                eyeBallY = weightedParams.eyeBallY / totalWeight
+                eyeBallY = weightedParams.eyeBallY / totalWeight,
+                eyeOpen = weightedParams.eyeOpen / totalWeight,
+                eyeSmile = weightedParams.eyeSmile / totalWeight,
+                browY = weightedParams.browY / totalWeight,
+                browAngle = weightedParams.browAngle / totalWeight,
+                breath = weightedParams.breath / totalWeight,
+                shoulder = weightedParams.shoulder / totalWeight
             )
         }
 
@@ -203,12 +213,14 @@ class MotionTransitionManager {
     }
 
     /**
-     * 从外部更新当前参数（用于原生动作播放时同步状态）
+     * 从外部更新当前参数（用于关键帧动画同步状态）
+     * 无论 layers 是否为空，都要更新 currentOutputParams
+     * 确保后续调用 getCurrentParams() 能获取到最新的实际参数
      */
     fun updateCurrentLayerParams(params: GestureParams) {
+        currentOutputParams = params
         if (layers.isNotEmpty()) {
             layers[0].params = params
-            currentOutputParams = params
         }
     }
 

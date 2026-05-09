@@ -1521,4 +1521,22 @@ object TestAvatarActions {
             )
         }
     }
+
+    /**
+     * 根据后端返回的 combo ID 获取预设动作
+     *
+     * @param comboId 后端返回的 combo 编号，如 "C1" ~ "C18"
+     * @return 对应的 AvatarPlayAction，未找到时返回 null
+     */
+    fun getComboById(comboId: String?): AvatarPlayAction? {
+        if (comboId.isNullOrBlank()) return null
+
+        // 解析 "C1" ~ "C18" 格式
+        val match = Regex("^C(\\d+)$").find(comboId) ?: return null
+        val index = match.groupValues[1].toIntOrNull() ?: return null
+
+        // 转换为 0-indexed
+        val listIndex = index - 1
+        return allCombos.getOrNull(listIndex)
+    }
 }

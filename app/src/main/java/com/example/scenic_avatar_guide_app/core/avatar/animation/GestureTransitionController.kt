@@ -4,18 +4,29 @@ import com.example.scenic_avatar_guide_app.domain.model.AvatarGesture
 
 /**
  * 动作参数配置
+ * 参考官方 Live2D 模型参数，包含完整的身体、表情、呼吸等参数
  */
 data class GestureParams(
-    val angleX: Float = 0f,
-    val angleY: Float = 0f,
-    val angleZ: Float = 0f,
-    val bodyAngleX: Float = 0f,
-    val bodyAngleY: Float = 0f,
-    val bodyAngleZ: Float = 0f,
-    val shoulder: Float = 0f,
+    // 头部旋转
+    val angleX: Float = 0f,      // 头部左右 (-30 ~ 30)
+    val angleY: Float = 0f,      // 头部上下 (-30 ~ 30，正值=低头)
+    val angleZ: Float = 0f,      // 头部歪斜 (-30 ~ 30)
+    // 身体旋转
+    val bodyAngleX: Float = 0f,  // 身体左右 (-10 ~ 10)
+    val bodyAngleY: Float = 0f,  // 身体前后 (-15 ~ 15)
+    val bodyAngleZ: Float = 0f,  // 身体扭转 (-10 ~ 10)
     // 眼球方向
-    val eyeBallX: Float = 0f,
-    val eyeBallY: Float = 0f
+    val eyeBallX: Float = 0f,    // 眼球左右 (-1 ~ 1)
+    val eyeBallY: Float = 0f,    // 眼球上下 (-1 ~ 1)
+    // 眼睛
+    val eyeOpen: Float = 1f,     // 眼睛开合度 (0=闭眼, 1=睁眼, >1=睁大)
+    val eyeSmile: Float = 0f,    // 眼睛微笑程度 (0~1)
+    // 眉毛
+    val browY: Float = 0f,       // 眉毛上下 (-1 ~ 1)
+    val browAngle: Float = 0f,   // 眉毛角度 (-1 ~ 1)
+    // 呼吸与肩膀
+    val breath: Float = 0f,      // 呼吸 (0~1，周期性变化)
+    val shoulder: Float = 0f     // 肩膀 (-1 ~ 1)
 ) {
     companion object {
         val IDLE = GestureParams()
@@ -36,11 +47,11 @@ data class GestureParams(
             )
             AvatarGesture.POINT_LEFT -> GestureParams(
                 angleX = -28f, angleY = 5f, angleZ = 12f,
-                eyeBallX = -1f  // 眼球向左看
+                eyeBallX = -1f
             )
             AvatarGesture.POINT_RIGHT -> GestureParams(
                 angleX = 28f, angleY = 5f, angleZ = -12f,
-                eyeBallX = 1f  // 眼球向右看
+                eyeBallX = 1f
             )
             AvatarGesture.POINT_FORWARD -> GestureParams(
                 angleY = 22f, angleX = 8f, angleZ = -8f
@@ -54,7 +65,6 @@ data class GestureParams(
             AvatarGesture.GUIDE -> GestureParams(
                 angleX = 25f, angleY = 12f, angleZ = -10f
             )
-            // 仰望：头向上仰（angleY正值=下巴向上）、眼球向上看（eyeBallY正值）、身体后仰（bodyAngleY负值）
             AvatarGesture.LOOK_UP -> GestureParams(
                 angleY = 45f,
                 angleZ = 10f,
@@ -82,9 +92,14 @@ data class GestureParams(
             bodyAngleX = bodyAngleX + (target.bodyAngleX - bodyAngleX) * clampedT,
             bodyAngleY = bodyAngleY + (target.bodyAngleY - bodyAngleY) * clampedT,
             bodyAngleZ = bodyAngleZ + (target.bodyAngleZ - bodyAngleZ) * clampedT,
-            shoulder = shoulder + (target.shoulder - shoulder) * clampedT,
             eyeBallX = eyeBallX + (target.eyeBallX - eyeBallX) * clampedT,
-            eyeBallY = eyeBallY + (target.eyeBallY - eyeBallY) * clampedT
+            eyeBallY = eyeBallY + (target.eyeBallY - eyeBallY) * clampedT,
+            eyeOpen = eyeOpen + (target.eyeOpen - eyeOpen) * clampedT,
+            eyeSmile = eyeSmile + (target.eyeSmile - eyeSmile) * clampedT,
+            browY = browY + (target.browY - browY) * clampedT,
+            browAngle = browAngle + (target.browAngle - browAngle) * clampedT,
+            breath = breath + (target.breath - breath) * clampedT,
+            shoulder = shoulder + (target.shoulder - shoulder) * clampedT
         )
     }
 }

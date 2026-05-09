@@ -91,7 +91,8 @@ class Live2DRendererImpl(
     private var pendingTransitionMsAfterNative: Long = DEFAULT_TRANSITION_MS
 
     // 嘴部宽度缩放因子（偏移值，0=原始，正值=更大更圆，负值=更扁）
-    var mouthWidthScale: Float = 0.3f
+    // 增大此值可让嘴角更上扬，呈现微笑状态
+    var mouthWidthScale: Float = 0.5f
 
     // 说话时强制覆盖 SDK 动画的嘴部参数（解决 Idle 动画与口型同步竞争）
     // 驱动依据是 AvatarState.SPEAKING，而不是 mouthOpen>0：
@@ -187,13 +188,9 @@ class Live2DRendererImpl(
             // 降低整体张开程度：0.65f 缩放因子让最大张开度约为 65%
             val amplifiedMouthOpen = (currentMouthOpen * 0.65f).coerceAtMost(1.0f)
 
-            // mouthWidthScale 仅在嘴巴实际张开时叠加；闭嘴时 Form 应归零，
-            // 否则 ParamMouthForm 残留偏移值会与 Idle 动画残余 OpenY 叠加产生圆唇视觉。
-            val scaledMouthForm = if (currentMouthOpen > 0.02f) {
-                (mouthForm + mouthWidthScale).coerceIn(-1f, 1.5f)
-            } else {
-                0f
-            }
+            // mouthWidthScale 始终叠加到嘴型上，让数字人保持微笑状态
+            // 说话时根据口型动态调整，闭嘴时保持基础微笑弧度
+            val scaledMouthForm = (mouthForm + mouthWidthScale).coerceIn(-1f, 1.5f)
 
             // 缓存嘴部覆盖值，用于每帧强制覆盖 SDK Idle 动画
             overrideMouthOpenY = amplifiedMouthOpen
@@ -360,26 +357,16 @@ class Live2DRendererImpl(
         synchronized(this) {
             if (isReleased || !_isModelLoaded) return
         }
-        Log.d(TAG, "playIdleMotion: using parameter idle, native motions disabled")
+        Log.d(TAG, "playIdleMotion: starting random idle animation")
         currentGesture = AvatarGesture.IDLE
         nativeMotionPlaying = false
         gestureAnimationPlayer.stop()
-        motionTransitionManager.transitionTo(
-            AvatarGesture.IDLE,
-            GestureParams.IDLE,
-            DEFAULT_TRANSITION_MS
-        )
 
-        runOnRenderThread {
-            synchronized(this@Live2DRendererImpl) {
-                if (isReleased || !_isModelLoaded) return@runOnRenderThread
-            }
-            try {
-                applyGestureParamsDirect(GestureParams.IDLE)
-            } catch (e: Exception) {
-                Log.w(TAG, "playIdleMotion parameter reset failed", e)
-            }
-        }
+        // 随机选择一个待机动画
+        val idleAnimation = GestureAnimation.randomIdle()
+        val fromParams = motionTransitionManager.getCurrentParams()
+        gestureAnimationPlayer.play(idleAnimation, fromParams)
+
         startAnimationUpdate()
     }
 
@@ -445,13 +432,12 @@ class Live2DRendererImpl(
                 applyGestureParamsDirect(animParams)
             }
 
-            if (!gestureAnimationPlayer.isPlaying()) {
-                motionTransitionManager.transitionTo(
-                    AvatarGesture.IDLE,
-                    GestureParams.IDLE,
-                    DEFAULT_TRANSITION_MS
-                )
-                currentGesture = AvatarGesture.IDLE
+            // 待机动画播放完成后，自动播放下一个随机待机动画
+            if (!gestureAnimationPlayer.isPlaying() && currentGesture == AvatarGesture.IDLE) {
+                val nextIdle = GestureAnimation.randomIdle()
+                val fromParams = gestureAnimationPlayer.getCurrentParams()
+                gestureAnimationPlayer.play(nextIdle, fromParams)
+                Log.d(TAG, "Idle animation finished, starting next random idle")
             }
             needsContinue = true
         }
@@ -509,11 +495,36 @@ class Live2DRendererImpl(
         JniBridgeJava.nativeSetParameter(Live2DParams.BODY_ANGLE_X, safeParam(params.bodyAngleX, "bodyAngleX"), 1.0f)
         JniBridgeJava.nativeSetParameter(Live2DParams.BODY_ANGLE_Y, safeParam(params.bodyAngleY, "bodyAngleY"), 1.0f)
         JniBridgeJava.nativeSetParameter(Live2DParams.BODY_ANGLE_Z, safeParam(params.bodyAngleZ, "bodyAngleZ"), 1.0f)
-        JniBridgeJava.nativeSetParameter(Live2DParams.SHOULDER, safeParam(params.shoulder, "shoulder"), 1.0f)
 
         // 眼球方向
         JniBridgeJava.nativeSetParameter(Live2DParams.EYE_BALL_X, safeParam(params.eyeBallX, "eyeBallX"), 1.0f)
         JniBridgeJava.nativeSetParameter(Live2DParams.EYE_BALL_Y, safeParam(params.eyeBallY, "eyeBallY"), 1.0f)
+
+        // 眼睛（仅当动画显式设置时才覆盖 SDK 自动眨眼）
+        if (params.eyeOpen != 1f) {
+            JniBridgeJava.nativeSetParameter(Live2DParams.EYE_L_OPEN, safeParam(params.eyeOpen, "eyeOpen"), 1.0f)
+            JniBridgeJava.nativeSetParameter(Live2DParams.EYE_R_OPEN, safeParam(params.eyeOpen, "eyeOpen"), 1.0f)
+        }
+        if (params.eyeSmile != 0f) {
+            JniBridgeJava.nativeSetParameter(Live2DParams.EYE_L_SMILE, safeParam(params.eyeSmile, "eyeSmile"), 1.0f)
+            JniBridgeJava.nativeSetParameter(Live2DParams.EYE_R_SMILE, safeParam(params.eyeSmile, "eyeSmile"), 1.0f)
+        }
+
+        // 眉毛
+        if (params.browY != 0f) {
+            JniBridgeJava.nativeSetParameter(Live2DParams.BROW_L_Y, safeParam(params.browY, "browY"), 1.0f)
+            JniBridgeJava.nativeSetParameter(Live2DParams.BROW_R_Y, safeParam(params.browY, "browY"), 1.0f)
+        }
+        if (params.browAngle != 0f) {
+            JniBridgeJava.nativeSetParameter(Live2DParams.BROW_L_ANGLE, safeParam(params.browAngle, "browAngle"), 1.0f)
+            JniBridgeJava.nativeSetParameter(Live2DParams.BROW_R_ANGLE, safeParam(params.browAngle, "browAngle"), 1.0f)
+        }
+
+        // 呼吸
+        JniBridgeJava.nativeSetParameter(Live2DParams.BREATH, safeParam(params.breath, "breath"), 1.0f)
+
+        // 肩膀
+        JniBridgeJava.nativeSetParameter(Live2DParams.SHOULDER, safeParam(params.shoulder, "shoulder"), 1.0f)
 
         // 手臂参数归零
         JniBridgeJava.nativeSetParameter(Live2DParams.ARM_LA, 0f, 1.0f)

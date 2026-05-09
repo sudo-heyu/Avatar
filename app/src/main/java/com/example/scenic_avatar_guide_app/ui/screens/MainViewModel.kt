@@ -22,6 +22,7 @@ import com.example.scenic_avatar_guide_app.domain.model.ResponseMetadata
 import com.example.scenic_avatar_guide_app.domain.model.SourceInfo
 import com.example.scenic_avatar_guide_app.core.avatar.AvatarPlaybackManager
 import com.example.scenic_avatar_guide_app.core.avatar.AvatarPlayAction
+import com.example.scenic_avatar_guide_app.core.avatar.TestAvatarActions
 import com.example.scenic_avatar_guide_app.core.tts.VoiceInfo
 import com.example.scenic_avatar_guide_app.core.tts.VoiceStyle
 import com.example.scenic_avatar_guide_app.data.local.ScenicDataSource
@@ -846,19 +847,38 @@ class MainViewModel @Inject constructor(
                             updateAssistantMessage(assistantMessageId, routeData = event.routeData)
                         }
                         is ChatStreamEvent.MetadataDelta -> {
-                            Log.d(TAG, "MetadataDelta: intent=${event.metadata.intent}")
+                            Log.d(TAG, "MetadataDelta: intent=${event.metadata.intent}, combo=${event.metadata.combo}")
                             latestMetadata = event.metadata
-                            latestAvatarAction?.let { action ->
-                                val gestureData = action.gesture
+
+                            // 处理 Combo：后端返回 combo 编号，客户端查找预设动作
+                            // 注意：在流式对话中，combo 只更新动作状态，不调用 play() 避免中断流式 TTS
+                            val comboAction = TestAvatarActions.getComboById(event.metadata.combo)
+                            if (comboAction != null) {
+                                Log.d(TAG, "应用 Combo 动作: ${event.metadata.combo}, expression=${comboAction.expression}, gesture=${comboAction.gesture}")
+                                // 只更新动作状态，不播放 Combo 的 TTS（流式对话中 TTS 由后端 tts_segment 驱动）
                                 playbackManager.updateStreamingAction(
-                                    expression = resolveExpression(action, event.metadata),
-                                    expressionIntensity = action.expression?.intensity ?: 0.7f,
-                                    gesture = resolveGesture(action, event.metadata),
-                                    gesturePriority = com.example.scenic_avatar_guide_app.domain.model.GesturePriority.fromValue(gestureData?.priority),
-                                    gestureLoop = gestureData?.loop ?: false,
-                                    gestureSpeed = gestureData?.speed ?: 1.0f,
-                                    motionQueue = action.motionQueue ?: emptyList()
+                                    expression = comboAction.expression,
+                                    expressionIntensity = comboAction.expressionIntensity,
+                                    gesture = comboAction.gesture,
+                                    gesturePriority = comboAction.gesturePriority,
+                                    gestureLoop = comboAction.gestureLoop,
+                                    gestureSpeed = comboAction.gestureSpeed,
+                                    motionQueue = comboAction.motionQueue
                                 )
+                            } else {
+                                // 无 Combo 或 Combo 未找到，使用 avatar_action 数据更新流式动作
+                                latestAvatarAction?.let { action ->
+                                    val gestureData = action.gesture
+                                    playbackManager.updateStreamingAction(
+                                        expression = resolveExpression(action, event.metadata),
+                                        expressionIntensity = action.expression?.intensity ?: 0.7f,
+                                        gesture = resolveGesture(action, event.metadata),
+                                        gesturePriority = com.example.scenic_avatar_guide_app.domain.model.GesturePriority.fromValue(gestureData?.priority),
+                                        gestureLoop = gestureData?.loop ?: false,
+                                        gestureSpeed = gestureData?.speed ?: 1.0f,
+                                        motionQueue = action.motionQueue ?: emptyList()
+                                    )
+                                }
                             }
                         }
                         ChatStreamEvent.Done -> {

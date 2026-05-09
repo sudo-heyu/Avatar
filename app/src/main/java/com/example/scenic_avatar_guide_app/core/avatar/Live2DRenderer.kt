@@ -14,6 +14,14 @@ object Live2DParams {
     // 面部：眉毛、眼睛、眼珠、脸颊
     const val EYE_L_OPEN = "ParamEyeLOpen"
     const val EYE_R_OPEN = "ParamEyeROpen"
+    const val EYE_L_SMILE = "ParamEyeLSmile"
+    const val EYE_R_SMILE = "ParamEyeRSmile"
+
+    // 眉毛
+    const val BROW_L_Y = "ParamBrowLY"
+    const val BROW_R_Y = "ParamBrowRY"
+    const val BROW_L_ANGLE = "ParamBrowLAngle"
+    const val BROW_R_ANGLE = "ParamBrowRAngle"
 
     // 嘴部变形（Expression 管嘴形，LipSync 管开合）
     const val MOUTH_FORM = "ParamMouthForm"
@@ -35,6 +43,9 @@ object Live2DParams {
     // 眼球方向
     const val EYE_BALL_X = "ParamEyeBallX"
     const val EYE_BALL_Y = "ParamEyeBallY"
+
+    // 呼吸
+    const val BREATH = "ParamBreath"
 
     // 手臂（当前未使用：手在画面外不可见，抬臂无意义）
     const val ARM_LA = "ParamArmLA"

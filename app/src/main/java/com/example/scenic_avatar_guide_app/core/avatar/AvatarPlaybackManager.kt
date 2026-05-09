@@ -160,10 +160,15 @@ class AvatarPlaybackManager(
             }
             jobsToCancel.forEach { it?.cancel() }
             _mouthState.value = Pair(0f, 0f)
+
+            // 检查 motionQueue 是否仍在执行，如果是则不重置 gesture
+            val isMotionQueueActive = motionQueueJob?.isActive == true
             _avatarState.update {
                 it.copy(
                     state = AvatarState.IDLE,
-                    gesture = AvatarGesture.IDLE,
+                    // 只在 motionQueue 不活跃时重置 gesture，让 motionQueue 自然完成
+                    gesture = if (isMotionQueueActive) it.gesture else AvatarGesture.IDLE,
+                    gesturePriority = if (isMotionQueueActive) it.gesturePriority else GesturePriority.NORMAL,
                     mouthOpen = 0f,
                     mouthForm = 0f,
                     speakProgress = 0f,
