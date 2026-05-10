@@ -54,7 +54,33 @@ fun ScenicIntroScreen(
         else -> emptyList()
     }
 
-    Column(modifier = modifier.fillMaxSize().background(Color(0xFFFFFBFA))) {
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "景区导览",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1C2328)
+                    )
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color(0xFFFFFBFA)
+                ),
+                actions = {
+                    if (indexItems.isNotEmpty()) {
+                        ScenicSelectorChip(
+                            indexItems = indexItems,
+                            selectedScenicId = selectedScenicId,
+                            onScenicSelected = viewModel::selectScenic
+                        )
+                    }
+                }
+            )
+        }
+    ) { paddingValues ->
         when (val state = introState) {
             is UiState.Loading -> {
                 Box(
@@ -95,23 +121,13 @@ fun ScenicIntroScreen(
                         selectedScenicId = selectedScenicId,
                         onScenicSelected = viewModel::selectScenic
                     )
-                    return@Column
+                    return@Scaffold
                 }
 
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 24.dp)
                 ) {
-                    if (indexItems.isNotEmpty()) {
-                        item {
-                            ScenicSelectorChip(
-                                indexItems = indexItems,
-                                selectedScenicId = selectedScenicId,
-                                onScenicSelected = viewModel::selectScenic
-                            )
-                        }
-                    }
-
                     content.heroImage?.let { hero ->
                         item {
                             HeroImageSection(heroImage = hero, scenicName = content.scenicName, subtitle = content.subtitle)
