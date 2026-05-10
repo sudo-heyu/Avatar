@@ -411,7 +411,7 @@ event: avatar_action
 data: {"type":"avatar_action","data":{"expression":{"type":"happy"},"gesture":{"type":"guide"}}}
 
 event: done
-data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
+data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx","full_text":"可选，完整助手回复文本"}
 ```
 
 说明：
@@ -420,8 +420,9 @@ data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
 2. `text_delta` 按打字机效果逐字追加展示（TTS 同步或 1.5s 超时兜底）。
 3. `tts_segment_ready` 到达后直接播放 `audio_url`，用 `marks` 驱动口型同步。
 4. `tts_audio_chunk` / `tts_audio_end` 后端仍发送，但 Android 端已忽略。
-5. EOF 未收到终止事件时生成 `PrematurelyEnded`，触发自动续写（最多 3 次）。
-6. 非流式接口 `chat/text` 作为降级路径保留。
+5. `done.full_text` 为可选字段；存在时优先作为最终 Markdown 渲染源，不存在时使用已累积的 `text_delta`。
+6. EOF 未收到终止事件时生成 `PrematurelyEnded`，触发自动续写（最多 3 次）。
+7. 非流式接口 `chat/text` 作为降级路径保留。
 
 ---
 

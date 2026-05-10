@@ -119,6 +119,10 @@ dependencies {
     // Pinyin conversion for Chinese lip sync
     implementation("com.belerweb:pinyin4j:2.5.1")
 
+    // Markdown 渲染
+    implementation("com.mikepenz:multiplatform-markdown-renderer-android:0.26.0")
+    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.26.0")
+
     // Lottie animation
     implementation(libs.lottie.compose)
 

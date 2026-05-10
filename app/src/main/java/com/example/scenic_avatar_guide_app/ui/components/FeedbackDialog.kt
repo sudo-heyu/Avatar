@@ -1,6 +1,7 @@
 package com.example.scenic_avatar_guide_app.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -216,27 +217,47 @@ private fun StarButton(
 @Composable
 fun FeedbackButton(
     hasFeedback: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    TextButton(
-        onClick = onClick,
-        enabled = !hasFeedback,
-        colors = ButtonDefaults.textButtonColors(
-            contentColor = if (hasFeedback) 
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-            else 
-                MaterialTheme.colorScheme.primary
-        )
+    val shape = RoundedCornerShape(14.dp)
+    val contentColor = if (hasFeedback) {
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.54f)
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+    val borderColor = if (hasFeedback) {
+        MaterialTheme.colorScheme.outline.copy(alpha = 0.34f)
+    } else {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.36f)
+    }
+    val backgroundColor = if (hasFeedback) {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.18f)
+    } else {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.06f)
+    }
+
+    Row(
+        modifier = modifier
+            .clip(shape)
+            .background(backgroundColor)
+            .border(1.dp, borderColor, shape)
+            .clickable(enabled = !hasFeedback) { onClick() }
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             imageVector = if (hasFeedback) Icons.Default.Check else Icons.Default.ThumbUp,
             contentDescription = if (hasFeedback) "已评价" else "评价",
-            modifier = Modifier.size(16.dp)
+            modifier = Modifier.size(14.dp),
+            tint = contentColor
         )
         Spacer(modifier = Modifier.width(4.dp))
         Text(
             text = if (hasFeedback) "已评价" else "评价",
-            fontSize = 12.sp
+            fontSize = 12.sp,
+            lineHeight = 16.sp,
+            color = contentColor
         )
     }
 }

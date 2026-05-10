@@ -533,8 +533,10 @@ event: metadata
 data: {"type":"metadata","data":{"intent":"greeting","emotion":"welcoming","confidence":0.9,"is_fallback":false,"latency_ms":800,"combo":"C3"}}
 
 event: done
-data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx"}
+data: {"type":"done","message_id":"m_xxx","session_id":"s_xxx","full_text":"可选，完整助手回复文本"}
 ```
+
+`done.full_text` 为可选字段。若存在，客户端优先使用它作为最终 Markdown 渲染源；若不存在，客户端使用已按顺序累积的 `text_delta` 内容。
 
 ---
 

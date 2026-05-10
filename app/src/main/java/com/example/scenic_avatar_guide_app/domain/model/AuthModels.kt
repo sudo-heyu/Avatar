@@ -36,8 +36,12 @@ data class AuthLoginResponse(
 @Serializable
 data class AuthUserData(
     @SerialName("user_id")
-    val userId: String,
-    val username: String,
+    val userId: String = "",
+    val username: String = "",
     @SerialName("created_at")
-    val createdAt: String? = null
+    val createdAt: String? = null,
+    @SerialName("access_token")
+    val accessToken: String? = null,
+    @SerialName("token_type")
+    val tokenType: String? = null
 )

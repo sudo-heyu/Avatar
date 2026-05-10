@@ -337,6 +337,9 @@ class MainViewModel @Inject constructor(
     private val _isConversationActive = MutableStateFlow(false)
     val isConversationActive: StateFlow<Boolean> = _isConversationActive.asStateFlow()
 
+    // 流式响应是否已完成（Done 事件已收到），用于精确判断播放状态
+    private var streamResponseComplete = false
+
     // 当前交互模式
     private val _currentMode = MutableStateFlow(InteractionMode.Chat)
     val currentMode: StateFlow<InteractionMode> = _currentMode.asStateFlow()
@@ -488,12 +491,14 @@ class MainViewModel @Inject constructor(
                     lastExpression = state.expression
                 }
                 // 当状态变为 IDLE 且当前有活跃对话时，重置状态
+                // 使用 streamResponseComplete 精确判断流式响应是否已完成
                 // 不依赖 lastState 追踪，避免状态变化过快导致 Flow 合并后丢失中间状态
-                val streamStillRunning = currentStreamJob?.isActive == true || _isLoading.value
+                val streamStillRunning = !streamResponseComplete || _isLoading.value
                 if (state.state == AvatarState.IDLE && _isConversationActive.value && !streamStillRunning) {
                     Log.d(TAG, "observeAvatarState: 播放完成，重置 isConversationActive")
                     _isConversationActive.value = false
                     currentAssistantMessageId = null
+                    streamResponseComplete = false  // 重置标志，为下次对话做准备
                 } else if (state.state == AvatarState.IDLE && _isConversationActive.value) {
                     Log.d(TAG, "observeAvatarState: 忽略流式回复中的临时 IDLE")
                 }
@@ -579,7 +584,7 @@ class MainViewModel @Inject constructor(
                     startNewSession()
                 },
                 onFailure = { error ->
-                    _authError.value = error.message ?: "登录失败，请重试"
+                    _authError.value = error.message ?: "登录失败，请检查网络后重试"
                 }
             )
             _isAuthLoading.value = false
@@ -601,7 +606,7 @@ class MainViewModel @Inject constructor(
                     startNewSession()
                 },
                 onFailure = { error ->
-                    _authError.value = error.message ?: "注册失败，请重试"
+                    _authError.value = error.message ?: "注册失败，请检查网络后重试"
                 }
             )
             _isAuthLoading.value = false
@@ -693,6 +698,7 @@ class MainViewModel @Inject constructor(
             Log.d(TAG, "开始流式请求流程")
             _isLoading.value = true
             _isConversationActive.value = true
+            streamResponseComplete = false  // 重置流式响应完成标志
             _avatarState.value = AvatarState.THINKING
             playbackManager.startStreaming()
 
@@ -708,6 +714,7 @@ class MainViewModel @Inject constructor(
                 if (newSessionId == null) {
                     _isLoading.value = false
                     _isConversationActive.value = false
+                    streamResponseComplete = false
                     _avatarState.value = AvatarState.IDLE
                     playbackManager.stop()
                     addMessage("会话创建失败，请检查网络后重试", isUser = false, isError = true)
@@ -726,6 +733,7 @@ class MainViewModel @Inject constructor(
                     onFailure = {
                         _isLoading.value = false
                         _isConversationActive.value = false
+                        streamResponseComplete = false
                         _avatarState.value = AvatarState.IDLE
                         playbackManager.stop()
                         addMessage("图片上传失败，请重试", isUser = false)
@@ -885,6 +893,7 @@ class MainViewModel @Inject constructor(
                             Log.d(TAG, "Done")
                             receivedDone = true
                             _isLoading.value = false
+                            streamResponseComplete = true  // 标记流式响应已完成
                             // 保底：如果没有收到 TTS 片段，也让打字机开始
                             typewriterController.notifyTtsReady()
                             // 标记消息完成，以最大速度显示剩余文本
@@ -910,6 +919,7 @@ class MainViewModel @Inject constructor(
                             typewriterController.flush()
                             _isLoading.value = false
                             _isConversationActive.value = false
+                            streamResponseComplete = false
                             playbackManager.stop()
                             updateAssistantMessage(
                                 id = assistantMessageId,
@@ -923,6 +933,7 @@ class MainViewModel @Inject constructor(
                             typewriterController.notifyTtsReady()
                             _isLoading.value = false
                             _isConversationActive.value = false
+                            streamResponseComplete = false
                             typewriterController.flush()
                             playbackManager.stop()
                             val errorDetail = event.message ?: "未知错误"
@@ -957,6 +968,7 @@ class MainViewModel @Inject constructor(
                     )
                     _isLoading.value = false
                     _isConversationActive.value = false
+                    streamResponseComplete = false
                     // 保底：如果没有收到 TTS 片段，也让打字机开始
                     typewriterController.notifyTtsReady()
                     typewriterController.flush()
@@ -975,6 +987,7 @@ class MainViewModel @Inject constructor(
                 Log.e(TAG, "流式请求异常: ${e::class.simpleName}: ${e.message}", e)
                 _isLoading.value = false
                 _isConversationActive.value = false
+                streamResponseComplete = false
                 typewriterController.notifyTtsReady()
                 typewriterController.flush()
                 playbackManager.stop()
@@ -1007,6 +1020,7 @@ class MainViewModel @Inject constructor(
         currentStreamJob = null
         currentBackendMessageId = null
         _isLoading.value = false
+        streamResponseComplete = false  // 重置流式响应完成标志
         typewriterController.stop()
         playbackManager.stop()
     }
@@ -1192,6 +1206,7 @@ class MainViewModel @Inject constructor(
         }
 
         _isConversationActive.value = false
+        streamResponseComplete = false
         currentAssistantMessageId = null
         currentBackendMessageId = null
 
@@ -1246,6 +1261,7 @@ class MainViewModel @Inject constructor(
         cancelCurrentStream()
         _messages.value = emptyList()
         _isConversationActive.value = false
+        streamResponseComplete = false
         currentAssistantMessageId = null
         currentBackendMessageId = null
 
@@ -1267,6 +1283,7 @@ class MainViewModel @Inject constructor(
         cancelCurrentStream()
         _messages.value = emptyList()
         _isConversationActive.value = false
+        streamResponseComplete = false
         currentAssistantMessageId = null
         currentBackendMessageId = null
         sessionId = null

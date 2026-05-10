@@ -61,15 +61,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -83,12 +78,16 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.LocalClipboardManager
 import com.example.scenic_avatar_guide_app.R
 import com.example.scenic_avatar_guide_app.ui.theme.*
 import com.example.scenic_avatar_guide_app.ui.components.ArcWaveform
 import com.example.scenic_avatar_guide_app.ui.components.AvatarView
+import com.example.scenic_avatar_guide_app.ui.components.MarkdownBubbleText
+import com.example.scenic_avatar_guide_app.ui.components.MarkdownWithTable
+import com.example.scenic_avatar_guide_app.ui.components.scenicintro.ScenicIntroScreen
 import com.example.scenic_avatar_guide_app.domain.model.ChatMessage
 import com.example.scenic_avatar_guide_app.domain.model.AvatarState
 import com.example.scenic_avatar_guide_app.core.speech.SpeechRecognizerHelper
@@ -102,8 +101,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private const val LONG_TEXT_MARKDOWN_LIMIT = 1200
-private const val TEXT_RENDER_CHUNK_SIZE = 700
 private val FallbackBottomReserve = 152.dp
 private val MessageToFunctionCardGap = 8.dp
 
@@ -114,6 +111,12 @@ fun MainScreen(
     externalAuthTrigger: Int = 0,
     viewModel: MainViewModel = hiltViewModel()
 ) {
+    var scenicPortalTab by remember { mutableStateOf<ScenicIntroTab?>(null) }
+
+    BackHandler(enabled = scenicPortalTab != null) {
+        scenicPortalTab = null
+    }
+
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val inputText by viewModel.inputText.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
@@ -345,6 +348,10 @@ fun MainScreen(
                     coroutineScope.launch { drawerState.close() }
                     viewModel.startEmptyChat()
                 },
+                onScenicIntroClick = { tab ->
+                    scenicPortalTab = tab
+                    coroutineScope.launch { drawerState.snapTo(DrawerValue.Closed) }
+                },
                 isAuthenticated = isAuthenticated,
                 authUsername = authUsername,
                 onAuthClick = {
@@ -353,7 +360,7 @@ fun MainScreen(
                 }
             )
         },
-        gesturesEnabled = drawerState.isOpen
+        gesturesEnabled = drawerState.isOpen && scenicPortalTab == null
     ) {
         Scaffold(
             containerColor = Surface,
@@ -377,7 +384,14 @@ fun MainScreen(
                         onVoiceClick = { showVoiceDialog = true },
                         onScenicClick = { viewModel.showScenicSelectionDialog() },
                         onLogoutClick = { showLogoutConfirm = true },
-                        isAuthenticated = isAuthenticated
+                        isAuthenticated = isAuthenticated,
+                        currentMode = currentMode,
+                        onRouteToggle = {
+                            viewModel.switchMode(
+                                if (currentMode == InteractionMode.Route) InteractionMode.Chat
+                                else InteractionMode.Route
+                            )
+                        }
                     )
 
                     // 数字人区域：在主内容区域内按比例分配
@@ -475,9 +489,6 @@ fun MainScreen(
                                     bottomControlsContentHeightPx = size.height
                                 }
                         ) {
-                            // 功能卡片：模式选择器
-                            ModeSelector(currentMode, { viewModel.switchMode(it) }, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp))
-
                             if (voiceInputMode && isRecording) {
                                 CancelZone(
                                     isCancelZone = isCancelZone,
@@ -537,6 +548,16 @@ fun MainScreen(
                 }
             }
         }
+    }
+
+    scenicPortalTab?.let { tab ->
+        ScenicIntroPortalScreen(
+            tab = tab,
+            onBackClick = { scenicPortalTab = null },
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+        )
     }
 
     if (showImagePickerDialog) {
@@ -669,7 +690,9 @@ private fun TopBar(
     onVoiceClick: () -> Unit,
     onScenicClick: () -> Unit,
     onLogoutClick: () -> Unit,
-    isAuthenticated: Boolean
+    isAuthenticated: Boolean,
+    currentMode: InteractionMode = InteractionMode.Chat,
+    onRouteToggle: () -> Unit = {}
 ) {
     var showMenu by remember { mutableStateOf(false) }
     Row(
@@ -759,6 +782,39 @@ private fun TopBar(
                         onVoiceClick()
                     }
                 )
+                val isRouteMode = currentMode == InteractionMode.Route
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            if (isRouteMode) "路线规划（已开启）" else "路线规划",
+                            fontSize = 14.sp,
+                            color = if (isRouteMode) Primary else TextPrimary,
+                            fontWeight = if (isRouteMode) FontWeight.SemiBold else FontWeight.Normal
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Map,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = if (isRouteMode) Primary else TextSecondary
+                        )
+                    },
+                    trailingIcon = if (isRouteMode) {
+                        {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = Primary
+                            )
+                        }
+                    } else null,
+                    onClick = {
+                        showMenu = false
+                        onRouteToggle()
+                    }
+                )
                 DropdownMenuItem(
                     text = { Text("景点位置", fontSize = 14.sp, color = TextPrimary) },
                     leadingIcon = {
@@ -836,6 +892,7 @@ private fun ChatHistoryDrawer(
     onCloseDrawer: () -> Unit,
     onSessionSelected: (String) -> Unit,
     onNewSession: () -> Unit,
+    onScenicIntroClick: (ScenicIntroTab) -> Unit,
     isAuthenticated: Boolean = false,
     authUsername: String? = null,
     onAuthClick: () -> Unit = {},
@@ -860,6 +917,8 @@ private fun ChatHistoryDrawer(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
                 .padding(horizontal = 16.dp)
         ) {
             // 标题区域 + 新建按钮
@@ -871,7 +930,7 @@ private fun ChatHistoryDrawer(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "历史会话",
+                    text = "菜单",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
@@ -885,6 +944,23 @@ private fun ChatHistoryDrawer(
                     )
                 }
             }
+
+            Text(
+                text = "功能入口",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = TextSecondary,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            ScenicFeatureEntryGrid(onEntryClick = onScenicIntroClick)
+
+            Text(
+                text = "历史记录",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = TextSecondary,
+                modifier = Modifier.padding(top = 18.dp, bottom = 8.dp)
+            )
 
             // 会话列表区域
             Box(
@@ -901,7 +977,10 @@ private fun ChatHistoryDrawer(
                     }
                 } else if (sessions.isEmpty()) {
                     Column(
-                        modifier = Modifier.align(Alignment.Center),
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .padding(top = 24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Icon(
@@ -917,14 +996,23 @@ private fun ChatHistoryDrawer(
                             color = TextHint
                         )
                         Spacer(Modifier.height(16.dp))
-                        Button(onClick = onNewSession) {
+                        OutlinedButton(
+                            onClick = onNewSession,
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = Primary
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(
+                                width = 1.dp,
+                                color = Primary.copy(alpha = 0.35f)
+                            )
+                        ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.create_session),
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(Modifier.width(8.dp))
-                            Text("新建对话")
+                            Text("新建会话")
                         }
                     }
                 } else {
@@ -998,6 +1086,201 @@ private fun ChatHistoryDrawer(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ScenicFeatureEntryGrid(
+    onEntryClick: (ScenicIntroTab) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        ScenicIntroTab.entries.forEach { tab ->
+            ScenicFeatureEntryItem(
+                tab = tab,
+                onClick = { onEntryClick(tab) },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+private fun ScenicFeatureEntryItem(
+    tab: ScenicIntroTab,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .height(52.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick),
+        color = Color(0xFFFFF4F2)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, Color(0xFFFFD0C8), RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                modifier = Modifier.size(32.dp),
+                shape = RoundedCornerShape(9.dp),
+                color = Color(0xFFC72C2C)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        painter = painterResource(id = tab.iconRes),
+                        contentDescription = null,
+                        modifier = Modifier.size(19.dp),
+                        tint = Color.White
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = tab.title,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFF7E1F1F),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Start
+            )
+        }
+    }
+}
+
+private enum class ScenicIntroTab(
+    val title: String,
+    val iconRes: Int,
+    val placeholder: String
+) {
+    Intro("景区介绍", R.drawable.ic_jingqu, "景区介绍内容待接入"),
+    Stories("历史故事", R.drawable.ic_gushi, "历史故事内容待接入"),
+    Reservation("景区预约", R.drawable.ic_changguan, "预约服务内容待接入")
+}
+
+@Composable
+private fun ScenicIntroPortalScreen(
+    tab: ScenicIntroTab,
+    onBackClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Scaffold(
+        modifier = modifier,
+        containerColor = Color(0xFFFFF8F5),
+        contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp)
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFFB91C1C),
+                            Color(0xFFE5483B),
+                            Color(0xFFFFF8F5)
+                        )
+                    )
+                )
+                .padding(paddingValues)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    modifier = Modifier.size(42.dp),
+                    shape = CircleShape,
+                    color = Color.White.copy(alpha = 0.18f)
+                ) {
+                    IconButton(onClick = onBackClick) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "返回聊天",
+                            tint = Color.White
+                        )
+                    }
+                }
+                Text(
+                    text = tab.title,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 12.dp),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.size(42.dp))
+            }
+
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                color = Color(0xFFFFFBFA)
+            ) {
+                when (tab) {
+                    ScenicIntroTab.Intro -> {
+                        ScenicIntroScreen(
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    else -> {
+                        ScenicIntroPlaceholder(tab = tab)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScenicIntroPlaceholder(tab: ScenicIntroTab) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp, vertical = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Surface(
+            modifier = Modifier.size(72.dp),
+            shape = RoundedCornerShape(22.dp),
+            color = Color(0xFFFFEFEC)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    painter = painterResource(id = tab.iconRes),
+                    contentDescription = null,
+                    modifier = Modifier.size(40.dp),
+                    tint = Color(0xFFC72C2C)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(18.dp))
+        Text(
+            text = tab.title,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color(0xFF5C1515)
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = tab.placeholder,
+            fontSize = 14.sp,
+            color = Color(0xFF9B5A55),
+            textAlign = TextAlign.Center
+        )
     }
 }
 
@@ -1619,10 +1902,10 @@ private fun MessageList(
     LazyColumn(
         modifier = modifier
             .nestedScroll(userScrollConnection)
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = 4.dp),
         state = listState,
         contentPadding = PaddingValues(top = 8.dp, bottom = bottomPaddingDp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         items(
             messages,
@@ -1659,79 +1942,137 @@ private fun MessageBubble(
     val hasContent = contentToShow.isNotBlank()
     val canShowFeedback = isLastAssistant && !isUser && !message.isLoading && !message.isError && hasContent
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
-        verticalAlignment = Alignment.Bottom
-    ) {
-        Surface(
-            modifier = Modifier
-                .widthIn(max = 280.dp)
-                .combinedClickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onLongClick = {
-                        if (hasContent) {
-                            clipboardManager.setText(AnnotatedString(contentToShow))
-                            vibrator?.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
-                            Toast.makeText(context, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    onClick = {}
-                ),
-            shape = RoundedCornerShape(16.dp, 16.dp, if (isUser) 16.dp else 4.dp, if (isUser) 4.dp else 16.dp),
-            color = if (isUser) UserBubbleBg else AssistantBubbleBg
+    if (isUser) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.Bottom
         ) {
-            Column {
-                if (imageUri != null) {
-                    AsyncImage(
-                        model = imageUri,
-                        contentDescription = "图片",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 200.dp)
-                            .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = if (isUser) 16.dp else 0.dp, bottomEnd = if (isUser) 0.dp else 16.dp)),
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                    )
-                }
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+            Surface(
+                modifier = Modifier
+                    .widthIn(max = 280.dp)
+                    .combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onLongClick = {
+                            if (hasContent) {
+                                clipboardManager.setText(AnnotatedString(contentToShow))
+                                vibrator?.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
+                                Toast.makeText(context, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onClick = {}
+                    ),
+                shape = RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp),
+                color = UserBubbleBg
+            ) {
+                Column {
+                    if (imageUri != null) {
+                        AsyncImage(
+                            model = imageUri,
+                            contentDescription = "图片",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 200.dp)
+                                .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 16.dp)),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        )
+                    }
                     if (hasContent) {
                         val safeContent = remember(contentToShow) {
                             sanitizeRenderableText(contentToShow)
                         }
-                        if (safeContent.length > LONG_TEXT_MARKDOWN_LIMIT) {
-                            ChunkedMessageText(
-                                text = safeContent,
-                                color = if (isUser) UserBubbleText else AssistantBubbleText
-                            )
-                        } else {
-                            val annotatedText = remember(safeContent) {
-                                parseInlineMarkdown(safeContent)
-                            }
-                            Text(
-                                text = annotatedText,
-                                fontSize = 14.sp,
-                                lineHeight = 20.sp,
-                                color = if (isUser) UserBubbleText else AssistantBubbleText
-                            )
-                        }
-                    }
-
-                    if (shouldShowThinkingAnimation) {
-                        ThinkingDotsAnimation()
+                        Text(
+                            text = safeContent,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                            color = UserBubbleText
+                        )
                     }
                 }
             }
         }
+        return
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onLongClick = {
+                    if (hasContent) {
+                        clipboardManager.setText(AnnotatedString(contentToShow))
+                        vibrator?.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
+                        Toast.makeText(context, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onClick = {}
+            )
+            .padding(horizontal = 20.dp, vertical = 2.dp),
+        horizontalAlignment = Alignment.Start
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.Start
+        ) {
+            if (imageUri != null) {
+                AsyncImage(
+                    model = imageUri,
+                    contentDescription = "图片",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 260.dp)
+                        .clip(RoundedCornerShape(8.dp)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            if (hasContent) {
+                val safeContent = remember(contentToShow) {
+                    normalizeRenderableMarkdown(sanitizeRenderableText(contentToShow))
+                }
+                val textColor = when {
+                    message.isError -> ErrorBubbleBorder
+                    isUser -> UserBubbleBg
+                    else -> AssistantBubbleText
+                }
+                if (!message.isError) {
+                    MarkdownWithTable(
+                        content = safeContent,
+                        textColor = textColor,
+                        linkColor = Color(0xFF2B59C3),
+                        codeBackgroundColor = textColor.copy(alpha = 0.08f),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Text(
+                        text = safeContent,
+                        modifier = Modifier.fillMaxWidth(),
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
+                        color = textColor,
+                        textAlign = if (isUser) TextAlign.End else TextAlign.Start
+                    )
+                }
+            }
+
+            if (shouldShowThinkingAnimation) {
+                Spacer(modifier = Modifier.height(10.dp))
+                ThinkingDotsAnimation()
+            }
+        }
 
         if (canShowFeedback) {
-            Spacer(modifier = Modifier.width(4.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             com.example.scenic_avatar_guide_app.ui.components.FeedbackButton(
                 hasFeedback = message.hasFeedback,
-                onClick = { onFeedbackClick(message.id) }
+                onClick = { onFeedbackClick(message.id) },
+                modifier = Modifier.align(Alignment.Start)
             )
         }
     }
@@ -1747,7 +2088,7 @@ private fun ThinkingDotsAnimation() {
     val dotColor = AssistantBubbleText
 
     Row(
-        modifier = Modifier.padding(start = 4.dp),
+        modifier = Modifier.padding(start = 8.dp, top = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -2196,25 +2537,6 @@ private fun VoiceSelectionDialog(
     )
 }
 
-@Composable
-private fun ChunkedMessageText(
-    text: String,
-    color: Color
-) {
-    val chunks = remember(text) { chunkTextForRendering(text, TEXT_RENDER_CHUNK_SIZE) }
-    Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-        chunks.forEach { chunk ->
-            Text(
-                text = chunk,
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
-                color = color,
-                softWrap = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-    }
-}
 
 private fun sanitizeRenderableText(text: String): String {
     val output = StringBuilder(text.length)
@@ -2241,143 +2563,8 @@ private fun sanitizeRenderableText(text: String): String {
     return output.toString()
 }
 
-private fun chunkTextForRendering(text: String, chunkSize: Int): List<String> {
-    if (text.length <= chunkSize) return listOf(text)
-    val chunks = mutableListOf<String>()
-    var start = 0
-    while (start < text.length) {
-        val maxEnd = minOf(start + chunkSize, text.length)
-        val newlineEnd = text.lastIndexOf('\n', maxEnd - 1).takeIf { it > start + chunkSize / 2 }
-        val punctuationEnd = findLastBreakBefore(text, start, maxEnd)
-        val end = when {
-            maxEnd == text.length -> maxEnd
-            newlineEnd != null -> newlineEnd + 1
-            punctuationEnd != -1 -> punctuationEnd + 1
-            else -> maxEnd
-        }
-        chunks += text.substring(start, end)
-        start = end
-    }
-    return chunks
-}
-
-private fun findLastBreakBefore(text: String, start: Int, end: Int): Int {
-    for (index in end - 1 downTo start + 1) {
-        when (text[index]) {
-            '。', '！', '？', '；', '.', '!', '?', ';', '，', ',' -> return index
-        }
-    }
-    return -1
-}
-
-private fun parseInlineMarkdown(text: String): AnnotatedString = buildAnnotatedString {
-    var i = 0
-    while (i < text.length) {
-        when {
-            i + 1 < text.length && text[i] == '*' && text[i + 1] == '*' -> {
-                val end = text.indexOf("**", i + 2)
-                if (end != -1) {
-                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(text.substring(i + 2, end))
-                    }
-                    i = end + 2
-                } else {
-                    append(text[i])
-                    i++
-                }
-            }
-            i + 1 < text.length && text[i] == '_' && text[i + 1] == '_' -> {
-                val end = text.indexOf("__", i + 2)
-                if (end != -1) {
-                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(text.substring(i + 2, end))
-                    }
-                    i = end + 2
-                } else {
-                    append(text[i])
-                    i++
-                }
-            }
-            text[i] == '*' -> {
-                val end = text.indexOf('*', i + 1)
-                if (end != -1 && end > i + 1) {
-                    withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
-                        append(text.substring(i + 1, end))
-                    }
-                    i = end + 1
-                } else {
-                    append(text[i])
-                    i++
-                }
-            }
-            text[i] == '_' -> {
-                val end = text.indexOf('_', i + 1)
-                if (end != -1 && end > i + 1) {
-                    withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
-                        append(text.substring(i + 1, end))
-                    }
-                    i = end + 1
-                } else {
-                    append(text[i])
-                    i++
-                }
-            }
-            text[i] == '`' -> {
-                val end = text.indexOf('`', i + 1)
-                if (end != -1 && end > i + 1) {
-                    withStyle(SpanStyle(
-                        background = Color(0xFFE0E0E0),
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-                    )) {
-                        append(text.substring(i + 1, end))
-                    }
-                    i = end + 1
-                } else {
-                    append(text[i])
-                    i++
-                }
-            }
-            i + 1 < text.length && text[i] == '~' && text[i + 1] == '~' -> {
-                val end = text.indexOf("~~", i + 2)
-                if (end != -1) {
-                    withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) {
-                        append(text.substring(i + 2, end))
-                    }
-                    i = end + 2
-                } else {
-                    append(text[i])
-                    i++
-                }
-            }
-            i + 1 < text.length && text[i] == '[' -> {
-                val textEnd = text.indexOf(']', i + 1)
-                if (textEnd != -1 && textEnd + 1 < text.length && text[textEnd + 1] == '(') {
-                    val urlEnd = text.indexOf(')', textEnd + 2)
-                    if (urlEnd != -1) {
-                        val linkText = text.substring(i + 1, textEnd)
-                        val linkUrl = text.substring(textEnd + 2, urlEnd)
-                        pushStringAnnotation(tag = "URL", annotation = linkUrl)
-                        withStyle(SpanStyle(
-                            color = Color(0xFF1565C0),
-                            textDecoration = TextDecoration.Underline
-                        )) {
-                            append(linkText)
-                        }
-                        pop()
-                        i = urlEnd + 1
-                    } else {
-                        append(text[i])
-                        i++
-                    }
-                } else {
-                    append(text[i])
-                    i++
-                }
-            }
-            else -> {
-                append(text[i])
-                i++
-            }
-        }
+private fun normalizeRenderableMarkdown(text: String): String {
+    return Regex("(?m)^(#{1,3})([^#\\s])").replace(text) { match ->
+        "${match.groupValues[1]} ${match.groupValues[2]}"
     }
 }

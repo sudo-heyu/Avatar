@@ -480,7 +480,8 @@ Android 端应优先实现 SSE 解析，同时可将解析器设计为按行读�
 {
   "type": "done",
   "message_id": "m_xxx",
-  "session_id": "s_xxx"
+  "session_id": "s_xxx",
+  "full_text": "可选，完整助手回复文本"
 }
 ```
 
@@ -488,6 +489,8 @@ Android 端应优先实现 SSE 解析，同时可将解析器设计为按行读�
 
 - `done` 表示后端文本、结构化数据、TTS 片段都已发送完毕。
 - `done` 不代表移动端音频播放已完成。
+- `full_text` 为可选字段。若存在，移动端优先使用它作为最终 Markdown 渲染源；若不存在，移动端使用已按顺序累积的 `text_delta` 内容。
+- 后端若对最终文本做了清洗、截断或安全过滤，应通过 `full_text` 返回权威版本。
 - 移动端收到 `done` 后应调用 TTS 队列 `finishInput()`，队列会在最后一个音频片段播放完后恢复 IDLE。
 
 ### 5.13 `aborted`
