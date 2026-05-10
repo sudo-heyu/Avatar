@@ -590,7 +590,7 @@ private fun XinhaiFocusPanel(page: XinhaiStoryBookPageData) {
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "本页看点",
+                text = "本幕看点",
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White
@@ -1111,11 +1111,11 @@ private val XinhaiStoryBookPages = listOf(
             )
         ),
         focusItems = listOf(
-            XinhaiFocusItem("空间关系", "南馆讲历史，北馆看现场", "辛亥革命博物馆与红楼馆区通过首义广场相连，形成从展陈到旧址的参观逻辑。"),
-            XinhaiFocusItem("建馆历史", "2009年动工，2011年开放", "博物馆于2009年8月动工兴建，2011年9月落成，2011年10月15日起免费对公众开放。博物院总建筑面积22142平方米，是首义文化区的核心建筑。"),
-            XinhaiFocusItem("馆区整合", "北区南区合二为一", "2022年3月，辛亥革命博物院由北区（原辛亥革命武昌起义纪念馆）和南区（原辛亥革命博物馆）整合而成。北区是1981年依托武昌起义军政府旧址建立的纪念馆，因旧址主体建筑红墙红瓦，武汉人称之为红楼。南区是2011年建立的一座现代建筑形式的专题博物馆，外观为楚国红色调，呈V字造型。"),
-            XinhaiFocusItem("参观方式", "七幕推进", "每页保留充足文字、看点卡和配图，避免支线过多造成跳转疲劳。"),
-            XinhaiFocusItem("核心主题", "共和之基", "页面围绕武昌首义如何推动近代中国制度转折展开。")
+            XinhaiFocusItem("参观路线", "先看南馆，再看红楼", "两条参观动线通过首义广场相连，形成从展陈到旧址的完整逻辑。"),
+            XinhaiFocusItem("开馆时间", "2009年动工，2011年开放", "2011年10月15日起免费对公众开放，总建筑面积22142平方米。"),
+            XinhaiFocusItem("南北双馆", "红楼+现代馆", "北区是1981年依托武昌起义军政府旧址建立的红楼纪念馆，南区是2011年建成的V字形现代专题博物馆。"),
+            XinhaiFocusItem("导览方式", "七幕沉浸式观看", "不用跳转支线，一页看完一个故事，保留充足文字、看点卡和配图。"),
+            XinhaiFocusItem("展览主题", "共和之基", "讲述武昌首义如何推动近代中国制度转折，理解现代中国政治与社会变迁的起点。")
         ),
         gallery = listOf(
             XinhaiGalleryImage(XinhaiImageBase + "museum_hall_1.jpg", "展厅入口", "现代展馆入口区域，引导观众进入历史叙事。"),
@@ -1183,9 +1183,9 @@ private val XinhaiStoryBookPages = listOf(
             )
         ),
         focusItems = listOf(
-            XinhaiFocusItem("历史压力", "外部冲击与内部失序叠加", "战争失败、赔款压力、制度迟滞和社会流动共同构成晚清危局。"),
-            XinhaiFocusItem("改革尝试", "洋务与变法都未完成转型", "洋务重在器物，戊戌尝试制度，但都没有根本解决政治结构问题。"),
-            XinhaiFocusItem("叙事作用", "解释革命为何发生", "这一页为后续革命动员和武昌首义建立原因链。")
+            XinhaiFocusItem("时代背景", "外患内忧双重压力", "战争失败、赔款压力让社会追问「如何救中国」，财政枯竭、军事落后、外交被动构成了晚清危局。"),
+            XinhaiFocusItem("改革之路", "洋务运动与戊戌变法", "器物层面求自强，制度层面求变革，但都未能触及根本，留下了「只在旧体制内修补能否完成转型」的问题。"),
+            XinhaiFocusItem("历史铺垫", "革命不是一夜爆发", "晚清的财政、军事、外交、社会心理都在变化，新军、学生、商人、知识分子和海外华侨逐渐被卷入同一个时代问题。")
         ),
         gallery = listOf(
             XinhaiGalleryImage(XinhaiImageBase + "westernization.png", "洋务运动", "舰船装置提示近代工业、军事与海防问题。"),
@@ -1244,9 +1244,9 @@ private val XinhaiStoryBookPages = listOf(
             )
         ),
         focusItems = listOf(
-            XinhaiFocusItem("人物线索", "孙中山与革命者群像", "人物不是孤立肖像，而是组织、思想和行动网络的入口。"),
-            XinhaiFocusItem("传播线索", "报刊与演说推动共识形成", "革命主张需要通过文本、演讲、社团和校园不断传播。"),
-            XinhaiFocusItem("行动线索", "多次起义积累经验", "早期起义虽多有失败，但持续训练组织能力和社会心理。")
+            XinhaiFocusItem("人物群像", "革命者不是孤立的肖像", "展馆中的人物群像、报刊墙和场景复原，把抽象的革命风潮变成一张张面孔、一份份文本和一次次行动。"),
+            XinhaiFocusItem("思想火种", "共识是如何形成的", "革命主张通过文本、演讲、社团和校园不断传播，在海内外华侨、留学生和新军之间逐渐形成「推翻专制、建立共和」的共识。"),
+            XinhaiFocusItem("失败的价值", "从失败中学习", "早期起义虽多有失败，但每一次都在训练组织能力、测试社会反应、积累经验教训，为武昌首义铺平道路。")
         ),
         gallery = listOf(
             XinhaiGalleryImage(XinhaiImageBase + "revolution_groups.png", "革命团体", "报刊与人物群像表现革命传播网络。"),
@@ -1304,9 +1304,9 @@ private val XinhaiStoryBookPages = listOf(
             )
         ),
         focusItems = listOf(
-            XinhaiFocusItem("时间节点", "1911年10月10日晚", "武昌起义爆发，成为辛亥革命全面展开的关键节点。"),
-            XinhaiFocusItem("空间节点", "军械、街巷与城门", "起义不是抽象事件，而是在真实城市空间中推进。"),
-            XinhaiFocusItem("表达策略", "避免单点神话", "用多组场景说明起义由组织、军队、城市节点共同推动。")
+            XinhaiFocusItem("时间现场", "1911年10月10日的夜晚", "回到那个改变历史方向的夜晚，理解新军、革命党人和城市空间如何共同构成起义现场。"),
+            XinhaiFocusItem("空间记忆", "走进街巷与城门", "起义不是抽象事件——在军械所、街巷和中和门之间，感受革命力量如何在真实城市空间中推进。"),
+            XinhaiFocusItem("群像力量", "不是一个人的第一枪", "用多组场景理解起义由组织、军队和城市节点共同推动，避免把历史简化为单点神话。")
         ),
         gallery = listOf(
             XinhaiGalleryImage(XinhaiImageBase + "wuchang_uprising_scene.png", "起义街巷", "沉浸式街巷让观众靠近武昌城的夜晚。"),
@@ -1364,9 +1364,9 @@ private val XinhaiStoryBookPages = listOf(
             )
         ),
         focusItems = listOf(
-            XinhaiFocusItem("建筑身份", "湖北咨议局旧址", "红楼本身承载晚清地方政治空间的历史背景。"),
-            XinhaiFocusItem("政权转换", "湖北军政府成立", "起义成功后，这里成为革命政权的重要象征。"),
-            XinhaiFocusItem("人物理想", "孙中山与共和想象", "人物图像与展厅空间共同指向更大的制度转折。")
+            XinhaiFocusItem("建筑身份", "先看红楼前身，再懂身份转换", "红楼原为湖北咨议局旧址，理解它的前身，才能明白起义成功后为何选择这里作为军政府所在地。"),
+            XinhaiFocusItem("政权建立", "从军事行动进入政治建构", "起义成功后，红楼成为湖北军政府所在地——武昌首义不只是一次战斗，而是革命政权建立的起点。"),
+            XinhaiFocusItem("人物坐标", "透过人物图像，想象共和未来", "孙中山铜像和人物图像不是孤立装饰，而是连接革命组织与共和理想的视觉坐标。")
         ),
         gallery = listOf(
             XinhaiGalleryImage(XinhaiImageBase + "red_building_aerial.jpg", "红楼俯瞰", "从空中理解红楼与首义广场的关系。"),
@@ -1424,9 +1424,9 @@ private val XinhaiStoryBookPages = listOf(
             )
         ),
         focusItems = listOf(
-            XinhaiFocusItem("政治转折", "从地方起义到全国响应", "武昌首义推动革命扩展，成为辛亥革命全面展开的重要节点。"),
-            XinhaiFocusItem("制度意义", "终结君主专制制度", "中华民国建立打开了新的政治想象与制度实践。"),
-            XinhaiFocusItem("今日纪念", "公共历史教育现场", "博物院把事件、人物、旧址和展陈转化为可参观、可理解的公共记忆。")
+            XinhaiFocusItem("全国响应", "从武昌一声炮响，到全国响应浪潮", "各省陆续响应，革命由地方起义扩展为全国性变革——辛亥革命成为近代中国制度转型的关键事件。"),
+            XinhaiFocusItem("制度转折", "终结两千年帝制，开启共和想象", "从「天下」到「国家」，从「臣民」到「国民」——这些观念的转变，才是辛亥革命最深远的遗产。"),
+            XinhaiFocusItem("今日纪念", "在纪念中重新进入历史", "今天的博物院让公众既看到革命的突破，也看到转型的长期性；纪念不是结束，而是重新进入历史。")
         ),
         gallery = listOf(
             XinhaiGalleryImage(XinhaiImageBase + "republic_gallery.png", "民国展区", "人物、文献与场景共同呈现共和初建。"),
@@ -1489,10 +1489,10 @@ private val XinhaiStoryBookPages = listOf(
             )
         ),
         focusItems = listOf(
-            XinhaiFocusItem("人物肖像", "墨彩蔡济民肖像瓷板", "陈设瓷，纵38.8厘米，横25.7厘米，椭圆形墨彩工笔人物肖像，笔法工细，像左下有朱文款印。"),
-            XinhaiFocusItem("革命勋章", "熊秉坤勋五位章", "银胎景泰蓝徽章，星形，直径6.4厘米，厚1.5厘米，重50克，配脱胎黑漆盒，盒面篆书\"勋五位章\"。"),
-            XinhaiFocusItem("领袖手迹", "\"博爱\"横披", "孙中山为曹亚伯题写，纸质，纵55厘米，横167厘米，落款\"孙文\"，钤\"孙文之印\"白文印。"),
-            XinhaiFocusItem("宗族文献", "《经铿黄氏家谱》", "纂修于清光绪壬辰年（1892），线装毛边纸木活字印刷，纵28厘米，横16.5厘米，一部三十卷。")
+            XinhaiFocusItem("人物肖像", "走近蔡济民，看革命者器宇轩昂", "墨彩肖像瓷板笔法工细，像主西装革履、神形兼具——感受革命者的个人风采与时代气质。"),
+            XinhaiFocusItem("革命勋章", "触摸熊秉坤勋章，感受革命功勋的温度", "银胎景泰蓝星形徽章配脱胎黑漆盒，「勋五位章」四字背后，是武昌起义的真实功勋。"),
+            XinhaiFocusItem("领袖手迹", "细读「博爱」二字，悟孙中山的理想", "纵55厘米、横167厘米的横披，不只是书法艺术，更是孙中山一生倡导理念的亲笔见证。"),
+            XinhaiFocusItem("宗族文献", "翻阅黄氏家谱，窥见时代社会结构", "清光绪壬辰年七修谱，线装木活字印刷——家谱不仅是宗族记忆，也是研究清末民初社会结构的重要史料。")
         ),
         gallery = listOf(
             XinhaiGalleryImage(XinhaiArtifactBase + "cai_jimin_portrait.jpg", "墨彩蔡济民肖像瓷板", "椭圆形墨彩工笔人物肖像，像主西装革履、器宇轩昂。"),
