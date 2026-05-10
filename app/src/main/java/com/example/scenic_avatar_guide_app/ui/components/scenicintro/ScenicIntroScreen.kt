@@ -785,6 +785,8 @@ private data class XinhaiBookCard(
 
 private const val XinhaiImageBase = "file:///android_asset/scenic_intro/images/xinhai/immersive/"
 
+private const val XinhaiArtifactBase = "file:///android_asset/scenic_intro/images/xinhai/artifacts/"
+
 // ==================== Page Data ====================
 
 private val XinhaiStoryBookPages = listOf(
@@ -795,20 +797,30 @@ private val XinhaiStoryBookPages = listOf(
         eyebrow = "辛亥革命博物院",
         title = "先看懂这座馆，再进入那场革命",
         subtitle = "辛亥革命博物院把现代展馆、首义广场和红楼旧址组织在同一条参观轴线上，适合用逐幕观看的方式进入。",
-        body = "辛亥革命博物院位于武汉市武昌区首义广场南侧，是为纪念辛亥革命武昌首义100周年而建设的重要文化设施。它不是单纯的陈列空间，而是一条被精心组织过的历史动线：观众先在现代展馆中看到晚清中国的危局、革命组织的形成、武昌起义的爆发，再经由首义广场把视线推向北侧红楼旧址。红楼原为湖北咨议局旧址，武昌起义后成为湖北军政府所在地。南侧展馆负责铺陈历史过程，北侧红楼负责把历史落到真实现场，两者共同构成首义之区的空间叙事。\n\n本次页面不再把内容拆成许多零散支线，而是压缩为六幕。每一幕都围绕一个核心问题展开：为什么革命会发生、革命力量如何聚合、武昌为什么成为爆发点、红楼为什么重要、共和创建意味着什么、今天为什么还要纪念辛亥。",
+        body = "辛亥革命博物院位于武汉市武昌区首义广场南侧，是为纪念辛亥革命武昌首义100周年而建设的重要文化设施。它不是单纯的陈列空间，而是一条被精心组织过的历史动线：观众先在现代展馆中看到晚清中国的危局、革命组织的形成、武昌起义的爆发，再经由首义广场把视线推向北侧红楼旧址。红楼原为湖北咨议局旧址，武昌起义后成为湖北军政府所在地。南侧展馆负责铺陈历史过程，北侧红楼负责把历史落到真实现场，两者共同构成首义之区的空间叙事。\n\n辛亥革命武昌起义纪念馆是依托中华民国军政府鄂军都督府旧址而建立的纪念性博物馆。博物院先后荣获国家国防教育示范基地、武汉市2011年度文化工作绩效管理先进单位、2012～2013年度中国建设工程鲁班奖（国家优质工程）等荣誉称号。目前是国家一级博物馆、第一批全国重点文物保护单位、全国百个爱国主义教育示范基地、全国青少年教育基地、海峡两岸交流基地、中国华侨文化交流基地、全国社会科学普及教育基地、国家国防教育示范基地、全国红色旅游经典景区、国家AAAA级旅游景区。\n\n本次页面不再把内容拆成许多零散支线，而是压缩为七幕。每一幕都围绕一个核心问题展开：为什么革命会发生、革命力量如何聚合、武昌为什么成为爆发点、红楼为什么重要、共和创建意味着什么、今天为什么还要纪念辛亥、以及那些见证历史的珍贵馆藏。",
         imageUrl = XinhaiImageBase + "museum_axis.jpg",
         caption = "辛亥革命博物馆、首义广场与红楼馆区形成南北轴线。",
         tags = listOf("双馆区", "首义广场", "逐幕导览"),
         accent = Color(0xFFE15842),
         focusItems = listOf(
             XinhaiFocusItem("空间关系", "南馆讲历史，北馆看现场", "辛亥革命博物馆与红楼馆区通过首义广场相连，形成从展陈到旧址的参观逻辑。"),
-            XinhaiFocusItem("参观方式", "六幕推进", "每页保留充足文字、看点卡和配图，避免支线过多造成跳转疲劳。"),
+            XinhaiFocusItem("建馆历史", "2009年动工，2011年开放", "博物馆于2009年8月动工兴建，2011年9月落成，2011年10月15日起免费对公众开放。博物院总建筑面积22142平方米，是首义文化区的核心建筑。"),
+            XinhaiFocusItem("馆区整合", "北区南区合二为一", "2022年3月，辛亥革命博物院由北区（原辛亥革命武昌起义纪念馆）和南区（原辛亥革命博物馆）整合而成。北区是1981年依托武昌起义军政府旧址建立的纪念馆，因旧址主体建筑红墙红瓦，武汉人称之为红楼。南区是2011年建立的一座现代建筑形式的专题博物馆，外观为楚国红色调，呈V字造型。"),
+            XinhaiFocusItem("参观方式", "七幕推进", "每页保留充足文字、看点卡和配图，避免支线过多造成跳转疲劳。"),
             XinhaiFocusItem("核心主题", "共和之基", "页面围绕武昌首义如何推动近代中国制度转折展开。")
         ),
         gallery = listOf(
             XinhaiGalleryImage(XinhaiImageBase + "museum_hall_1.jpg", "展厅入口", "现代展馆入口区域，引导观众进入历史叙事。"),
             XinhaiGalleryImage(XinhaiImageBase + "museum_hall_2.jpg", "展陈空间", "宽敞的展览空间，以时间线索组织内容。"),
-            XinhaiGalleryImage(XinhaiImageBase + "red_building_aerial.jpg", "红楼俯瞰", "红楼馆区与首义广场构成真实历史坐标。")
+            XinhaiGalleryImage(XinhaiImageBase + "museum_hall_3.jpg", "展厅掠影", "展馆内部展陈细节，呈现丰富的历史资料。"),
+            XinhaiGalleryImage(XinhaiImageBase + "museum_hall_4.jpg", "历史长廊", "连续的展线设计带领观众穿越历史时空。"),
+            XinhaiGalleryImage(XinhaiImageBase + "museum_hall_5.jpg", "专题展区", "不同主题的展陈空间，多角度呈现辛亥历史。"),
+            XinhaiGalleryImage(XinhaiImageBase + "museum_hall_6.jpg", "尾厅空间", "展览尾声的总结性空间，引发观众思考。"),
+            XinhaiGalleryImage(XinhaiImageBase + "museum_logo.jpg", "馆徽标识", "辛亥革命博物院的标志形象。"),
+            XinhaiGalleryImage(XinhaiImageBase + "museum_sunset.jpg", "首义暮色", "夕阳下的首义广场与博物馆建筑。"),
+            XinhaiGalleryImage(XinhaiImageBase + "red_building_aerial.jpg", "红楼俯瞰", "红楼馆区与首义广场构成真实历史坐标。"),
+            XinhaiGalleryImage(XinhaiImageBase + "museum_exhibition_1.png", "展馆内景", "展馆内部陈设与展品陈列。"),
+            XinhaiGalleryImage(XinhaiImageBase + "museum_exhibition_2.png", "展馆细节", "展陈设计中的细节与亮点。")
         ),
         cards = listOf(
             XinhaiBookCard("晚清危局", "先理解革命为什么会成为一种历史选择。", XinhaiImageBase + "late_qing.png", "下一幕", "late_qing")
@@ -835,7 +847,8 @@ private val XinhaiStoryBookPages = listOf(
         gallery = listOf(
             XinhaiGalleryImage(XinhaiImageBase + "westernization.png", "洋务运动", "舰船装置提示近代工业、军事与海防问题。"),
             XinhaiGalleryImage(XinhaiImageBase + "reform_1898.png", "戊戌变法", "改革失败后，更多人重新思考救亡路径。"),
-            XinhaiGalleryImage(XinhaiImageBase + "hankou_concession.png", "汉口沿江大道", "租界街景表现近代城市空间中的中外碰撞。")
+            XinhaiGalleryImage(XinhaiImageBase + "hankou_concession.png", "汉口沿江大道", "租界街景表现近代城市空间中的中外碰撞。"),
+            XinhaiGalleryImage(XinhaiImageBase + "river_history.png", "江湖浩荡", "长江与汉水交汇的武汉，见证近代中国的风云变幻。")
         ),
         cards = listOf(
             XinhaiBookCard("革命动员", "看革命力量如何从思想、组织和行动中形成。", XinhaiImageBase + "revolution_origin.png", "下一幕", "revolution_origin")
@@ -942,8 +955,38 @@ private val XinhaiStoryBookPages = listOf(
         ),
         gallery = listOf(
             XinhaiGalleryImage(XinhaiImageBase + "republic_gallery.png", "民国展区", "人物、文献与场景共同呈现共和初建。"),
+            XinhaiGalleryImage(XinhaiImageBase + "republic.png", "民国印象", "民国时期的视觉符号与历史印记。"),
             XinhaiGalleryImage(XinhaiImageBase + "centenary.png", "辛亥百年", "从历史事件走向公共纪念。"),
             XinhaiGalleryImage(XinhaiImageBase + "memorial_wall.png", "辛亥纪念", "纪念空间将历史转化为公共记忆。")
+        ),
+        cards = listOf(
+            XinhaiBookCard("馆藏珍品", "走进博物院珍藏，看四件见证历史的重要文物。", XinhaiArtifactBase + "cai_jimin_portrait.jpg", "进入珍藏", "artifacts")
+        ),
+        nextLabel = "进入馆藏珍品"
+    ),
+    XinhaiStoryBookPageData(
+        id = "artifacts",
+        level = 1,
+        levelName = "第七幕 · 珍藏",
+        eyebrow = "馆藏珍品",
+        title = "四件文物，四个历史切片",
+        subtitle = "墨彩蔡济民肖像瓷板、熊秉坤勋五位章、孙中山\"博爱\"横披与《经铿黄氏家谱》，承载着革命记忆与时代温度。",
+        body = "辛亥革命博物院馆藏丰富，其中不乏见证那段峥嵘岁月的重要文物。墨彩蔡济民肖像瓷板为陈设瓷，造型规整，长方形制式，纵38.8厘米，横25.7厘米，胎厚0.7厘米，在白地瓷板上绘有一幅椭圆形墨彩工笔人物肖像，像主蔡济民西装革履、器宇轩昂，神形兼具，笔法工细，像左下有一方朱文款印。蔡济民是辛亥革命的重要参与者，此瓷板生动再现了他的风采。\n\n熊秉坤勋五位章为银胎景泰蓝徽章，星形，直径6.4厘米，厚1.5厘米，重50克。背面以别针佩挂，配脱胎黑漆盒，纵100厘米，横82厘米，高2厘米，盒面篆书\"勋五位章\"。熊秉坤是武昌起义的重要人物，这枚勋章见证了他在革命中的功勋。\n\n孙中山为曹亚伯题\"博爱\"横披，纸质，纵55厘米，横167厘米，\"博爱\"后面书写\"亚伯兄属\"，落款\"孙文\"，后钤\"孙文之印\"白文印。\"博爱\"是孙中山一生倡导的重要理念，这幅横披既是他书法艺术的体现，也是其革命思想的真实写照。\n\n《经铿黄氏家谱》纂修于清光绪壬辰年（1892），为明崇祯以降黄氏一族七修谱。线装，毛边纸木活字印刷，纵28厘米，横16.5厘米，一部三十卷。这部家谱不仅是宗族文化的珍贵遗存，也为研究清末民初的社会结构、家族制度与地域文化提供了重要史料。",
+        imageUrl = XinhaiArtifactBase + "cai_jimin_portrait.jpg",
+        caption = "墨彩蔡济民肖像瓷板，笔法工细，神形兼具。",
+        tags = listOf("墨彩瓷板", "勋五位章", "博爱横披", "黄氏家谱"),
+        accent = Color(0xFFB8976B),
+        focusItems = listOf(
+            XinhaiFocusItem("人物肖像", "墨彩蔡济民肖像瓷板", "陈设瓷，纵38.8厘米，横25.7厘米，椭圆形墨彩工笔人物肖像，笔法工细，像左下有朱文款印。"),
+            XinhaiFocusItem("革命勋章", "熊秉坤勋五位章", "银胎景泰蓝徽章，星形，直径6.4厘米，厚1.5厘米，重50克，配脱胎黑漆盒，盒面篆书\"勋五位章\"。"),
+            XinhaiFocusItem("领袖手迹", "\"博爱\"横披", "孙中山为曹亚伯题写，纸质，纵55厘米，横167厘米，落款\"孙文\"，钤\"孙文之印\"白文印。"),
+            XinhaiFocusItem("宗族文献", "《经铿黄氏家谱》", "纂修于清光绪壬辰年（1892），线装毛边纸木活字印刷，纵28厘米，横16.5厘米，一部三十卷。")
+        ),
+        gallery = listOf(
+            XinhaiGalleryImage(XinhaiArtifactBase + "cai_jimin_portrait.jpg", "墨彩蔡济民肖像瓷板", "椭圆形墨彩工笔人物肖像，像主西装革履、器宇轩昂。"),
+            XinhaiGalleryImage(XinhaiArtifactBase + "xiong_bingkun_medal.jpg", "熊秉坤勋五位章", "银胎景泰蓝星形徽章，配脱胎黑漆盒，盒面篆书\"勋五位章\"。"),
+            XinhaiGalleryImage(XinhaiArtifactBase + "boai_calligraphy.jpg", "\"博爱\"横披", "孙中山题写的\"博爱\"二字，后书\"亚伯兄属\"，落款\"孙文\"。"),
+            XinhaiGalleryImage(XinhaiArtifactBase + "huang_family_tree.jpg", "《经铿黄氏家谱》", "清光绪壬辰年七修谱，线装木活字印刷，一部三十卷。")
         ),
         cards = listOf(
             XinhaiBookCard("回到展馆入口", "重新从首义广场轴线查看完整动线。", XinhaiImageBase + "museum_roof_top.jpg", "回望", "opening")
