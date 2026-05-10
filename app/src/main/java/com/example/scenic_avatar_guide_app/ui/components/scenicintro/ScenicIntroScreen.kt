@@ -389,6 +389,15 @@ private fun XinhaiStoryBookPage(
             }
         }
 
+        if (page.detailBlocks.isNotEmpty()) {
+            item {
+                XinhaiDetailBlocksPanel(
+                    blocks = page.detailBlocks,
+                    accent = page.accent
+                )
+            }
+        }
+
         if (page.focusItems.isNotEmpty()) {
             item {
                 XinhaiFocusPanel(page = page)
@@ -727,6 +736,239 @@ private fun XinhaiContinueCard(
     }
 }
 
+// ==================== Detail Blocks Panel (公众号风格) ====================
+
+@Composable
+private fun XinhaiDetailBlocksPanel(
+    blocks: List<XinhaiDetailBlock>,
+    accent: Color
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 18.dp, vertical = 10.dp)
+    ) {
+        // 区域标题
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(20.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(accent)
+            )
+            Text(
+                text = "主题详解",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        blocks.forEachIndexed { index, block ->
+            when (block.style) {
+                DetailStyle.IMAGE_LEAD -> ImageLeadBlock(block = block, accent = accent)
+                DetailStyle.QUOTE -> QuoteBlock(block = block, accent = accent)
+                DetailStyle.HIGHLIGHT -> HighlightBlock(block = block, accent = accent)
+                DetailStyle.STANDARD -> StandardBlock(block = block, accent = accent)
+            }
+
+            if (index < blocks.lastIndex) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Divider(
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                    color = Color.White.copy(alpha = 0.12f),
+                    thickness = 1.dp
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun StandardBlock(block: XinhaiDetailBlock, accent: Color) {
+    Column(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        // 顶部装饰条
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(3.dp)
+                .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                .background(accent.copy(alpha = 0.7f))
+        )
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp),
+            color = Color(0xFFFFFBF4).copy(alpha = 0.96f),
+            shadowElevation = 4.dp
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = block.title,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF2A181A),
+                    lineHeight = 24.sp
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                block.imageUrl?.let { url ->
+                    AsyncImage(
+                        model = url,
+                        contentDescription = block.imageCaption,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                    )
+                    block.imageCaption?.let { caption ->
+                        Text(
+                            text = caption,
+                            modifier = Modifier.padding(top = 6.dp, start = 2.dp),
+                            fontSize = 11.sp,
+                            color = Color(0xFF8B7D77)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+
+                Text(
+                    text = block.body,
+                    fontSize = 14.sp,
+                    lineHeight = 23.sp,
+                    color = Color(0xFF3D2E2A)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImageLeadBlock(block: XinhaiDetailBlock, accent: Color) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = Color(0xFFFFFBF4).copy(alpha = 0.96f),
+        shadowElevation = 6.dp
+    ) {
+        Column {
+            block.imageUrl?.let { url ->
+                AsyncImage(
+                    model = url,
+                    contentDescription = block.imageCaption,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                )
+            }
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = block.title,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF2A181A)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = block.body,
+                    fontSize = 14.sp,
+                    lineHeight = 23.sp,
+                    color = Color(0xFF3D2E2A)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuoteBlock(block: XinhaiDetailBlock, accent: Color) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = accent.copy(alpha = 0.15f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.35f))
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Text(
+                text = "\"",
+                fontSize = 36.sp,
+                color = accent,
+                lineHeight = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = block.body,
+                fontSize = 15.sp,
+                lineHeight = 24.sp,
+                color = Color.White.copy(alpha = 0.92f),
+                fontStyle = FontStyle.Italic
+            )
+            block.imageCaption?.let { caption ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "—— $caption",
+                    fontSize = 12.sp,
+                    color = accent.copy(alpha = 0.85f),
+                    modifier = Modifier.align(Alignment.End)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HighlightBlock(block: XinhaiDetailBlock, accent: Color) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = Color(0xFFFFFBF4).copy(alpha = 0.96f),
+        shadowElevation = 4.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(48.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(accent)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = block.title,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF2A181A)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = block.body,
+                    fontSize = 14.sp,
+                    lineHeight = 22.sp,
+                    color = Color(0xFF3D2E2A)
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun XinhaiBookTag(tag: String, accent: Color) {
     Surface(
@@ -745,6 +987,21 @@ private fun XinhaiBookTag(tag: String, accent: Color) {
 
 // ==================== Data Classes ====================
 
+private data class XinhaiDetailBlock(
+    val title: String,
+    val body: String,
+    val imageUrl: String? = null,
+    val imageCaption: String? = null,
+    val style: DetailStyle = DetailStyle.STANDARD
+)
+
+private enum class DetailStyle {
+    STANDARD,
+    IMAGE_LEAD,
+    QUOTE,
+    HIGHLIGHT
+}
+
 private data class XinhaiStoryBookPageData(
     val id: String,
     val level: Int,
@@ -760,6 +1017,7 @@ private data class XinhaiStoryBookPageData(
     val focusItems: List<XinhaiFocusItem> = emptyList(),
     val gallery: List<XinhaiGalleryImage> = emptyList(),
     val cards: List<XinhaiBookCard> = emptyList(),
+    val detailBlocks: List<XinhaiDetailBlock> = emptyList(),
     val nextLabel: String = "继续"
 )
 
@@ -797,11 +1055,45 @@ private val XinhaiStoryBookPages = listOf(
         eyebrow = "辛亥革命博物院",
         title = "先看懂这座馆，再进入那场革命",
         subtitle = "辛亥革命博物院把现代展馆、首义广场和红楼旧址组织在同一条参观轴线上，适合用逐幕观看的方式进入。",
-        body = "辛亥革命博物院位于武汉市武昌区首义广场南侧，是为纪念辛亥革命武昌首义100周年而建设的重要文化设施。它不是单纯的陈列空间，而是一条被精心组织过的历史动线：观众先在现代展馆中看到晚清中国的危局、革命组织的形成、武昌起义的爆发，再经由首义广场把视线推向北侧红楼旧址。红楼原为湖北咨议局旧址，武昌起义后成为湖北军政府所在地。南侧展馆负责铺陈历史过程，北侧红楼负责把历史落到真实现场，两者共同构成首义之区的空间叙事。\n\n辛亥革命武昌起义纪念馆是依托中华民国军政府鄂军都督府旧址而建立的纪念性博物馆。博物院先后荣获国家国防教育示范基地、武汉市2011年度文化工作绩效管理先进单位、2012～2013年度中国建设工程鲁班奖（国家优质工程）等荣誉称号。目前是国家一级博物馆、第一批全国重点文物保护单位、全国百个爱国主义教育示范基地、全国青少年教育基地、海峡两岸交流基地、中国华侨文化交流基地、全国社会科学普及教育基地、国家国防教育示范基地、全国红色旅游经典景区、国家AAAA级旅游景区。\n\n本次页面不再把内容拆成许多零散支线，而是压缩为七幕。每一幕都围绕一个核心问题展开：为什么革命会发生、革命力量如何聚合、武昌为什么成为爆发点、红楼为什么重要、共和创建意味着什么、今天为什么还要纪念辛亥、以及那些见证历史的珍贵馆藏。",
+        body = "辛亥革命博物院不是一座孤立陈列的展馆，而是一条被精心组织过的历史动线。观众先在南侧现代展馆中理解晚清危局、革命动员与武昌首义的全过程，再经由首义广场把视线推向北侧红楼旧址，从展陈走向现场。",
         imageUrl = XinhaiImageBase + "museum_axis.jpg",
         caption = "辛亥革命博物馆、首义广场与红楼馆区形成南北轴线。",
         tags = listOf("双馆区", "首义广场", "逐幕导览"),
         accent = Color(0xFFE15842),
+        detailBlocks = listOf(
+            XinhaiDetailBlock(
+                title = "首义广场上的历史轴线",
+                body = "辛亥革命博物院位于武汉市武昌区首义广场南侧，是为纪念辛亥革命武昌首义100周年而建设的重要文化设施。南侧展馆负责铺陈历史过程，北侧红楼负责把历史落到真实现场——两者共同构成首义之区的空间叙事。",
+                imageUrl = XinhaiImageBase + "museum_axis.jpg",
+                imageCaption = "博物馆、广场与红楼在同一条参观轴线上",
+                style = DetailStyle.IMAGE_LEAD
+            ),
+            XinhaiDetailBlock(
+                title = "南馆与红楼：两种讲历史的方式",
+                body = "红楼原为湖北咨议局旧址，武昌起义后成为湖北军政府所在地。南侧展馆用现代展陈语言梳理历史脉络，北侧红楼则把历史保留在真实建筑空间中。观众先在展馆中获得「为什么」的解释，再在红楼前体会「就在这里」的现场感。",
+                style = DetailStyle.HIGHLIGHT
+            ),
+            XinhaiDetailBlock(
+                title = "荣誉与资质",
+                body = "辛亥革命武昌起义纪念馆是依托中华民国军政府鄂军都督府旧址而建立的纪念性博物馆。\n\n博物院先后荣获：\n• 国家国防教育示范基地\n• 武汉市2011年度文化工作绩效管理先进单位\n• 2012～2013年度中国建设工程鲁班奖（国家优质工程）\n\n目前是国家一级博物馆、第一批全国重点文物保护单位、全国百个爱国主义教育示范基地、全国青少年教育基地、海峡两岸交流基地、中国华侨文化交流基地、全国社会科学普及教育基地、全国红色旅游经典景区、国家AAAA级旅游景区。",
+                imageUrl = XinhaiImageBase + "museum_logo.jpg",
+                imageCaption = "国家一级博物馆 · 国家AAAA级旅游景区",
+                style = DetailStyle.STANDARD
+            ),
+            XinhaiDetailBlock(
+                title = "建馆历程：从动工到整合",
+                body = "博物馆于2009年8月动工兴建，2011年9月落成，同年10月15日起免费对公众开放。博物院总建筑面积22142平方米，是首义文化区的核心建筑。\n\n2022年3月，辛亥革命博物院由北区（原辛亥革命武昌起义纪念馆）和南区（原辛亥革命博物馆）整合而成。北区是1981年依托武昌起义军政府旧址建立的纪念馆，因旧址主体建筑红墙红瓦，武汉人称之为红楼。南区是2011年建立的一座现代建筑形式的专题博物馆，外观为楚国红色调，呈V字造型。",
+                imageUrl = XinhaiImageBase + "museum_sunset.jpg",
+                imageCaption = "夕阳下的首义广场与博物院南区建筑",
+                style = DetailStyle.STANDARD
+            ),
+            XinhaiDetailBlock(
+                title = "",
+                body = "纪念不是结束，而是重新进入历史。辛亥革命博物院把事件、人物、旧址和展陈转化为可参观、可理解的公共记忆——从这里出发，我们进入七幕导览。",
+                imageCaption = "博物院导览",
+                style = DetailStyle.QUOTE
+            )
+        ),
         focusItems = listOf(
             XinhaiFocusItem("空间关系", "南馆讲历史，北馆看现场", "辛亥革命博物馆与红楼馆区通过首义广场相连，形成从展陈到旧址的参观逻辑。"),
             XinhaiFocusItem("建馆历史", "2009年动工，2011年开放", "博物馆于2009年8月动工兴建，2011年9月落成，2011年10月15日起免费对公众开放。博物院总建筑面积22142平方米，是首义文化区的核心建筑。"),
