@@ -1126,11 +1126,46 @@ private val XinhaiStoryBookPages = listOf(
         eyebrow = "晚清中国",
         title = "危机不是一夜发生的",
         subtitle = "展厅用压迫感很强的空间，把内忧外患、制度困局和社会变动放在观众面前。",
-        body = "辛亥革命的爆发并非偶然。19世纪中后期以来，中国在战争、通商、赔款、割地和制度失灵中不断承压，社会对如何救中国的追问越来越急迫。洋务运动试图以器物、工业、军事和新式教育求自强，推动了近代化的起步；戊戌变法尝试从制度层面改变旧秩序，却很快失败。两者都留下一个清晰问题：如果只在旧体制内修补，能否真正完成国家转型？\n\n展馆把这一段历史放在开篇，是为了让观众明白：武昌起义不是突然出现的火光，而是长期压力下的爆发。晚清的财政、军事、外交、社会心理都在变化，新军、学生、商人、知识分子和海外华侨逐渐被卷入同一个时代问题。革命派的主张正是在这些挫折和焦虑中获得传播空间。",
+        body = "辛亥革命的爆发并非偶然。19世纪中后期以来，中国在战争、通商、赔款、割地中不断承压，社会追问如何救中国。洋务运动试图以器物求自强，戊戌变法尝试制度变革，却都未能完成根本转型。展馆把这一段历史放在开篇，让观众明白：武昌起义不是突然出现的火光，而是长期压力下的爆发。",
         imageUrl = XinhaiImageBase + "late_qing.png",
         caption = "晚清中国展区以沉重材质和低照度营造历史压迫感。",
         tags = listOf("晚清危局", "洋务运动", "戊戌变法"),
         accent = Color(0xFFD2A24F),
+        detailBlocks = listOf(
+            XinhaiDetailBlock(
+                title = "晚清中国的多重危机",
+                body = "19世纪中后期，中国在战争失败、不平等条约、巨额赔款和领土割让中不断承压。鸦片战争打开国门后，通商口岸的开放让传统经济体系遭遇冲击，而甲午战争的惨败则彻底暴露了清王朝的虚弱。财政枯竭、军事落后、外交被动，社会各阶层对「如何救中国」的追问越来越急迫。",
+                imageUrl = XinhaiImageBase + "late_qing.png",
+                imageCaption = "晚清中国展区以沉重材质营造历史压迫感",
+                style = DetailStyle.IMAGE_LEAD
+            ),
+            XinhaiDetailBlock(
+                title = "洋务运动：器物层面的自救",
+                body = "洋务运动试图以「师夷长技以制夷」的思路，通过引进西方工业、军事技术和新式教育来求自强。江南制造总局、福州船政局的建立，标志着中国近代工业的起步。但洋务派坚持「中体西用」，只学技术不改制度，最终未能触及问题的根本。",
+                imageUrl = XinhaiImageBase + "westernization.png",
+                imageCaption = "舰船装置提示近代工业、军事与海防问题",
+                style = DetailStyle.STANDARD
+            ),
+            XinhaiDetailBlock(
+                title = "戊戌变法：制度变革的首次尝试",
+                body = "1898年的戊戌变法试图从政治制度层面改变旧秩序，倡导君主立宪、废除八股、兴办新式学堂。然而，这场改革仅持续百余天便以失败告终。戊戌变法的失败留下一个清晰问题：如果只在旧体制内修补，能否真正完成国家转型？",
+                imageUrl = XinhaiImageBase + "reform_1898.png",
+                imageCaption = "改革失败后，更多人重新思考救亡路径",
+                style = DetailStyle.STANDARD
+            ),
+            XinhaiDetailBlock(
+                title = "为什么是武汉？",
+                body = "汉口开埠后，武汉成为内地最大的通商口岸之一，华洋杂处、工商汇聚，社会流动性远超内陆城市。长江与汉水在此交汇，九省通衢的地理位置让它成为信息、人员和物资的集散地。租界区的存在既带来屈辱，也让武汉人更早接触到外部世界的新思想。",
+                imageUrl = XinhaiImageBase + "hankou_concession.png",
+                imageCaption = "汉口沿江大道租界区街景",
+                style = DetailStyle.STANDARD
+            ),
+            XinhaiDetailBlock(
+                title = "",
+                body = "危机不是一夜发生的，但改变往往在一夜之间开始。晚清的内忧外患为革命准备了土壤，而改革者的失败则让更多人相信：唯有彻底变革，才能救亡图存。",
+                style = DetailStyle.QUOTE
+            )
+        ),
         focusItems = listOf(
             XinhaiFocusItem("历史压力", "外部冲击与内部失序叠加", "战争失败、赔款压力、制度迟滞和社会流动共同构成晚清危局。"),
             XinhaiFocusItem("改革尝试", "洋务与变法都未完成转型", "洋务重在器物，戊戌尝试制度，但都没有根本解决政治结构问题。"),
@@ -1154,11 +1189,44 @@ private val XinhaiStoryBookPages = listOf(
         eyebrow = "革命源起",
         title = "革命先从人群和组织中成形",
         subtitle = "革命团体、革命报刊、海外华侨、留学生、新军和地方网络，共同构成革命动员的土壤。",
-        body = "孙中山等革命者长期奔走，革命团体逐步形成组织网络。革命不是一场单点爆发的军事冲突，而是多年宣传、筹款、联络、失败经验和社会情绪积累后的结果。展馆中的人物群像、报刊墙、场景复原和孙中山形象，把抽象的革命风潮具体化为一张张面孔、一份份文本和一次次行动。\n\n这一页把原本分散的革命团体、孙中山领导的革命起义、孙中山人物形象合并在一起看。这样更接近观展体验：观众先看到革命思想如何传播，再看到组织如何建立，最后理解为什么武昌新军中的革命力量能够在1911年形成行动能力。",
+        body = "孙中山等革命者长期奔走，革命团体逐步形成组织网络。革命不是一夜爆发，而是多年宣传、筹款、联络与失败经验积累后的结果。这一页把革命思想传播、组织建立和起义行动合并呈现，让观众理解武昌新军为何能在1911年形成行动能力。",
         imageUrl = XinhaiImageBase + "revolution_origin.png",
         caption = "革命源起展陈以人物场景表现革命者的组织讨论。",
         tags = listOf("孙中山", "同盟会", "革命报刊"),
         accent = Color(0xFFB83232),
+        detailBlocks = listOf(
+            XinhaiDetailBlock(
+                title = "革命思想的传播网络",
+                body = "革命不是一场单点爆发的军事冲突。展馆中的人物群像、报刊墙、场景复原和孙中山形象，把抽象的革命风潮具体化为一张张面孔、一份份文本和一次次行动。观众先看到思想如何传播，再看到组织如何建立，最后理解行动能力的来源。",
+                imageUrl = XinhaiImageBase + "revolution_origin.png",
+                imageCaption = "革命源起展陈以人物场景表现革命者的组织讨论",
+                style = DetailStyle.IMAGE_LEAD
+            ),
+            XinhaiDetailBlock(
+                title = "孙中山与革命者群像",
+                body = "孙中山等革命者长期奔走于海内外，从兴中会到同盟会，革命团体逐步形成组织网络。人物不是孤立肖像，而是组织、思想和行动网络的入口。他们的面孔背后，是多年宣传、筹款、联络和无数次失败的经验积累。",
+                imageUrl = XinhaiImageBase + "sun_yatsen_portrait.png",
+                imageCaption = "孙中山肖像——革命领导者线索",
+                style = DetailStyle.STANDARD
+            ),
+            XinhaiDetailBlock(
+                title = "革命报刊与演说：共识如何形成",
+                body = "革命主张需要通过文本、演讲、社团和校园不断传播。革命报刊是思想火种的载体，演说则是点燃情绪的引线。在海内外华侨、留学生、新军士兵和知识分子之间，一种关于「推翻专制、建立共和」的共识逐渐形成。",
+                style = DetailStyle.HIGHLIGHT
+            ),
+            XinhaiDetailBlock(
+                title = "从起义失败中学习",
+                body = "早期起义虽多有失败，但每一次行动都在训练组织能力、测试社会反应、积累经验教训。从广州起义到黄花岗之役，革命者用鲜血换来了对敌我力量的更清晰认知，也为最终的武昌首义铺平了道路。",
+                imageUrl = XinhaiImageBase + "revolution_uprisings.png",
+                imageCaption = "战斗场景提示早期起义的行动经验",
+                style = DetailStyle.STANDARD
+            ),
+            XinhaiDetailBlock(
+                title = "",
+                body = "革命先从人群和组织中成形。没有多年的思想传播和组织建设，1911年10月10日那个夜晚只会是历史中的又一个普通日期。",
+                style = DetailStyle.QUOTE
+            )
+        ),
         focusItems = listOf(
             XinhaiFocusItem("人物线索", "孙中山与革命者群像", "人物不是孤立肖像，而是组织、思想和行动网络的入口。"),
             XinhaiFocusItem("传播线索", "报刊与演说推动共识形成", "革命主张需要通过文本、演讲、社团和校园不断传播。"),
@@ -1181,11 +1249,44 @@ private val XinhaiStoryBookPages = listOf(
         eyebrow = "1911年10月10日",
         title = "武昌城的夜晚改变了历史方向",
         subtitle = "湖北新军革命党人发动起义，起义力量迅速控制关键地点，武昌首义由此爆发。",
-        body = "1911年10月10日晚，湖北新军中的革命党人首先发动起义。随后起义力量控制军械、城门等关键节点，武昌城内局势迅速改变。页面不把复杂史实简化为单一人物的第一枪，而是强调新军、革命党人和城市空间共同构成的起义现场。\n\n这一幕把武昌起义群雕、起义街巷、中和门放在同一页里讲。群雕负责制造行动的冲击力，街巷负责把历史从文字变成空间，中和门则把起义与武昌城防联系起来。",
+        body = "1911年10月10日晚，湖北新军中的革命党人发动起义，迅速控制军械、城门等关键节点。这一幕把武昌起义群雕、起义街巷、中和门放在同一页里讲，强调新军、革命党人和城市空间共同构成的起义现场。",
         imageUrl = XinhaiImageBase + "uprising_sculpture.png",
         caption = "武昌起义群雕以强烈动态表现首义现场。",
         tags = listOf("武昌起义", "湖北新军", "1911"),
         accent = Color(0xFFE14A35),
+        detailBlocks = listOf(
+            XinhaiDetailBlock(
+                title = "1911年10月10日的夜晚",
+                body = "页面不把复杂史实简化为单一人物的第一枪，而是强调新军、革命党人和城市空间共同构成的起义现场。群雕负责制造行动的冲击力，街巷负责把历史从文字变成空间，中和门则把起义与武昌城防联系起来。",
+                imageUrl = XinhaiImageBase + "uprising_sculpture.png",
+                imageCaption = "武昌起义群雕以强烈动态表现首义现场",
+                style = DetailStyle.IMAGE_LEAD
+            ),
+            XinhaiDetailBlock(
+                title = "新军与革命党：起义的主力军",
+                body = "湖北新军是清末编练的新式陆军，士兵多受过新式教育，对时局有清醒认知。革命党人长期在新军中发展组织，把军营变成了革命思想的传播场所。1911年10月10日晚，工程第八营率先发难，随即各营响应。",
+                style = DetailStyle.HIGHLIGHT
+            ),
+            XinhaiDetailBlock(
+                title = "城市空间中的起义",
+                body = "起义不是抽象事件，而是在真实城市空间中推进。革命力量控制军械所获得武器，占领城门切断清廷援军通道，攻占总督署瓦解行政中枢。武昌城的街巷、城墙和衙门，共同构成了这场改变历史走向的舞台。",
+                imageUrl = XinhaiImageBase + "wuchang_uprising_scene.png",
+                imageCaption = "沉浸式街巷让观众靠近武昌城的夜晚",
+                style = DetailStyle.STANDARD
+            ),
+            XinhaiDetailBlock(
+                title = "中和门：入城的记忆之门",
+                body = "中和门是武昌城的重要城门，起义军由此入城、由此推进。原中和门与今日起义门承载入城记忆，门楼不仅是建筑，更是历史行动的坐标。理解中和门，就能理解武昌起义为什么能够迅速控制全城。",
+                imageUrl = XinhaiImageBase + "zhonghe_gate.png",
+                imageCaption = "原中和门与今日起义门承载入城记忆",
+                style = DetailStyle.STANDARD
+            ),
+            XinhaiDetailBlock(
+                title = "",
+                body = "武昌城的夜晚改变了历史方向。不是因为某一个人扣动了扳机，而是因为一群人、一座城、一个时刻共同构成了革命的现场。",
+                style = DetailStyle.QUOTE
+            )
+        ),
         focusItems = listOf(
             XinhaiFocusItem("时间节点", "1911年10月10日晚", "武昌起义爆发，成为辛亥革命全面展开的关键节点。"),
             XinhaiFocusItem("空间节点", "军械、街巷与城门", "起义不是抽象事件，而是在真实城市空间中推进。"),
@@ -1208,11 +1309,44 @@ private val XinhaiStoryBookPages = listOf(
         eyebrow = "红楼成府",
         title = "从湖北咨议局到鄂军都督府",
         subtitle = "红楼原为湖北咨议局旧址，武昌起义后成为革命政权的重要空间象征。",
-        body = "武昌起义成功后，革命力量在红楼成立湖北军政府，也称鄂军都督府。红楼的意义因此发生转换：它不再只是清末地方议政建筑，而成为革命政权建立和共和转折的标志性现场。理解红楼，就能理解武昌首义为什么不只是一次战斗，而是从军事行动进入政治建构。\n\n这一页把红楼正面、红楼俯瞰、孙中山铜像和孙中山人物图像放在一起。建筑给出历史现场，人物给出革命理想，广场轴线则把现代博物馆与旧址连接起来。",
+        body = "武昌起义成功后，革命力量在红楼成立湖北军政府（鄂军都督府）。红楼的意义因此发生转换：它不再只是清末地方议政建筑，而成为革命政权建立和共和转折的标志性现场。理解红楼，就能理解武昌首义为什么不只是一次战斗，而是从军事行动进入政治建构。",
         imageUrl = XinhaiImageBase + "red_building_front.jpg",
         caption = "红楼即辛亥革命武昌起义纪念馆核心旧址。",
         tags = listOf("红楼", "湖北军政府", "鄂军都督府"),
         accent = Color(0xFFC94B3E),
+        detailBlocks = listOf(
+            XinhaiDetailBlock(
+                title = "红楼：从咨议局到军政府",
+                body = "红楼原为湖北咨议局旧址，是清末地方绅士议政的场所。武昌起义成功后，革命力量在此成立湖北军政府，也称鄂军都督府。建筑的身份转换，标志着这片土地从清末地方政治空间变为革命政权的诞生地。",
+                imageUrl = XinhaiImageBase + "red_building_front.jpg",
+                imageCaption = "红楼即辛亥革命武昌起义纪念馆核心旧址",
+                style = DetailStyle.IMAGE_LEAD
+            ),
+            XinhaiDetailBlock(
+                title = "建筑身份的转变",
+                body = "红楼本身承载晚清地方政治空间的历史背景。理解它的前身是咨议局，才能理解起义成功后为什么选择这里作为军政府所在地——它既有官方建筑的权威性，又处于城市中心位置，便于发号施令。",
+                style = DetailStyle.HIGHLIGHT
+            ),
+            XinhaiDetailBlock(
+                title = "孙中山与共和想象",
+                body = "孙中山铜像和人物图像不是孤立装饰，而是连接革命组织与共和理想的视觉坐标。它们提醒观众：红楼中的政权建立不是终点，而是走向更大制度转折的起点。",
+                imageUrl = XinhaiImageBase + "sun_yatsen_bust.png",
+                imageCaption = "展厅中的人物坐标连接革命组织与共和理想",
+                style = DetailStyle.STANDARD
+            ),
+            XinhaiDetailBlock(
+                title = "广场轴线：从现代到旧址",
+                body = "从空中俯瞰，红楼与首义广场、南侧现代博物馆构成一条清晰的空间轴线。这条轴线不只是地理上的连接，更是历史叙事的延伸：从展陈到旧址，从文字到现场，从理解到感受。",
+                imageUrl = XinhaiImageBase + "red_building_aerial.jpg",
+                imageCaption = "从空中理解红楼与首义广场的关系",
+                style = DetailStyle.STANDARD
+            ),
+            XinhaiDetailBlock(
+                title = "",
+                body = "从湖北咨议局到鄂军都督府，一座建筑的身份转换，折射出整个国家的方向转换。",
+                style = DetailStyle.QUOTE
+            )
+        ),
         focusItems = listOf(
             XinhaiFocusItem("建筑身份", "湖北咨议局旧址", "红楼本身承载晚清地方政治空间的历史背景。"),
             XinhaiFocusItem("政权转换", "湖北军政府成立", "起义成功后，这里成为革命政权的重要象征。"),
@@ -1235,11 +1369,44 @@ private val XinhaiStoryBookPages = listOf(
         eyebrow = "创建中华民国 · 辛亥纪念",
         title = "纪念不是结束，而是重新进入历史",
         subtitle = "多省响应、清帝退位和中华民国建立，使辛亥革命成为近代中国制度转型的关键事件。",
-        body = "武昌起义成功后，各省陆续响应，革命由地方起义扩展为全国性变革。1912年中华民国建立，延续两千多年的君主专制制度走向终结。展厅用环形空间、旗帜意象、民国展区和纪念墙，让观众感到历史正在从武昌现场扩展到整个中国。\n\n但共和创建并不意味着历史问题从此全部解决。辛亥革命后的制度建设、社会动员和观念更新仍然艰难复杂。今天的辛亥革命博物院之所以重要，正在于它让公众重新进入这段历史：既看到革命的突破，也看到转型的长期性；既纪念武昌首义，也理解现代中国政治与社会变迁的起点之一。",
+        body = "武昌起义成功后，各省陆续响应，革命由地方起义扩展为全国性变革。1912年中华民国建立，延续两千多年的君主专制制度走向终结。但共和创建并不意味着历史问题全部解决，辛亥革命后的制度建设、社会动员和观念更新仍然艰难复杂。",
         imageUrl = XinhaiImageBase + "found_republic.png",
         caption = "创建中华民国展区以环形空间呈现共和建立。",
         tags = listOf("中华民国", "共和", "辛亥百年"),
         accent = Color(0xFFE4A03F),
+        detailBlocks = listOf(
+            XinhaiDetailBlock(
+                title = "从武昌到全国：共和的扩展",
+                body = "展厅用环形空间、旗帜意象、民国展区和纪念墙，让观众感到历史正在从武昌现场扩展到整个中国。多省响应、清帝退位和中华民国建立，使辛亥革命成为近代中国制度转型的关键事件。",
+                imageUrl = XinhaiImageBase + "found_republic.png",
+                imageCaption = "创建中华民国展区以环形空间呈现共和建立",
+                style = DetailStyle.IMAGE_LEAD
+            ),
+            XinhaiDetailBlock(
+                title = "终结两千年的君主专制",
+                body = "中华民国的建立不只是政权的更迭，更是政治想象的根本转变。从「天下」到「国家」，从「臣民」到「国民」，从「君权神授」到「主权在民」——这些观念的转变，才是辛亥革命最深远的遗产。",
+                style = DetailStyle.HIGHLIGHT
+            ),
+            XinhaiDetailBlock(
+                title = "民国初建与制度探索",
+                body = "民国建立后，临时政府、国会、宪法草案相继出现。但这些制度建设在实践中遭遇重重困难：军阀割据、政党纷争、社会撕裂。共和的理想与现实之间的落差，正是辛亥革命后中国面临的真正挑战。",
+                imageUrl = XinhaiImageBase + "republic.png",
+                imageCaption = "民国时期的视觉符号与历史印记",
+                style = DetailStyle.STANDARD
+            ),
+            XinhaiDetailBlock(
+                title = "辛亥百年与今日纪念",
+                body = "今天的辛亥革命博物院之所以重要，正在于它让公众重新进入这段历史：既看到革命的突破，也看到转型的长期性；既纪念武昌首义，也理解现代中国政治与社会变迁的起点之一。纪念不是结束，而是重新进入历史。",
+                imageUrl = XinhaiImageBase + "centenary.png",
+                imageCaption = "从历史事件走向公共纪念",
+                style = DetailStyle.STANDARD
+            ),
+            XinhaiDetailBlock(
+                title = "",
+                body = "辛亥革命的突破在于它终结了一个旧时代，而它的意义在于它开启了一个需要长期探索的新时代。",
+                style = DetailStyle.QUOTE
+            )
+        ),
         focusItems = listOf(
             XinhaiFocusItem("政治转折", "从地方起义到全国响应", "武昌首义推动革命扩展，成为辛亥革命全面展开的重要节点。"),
             XinhaiFocusItem("制度意义", "终结君主专制制度", "中华民国建立打开了新的政治想象与制度实践。"),
@@ -1263,11 +1430,48 @@ private val XinhaiStoryBookPages = listOf(
         eyebrow = "馆藏珍品",
         title = "四件文物，四个历史切片",
         subtitle = "墨彩蔡济民肖像瓷板、熊秉坤勋五位章、孙中山\"博爱\"横披与《经铿黄氏家谱》，承载着革命记忆与时代温度。",
-        body = "辛亥革命博物院馆藏丰富，其中不乏见证那段峥嵘岁月的重要文物。墨彩蔡济民肖像瓷板为陈设瓷，造型规整，长方形制式，纵38.8厘米，横25.7厘米，胎厚0.7厘米，在白地瓷板上绘有一幅椭圆形墨彩工笔人物肖像，像主蔡济民西装革履、器宇轩昂，神形兼具，笔法工细，像左下有一方朱文款印。蔡济民是辛亥革命的重要参与者，此瓷板生动再现了他的风采。\n\n熊秉坤勋五位章为银胎景泰蓝徽章，星形，直径6.4厘米，厚1.5厘米，重50克。背面以别针佩挂，配脱胎黑漆盒，纵100厘米，横82厘米，高2厘米，盒面篆书\"勋五位章\"。熊秉坤是武昌起义的重要人物，这枚勋章见证了他在革命中的功勋。\n\n孙中山为曹亚伯题\"博爱\"横披，纸质，纵55厘米，横167厘米，\"博爱\"后面书写\"亚伯兄属\"，落款\"孙文\"，后钤\"孙文之印\"白文印。\"博爱\"是孙中山一生倡导的重要理念，这幅横披既是他书法艺术的体现，也是其革命思想的真实写照。\n\n《经铿黄氏家谱》纂修于清光绪壬辰年（1892），为明崇祯以降黄氏一族七修谱。线装，毛边纸木活字印刷，纵28厘米，横16.5厘米，一部三十卷。这部家谱不仅是宗族文化的珍贵遗存，也为研究清末民初的社会结构、家族制度与地域文化提供了重要史料。",
+        body = "辛亥革命博物院馆藏丰富，涵盖书画、瓷器、徽章、文献等多种类型。以下四件珍品从不同角度见证了那段峥嵘岁月，每一件都承载着革命记忆与时代温度。",
         imageUrl = XinhaiArtifactBase + "cai_jimin_portrait.jpg",
         caption = "墨彩蔡济民肖像瓷板，笔法工细，神形兼具。",
         tags = listOf("墨彩瓷板", "勋五位章", "博爱横披", "黄氏家谱"),
         accent = Color(0xFFB8976B),
+        detailBlocks = listOf(
+            XinhaiDetailBlock(
+                title = "馆藏珍品概览",
+                body = "辛亥革命博物院馆藏涵盖瓷器、徽章、书画、文献等多种类型。以下四件珍品从不同角度见证了那段峥嵘岁月——它们既是物质遗存，也是理解那个时代的人、事与精神的入口。",
+                imageUrl = XinhaiArtifactBase + "cai_jimin_portrait.jpg",
+                imageCaption = "墨彩蔡济民肖像瓷板",
+                style = DetailStyle.IMAGE_LEAD
+            ),
+            XinhaiDetailBlock(
+                title = "墨彩蔡济民肖像瓷板",
+                body = "墨彩蔡济民肖像瓷板为陈设瓷，造型规整，长方形制式，纵38.8厘米，横25.7厘米，胎厚0.7厘米。在白地瓷板上绘有一幅椭圆形墨彩工笔人物肖像，像主蔡济民西装革履、器宇轩昂，神形兼具，笔法工细，像左下有一方朱文款印。蔡济民是辛亥革命的重要参与者，此瓷板生动再现了他的风采。",
+                imageUrl = XinhaiArtifactBase + "cai_jimin_portrait.jpg",
+                imageCaption = "椭圆形墨彩工笔人物肖像，笔法工细",
+                style = DetailStyle.STANDARD
+            ),
+            XinhaiDetailBlock(
+                title = "熊秉坤勋五位章",
+                body = "熊秉坤勋五位章为银胎景泰蓝徽章，星形，直径6.4厘米，厚1.5厘米，重50克。背面以别针佩挂，配脱胎黑漆盒，纵100厘米，横82厘米，高2厘米，盒面篆书「勋五位章」。熊秉坤是武昌起义的重要人物，这枚勋章见证了他在革命中的功勋。",
+                imageUrl = XinhaiArtifactBase + "xiong_bingkun_medal.jpg",
+                imageCaption = "银胎景泰蓝星形徽章，配脱胎黑漆盒",
+                style = DetailStyle.STANDARD
+            ),
+            XinhaiDetailBlock(
+                title = "「博爱」横披",
+                body = "孙中山为曹亚伯题「博爱」横披，纸质，纵55厘米，横167厘米。「博爱」后面书写「亚伯兄属」，落款「孙文」，后钤「孙文之印」白文印。「博爱」是孙中山一生倡导的重要理念，这幅横披既是他书法艺术的体现，也是其革命思想的真实写照。",
+                imageUrl = XinhaiArtifactBase + "boai_calligraphy.jpg",
+                imageCaption = "孙中山手迹，纵55厘米，横167厘米",
+                style = DetailStyle.STANDARD
+            ),
+            XinhaiDetailBlock(
+                title = "《经铿黄氏家谱》",
+                body = "《经铿黄氏家谱》纂修于清光绪壬辰年（1892），为明崇祯以降黄氏一族七修谱。线装，毛边纸木活字印刷，纵28厘米，横16.5厘米，一部三十卷。这部家谱不仅是宗族文化的珍贵遗存，也为研究清末民初的社会结构、家族制度与地域文化提供了重要史料。",
+                imageUrl = XinhaiArtifactBase + "huang_family_tree.jpg",
+                imageCaption = "清光绪壬辰年七修谱，线装木活字印刷",
+                style = DetailStyle.STANDARD
+            )
+        ),
         focusItems = listOf(
             XinhaiFocusItem("人物肖像", "墨彩蔡济民肖像瓷板", "陈设瓷，纵38.8厘米，横25.7厘米，椭圆形墨彩工笔人物肖像，笔法工细，像左下有朱文款印。"),
             XinhaiFocusItem("革命勋章", "熊秉坤勋五位章", "银胎景泰蓝徽章，星形，直径6.4厘米，厚1.5厘米，重50克，配脱胎黑漆盒，盒面篆书\"勋五位章\"。"),
