@@ -53,7 +53,7 @@ fun SettingsScreen(
     val availableVoices = viewModel.availableVoices
     val scenicId by viewModel.scenicId.collectAsStateWithLifecycle()
     val spotId by viewModel.spotId.collectAsStateWithLifecycle()
-    val scenicAreas = viewModel.scenicAreas
+    val scenicAreas by viewModel.scenicAreas.collectAsStateWithLifecycle()
     val isAuthenticated by viewModel.isAuthenticated.collectAsStateWithLifecycle()
     val authUsername by viewModel.authUsername.collectAsStateWithLifecycle()
 
@@ -64,7 +64,11 @@ fun SettingsScreen(
 
     val currentScenicName = scenicAreas.find { it.id == scenicId }?.name ?: "未选择"
     val currentSpotName = scenicAreas.find { it.id == scenicId }?.spots?.find { it.id == spotId }?.name ?: "未选择"
-    val scenicSubtitle = if (scenicId == null || spotId == null) "请选择景区和景点" else "$currentScenicName · $currentSpotName"
+    val scenicSubtitle = when {
+        scenicId == null -> "请选择景区"
+        spotId == null -> "$currentScenicName · 全景区"
+        else -> "$currentScenicName · $currentSpotName"
+    }
 
     LaunchedEffect(statusMessage) {
         statusMessage?.let {

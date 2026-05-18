@@ -34,6 +34,10 @@ sealed interface ChatStreamEvent {
         val sources: List<SourceInfo>
     ) : ChatStreamEvent
 
+    data class ImagesDelta(
+        val images: List<ChatImageInfo>
+    ) : ChatStreamEvent
+
     data class RouteDataDelta(
         val routeData: RouteData
     ) : ChatStreamEvent

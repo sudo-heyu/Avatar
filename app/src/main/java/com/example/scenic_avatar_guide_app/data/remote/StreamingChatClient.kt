@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.scenic_avatar_guide_app.core.network.StreamingOkHttp
 import com.example.scenic_avatar_guide_app.data.local.SettingsDataStore
 import com.example.scenic_avatar_guide_app.domain.model.AvatarAction
+import com.example.scenic_avatar_guide_app.domain.model.ChatImageInfo
 import com.example.scenic_avatar_guide_app.domain.model.ChatStreamEvent
 import com.example.scenic_avatar_guide_app.domain.model.ChatTextRequest
 import com.example.scenic_avatar_guide_app.domain.model.ResponseMetadata
@@ -149,19 +150,63 @@ class StreamingChatClient @Inject constructor(
         }
         if (line.startsWith(":")) return null
         if (line.startsWith("event:")) {
-            val eventType = line.removePrefix("event:").trim()
-            Log.d(TAG, "SSE event 类型: $eventType")
-            onEventType(eventType)
-            return null
+            val nextEventType = line.removePrefix("event:").trim()
+            val pendingEvent = if (sseDataLines.isNotEmpty()) {
+                flushSseData(sseDataLines, eventType).also { onEventFlushed() }
+            } else {
+                null
+            }
+            Log.d(TAG, "SSE event 类型: $nextEventType")
+            onEventType(nextEventType)
+            return pendingEvent
         }
         if (line.startsWith("data:")) {
             sseDataLines += line.removePrefix("data:").trimStart()
-            return null
+            return flushEventIfComplete(sseDataLines, eventType, onEventFlushed)
         }
-        if (line.startsWith("{")) {
-            return decodeEvent(line, eventType)
+        if (sseDataLines.isNotEmpty()) {
+            sseDataLines += line
+            return flushEventIfComplete(sseDataLines, eventType, onEventFlushed)
+        }
+        if (line.trimStart().startsWith("{")) {
+            return decodeEvent(line.trimStart(), eventType)
         }
         return null
+    }
+
+    private fun flushEventIfComplete(
+        sseDataLines: MutableList<String>,
+        eventType: String?,
+        onEventFlushed: () -> Unit
+    ): ChatStreamEvent? {
+        if (eventType !in setOf(
+                "images",
+                "sources",
+                "metadata",
+                "avatar_action",
+                "route_data",
+                "done",
+                "aborted",
+                "error"
+            )
+        ) {
+            return null
+        }
+        val payload = sseDataLines.joinToString(separator = "\n")
+        if (!isCompleteJsonPayload(payload)) return null
+        return decodeEvent(payload, eventType).also {
+            sseDataLines.clear()
+            onEventFlushed()
+        }
+    }
+
+    private fun isCompleteJsonPayload(payload: String): Boolean {
+        val trimmed = payload.trim()
+        if (trimmed == "[DONE]") return true
+        if (trimmed.isEmpty()) return false
+        return runCatching {
+            json.parseToJsonElement(trimmed)
+        }.isSuccess
     }
 
     private fun flushSseData(
@@ -182,6 +227,7 @@ class StreamingChatClient @Inject constructor(
         val envelope = runCatching {
             json.decodeFromString(ChatStreamEnvelope.serializer(), payload)
         }.getOrElse { e ->
+            decodeDirectEventPayload(eventType, payload)?.let { return it }
             if (eventType == "text_delta") {
                 return ChatStreamEvent.TextDelta(payload)
             }
@@ -218,6 +264,9 @@ class StreamingChatClient @Inject constructor(
             "sources" -> envelope.data
                 ?.let { json.decodeFromJsonElement(ListSerializer(SourceInfo.serializer()), it) }
                 ?.let { ChatStreamEvent.SourcesDelta(it) }
+            "images" -> envelope.data
+                ?.let { json.decodeFromJsonElement(ListSerializer(ChatImageInfo.serializer()), it) }
+                ?.let { ChatStreamEvent.ImagesDelta(it) }
             "route_data" -> envelope.data
                 ?.let { json.decodeFromJsonElement<RouteData>(it) }
                 ?.let { ChatStreamEvent.RouteDataDelta(it) }
@@ -232,6 +281,32 @@ class StreamingChatClient @Inject constructor(
             )
             "error" -> ChatStreamEvent.Error(envelope.code, envelope.message ?: "流式响应错误")
             else -> null
+        }
+    }
+
+    private fun decodeDirectEventPayload(eventType: String?, payload: String): ChatStreamEvent? {
+        return runCatching {
+            when (eventType) {
+                "images" -> ChatStreamEvent.ImagesDelta(
+                    json.decodeFromString(ListSerializer(ChatImageInfo.serializer()), payload)
+                )
+                "sources" -> ChatStreamEvent.SourcesDelta(
+                    json.decodeFromString(ListSerializer(SourceInfo.serializer()), payload)
+                )
+                "metadata" -> ChatStreamEvent.MetadataDelta(
+                    json.decodeFromString(ResponseMetadata.serializer(), payload)
+                )
+                "route_data" -> ChatStreamEvent.RouteDataDelta(
+                    json.decodeFromString(RouteData.serializer(), payload)
+                )
+                "avatar_action" -> ChatStreamEvent.AvatarActionDelta(
+                    json.decodeFromString(AvatarAction.serializer(), payload)
+                )
+                else -> null
+            }
+        }.getOrElse { e ->
+            Log.w(TAG, "直接解析 SSE 事件失败: eventType=$eventType, payload=${payload.take(160)}", e)
+            null
         }
     }
 

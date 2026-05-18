@@ -24,21 +24,21 @@ class ScenicIntroViewModel @Inject constructor(
     private val _indexState = MutableStateFlow<UiState<ScenicIndex>>(UiState.Loading)
     val indexState: StateFlow<UiState<ScenicIndex>> = _indexState.asStateFlow()
 
-    private val _selectedScenicId = MutableStateFlow("xinhai_museum")
+    private val _selectedScenicId = MutableStateFlow("1911museum")
     val selectedScenicId: StateFlow<String> = _selectedScenicId.asStateFlow()
 
     init {
         loadIndex()
-        loadScenicIntro("xinhai_museum")
+        loadScenicIntro("1911museum")
     }
 
     fun loadScenicIntro(scenicId: String) {
         _selectedScenicId.value = scenicId
-        if (scenicId == "xinhai_museum") {
+        if (scenicId == "1911museum") {
             _introState.value = UiState.Success(
                 ScenicIntroContent(
-                    scenicId = "xinhai_museum",
-                    scenicName = "辛亥革命博物馆",
+                    scenicId = "1911museum",
+                    scenicName = "辛亥革命纪念馆",
                     subtitle = "首义之区，共和之门"
                 )
             )

@@ -2,7 +2,7 @@
 
 版本：v3.1
 日期：2026-05-08  
-状态：**Android 端已完成全部接入**：`StreamingChatClient` SSE 解析、`StreamingTtsQueue` 分段播放、`TypewriterController` 打字机效果、自动续写、`AuthDialog` 认证、`FeedbackDialog` 满意度反馈。流式 TTS 主事件为 `tts_segment_ready`；`tts_segment` 仅作预告不播放；`tts_audio_error` 用于跳过合成失败片段；`tts_audio_chunk`/`tts_audio_end` 后端保留发送但 Android 端已忽略
+状态：**Android 端已完成全部接入**：`StreamingChatClient` SSE 解析、`StreamingTtsQueue` 分段播放、`TypewriterController` 打字机效果、`images` 图片卡片、自动续写、`AuthDialog` 认证、`FeedbackDialog` 满意度反馈。流式 TTS 主事件为 `tts_segment_ready`；`tts_segment` 仅作预告不播放；`tts_audio_error` 用于跳过合成失败片段；`tts_audio_chunk`/`tts_audio_end` 后端保留发送但 Android 端已忽略
 
 ---
 
@@ -27,7 +27,7 @@
 | LLM token/text 流 | 已实现 | DeepSeek 官方 OpenAI 兼容接口使用 `stream=True`，默认 `deepseek-v4-flash` |
 | `message_start` | 已实现 | 流开始时发送 |
 | `text_delta` | 已实现 | 按模型增量顺序发送 |
-| `avatar_action` / `sources` / `metadata` / `done` | 已实现 | 文本生成完成后发送结构化事件 |
+| `avatar_action` / `images` / `sources` / `metadata` / `done` | 已实现 | 文本生成完成后发送结构化事件 |
 | `route_data` | 已实现 | `mode=route` 且解析出路线数据时发送 |
 | `error` / `aborted` | 已实现 | 流式链路异常或用户取消时发送 |
 | `tts_segment` | 已实现 | `ChatService` 中按情绪边界/句子边界分段，立即推送段落元信息 |
@@ -221,6 +221,7 @@ Android 端应优先实现 SSE 解析，同时可将解析器设计为按行读�
 | `tts_segment_ready` | **音频文件已生成** | 已实现 | **播放 `audio_url`，用 `marks` 驱动口型** |
 | `tts_audio_error` | 某个 TTS 片段合成失败或被取消 | 已实现 | 标记该片段失败，跳过播放并释放后续排队片段 |
 | `avatar_action` | 流开始后立即发送（基于用户问题推断） | 当前已实现 | 更新数字人表情、动作 |
+| `images` | 文本生成完成后，`sources` 之前 | 当前已实现，无图时为空数组 | 补齐助手消息图片卡片 |
 | `sources` | 检索来源完成后 | 当前已实现，未接 RAG 时为空数组 | 补齐消息来源 |
 | `route_data` | 路线规划结构化数据完成后 | 当前已实现，`mode=route` 且有数据时发送 | 补齐路线卡片数据 |
 | `metadata` | 意图、情绪、耗时等完成后 | 当前已实现 | 补齐统计与降级字段 |
@@ -415,7 +416,40 @@ Android 端应优先实现 SSE 解析，同时可将解析器设计为按行读�
 - 若后续需要更细粒度的实时表情切换，前端可结合 `tts_segment.emotion` 在播放每个片段时动态更新表情。
 - Gesture 层不得修改面部参数和 `ParamMouthOpenY` / `ParamMouthForm`。
 
-### 5.9 `sources`
+### 5.9 `images`
+
+```json
+{
+  "type": "images",
+  "data": [
+    {
+      "image_id": "img_xxx",
+      "title": "北区红楼",
+      "description": "这张图片展示北区红楼的主体建筑。",
+      "alt_text": "北区红楼俯瞰",
+      "caption": "北区红楼主体建筑",
+      "url": "/static/knowledge/1911museum/images/%E5%8C%97%E5%8C%BA%E7%BA%A2%E6%A5%BC.jpg",
+      "public_path": "/static/knowledge/1911museum/images/%E5%8C%97%E5%8C%BA%E7%BA%A2%E6%A5%BC.jpg",
+      "document_id": "doc_xxx",
+      "chunk_id": "doc_xxx_c001",
+      "source_path": "docs/knowledge/1911museum/images/北区红楼.jpg",
+      "width": 800,
+      "height": 600
+    }
+  ]
+}
+```
+
+说明：
+
+- `images` 是后端返回的回复附件，通常在文本生成完成后、`sources` 之前发送。
+- `title`、`description`、`caption`、`alt_text` 均由后端提供；Android 端不根据图片内容生成介绍文字。
+- Android 展示优先级：标题使用 `title`；副标题使用 `description`，为空时使用 `caption`；图片加载失败时显示 `alt_text`，再退回 `title`。
+- `url` / `public_path` 可为 `/static/...` 相对路径，Android 端会拼接当前服务器 base URL 后用 Coil 加载。
+- `document_id`、`chunk_id`、`source_path` 仅用于溯源或调试，Android 当前不展示。
+- TTS 只消费 `text_delta` / `tts_segment_ready.text` 相关内容，不朗读图片标题、描述、路径或调试字段。
+
+### 5.10 `sources`
 
 ```json
 {
@@ -433,7 +467,7 @@ Android 端应优先实现 SSE 解析，同时可将解析器设计为按行读�
 }
 ```
 
-### 5.10 `route_data`
+### 5.11 `route_data`
 
 ```json
 {
@@ -459,7 +493,7 @@ Android 端应优先实现 SSE 解析，同时可将解析器设计为按行读�
 }
 ```
 
-### 5.11 `metadata`
+### 5.12 `metadata`
 
 ```json
 {
@@ -474,7 +508,7 @@ Android 端应优先实现 SSE 解析，同时可将解析器设计为按行读�
 }
 ```
 
-### 5.12 `done`
+### 5.13 `done`
 
 ```json
 {
@@ -941,6 +975,7 @@ sendMessage()
                       ├─ TtsSegmentReady -> playbackManager.playSpeechSegment()
                       │                     typewriterController.notifyTtsReady()
                       ├─ AvatarAction    -> playbackManager.updateStreamingAction()
+                      ├─ Images          -> updateAssistantMessage(images)
                       ├─ Sources         -> updateAssistantMessage()
                       ├─ RouteData       -> updateAssistantMessage()
                       ├─ Metadata        -> 缓存或更新降级字段

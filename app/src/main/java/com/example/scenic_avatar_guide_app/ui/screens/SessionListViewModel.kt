@@ -3,6 +3,7 @@ package com.example.scenic_avatar_guide_app.ui.screens
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.scenic_avatar_guide_app.data.local.SettingsDataStore
 import com.example.scenic_avatar_guide_app.data.repository.SessionRepository
 import com.example.scenic_avatar_guide_app.domain.model.ChatMessage
 import com.example.scenic_avatar_guide_app.domain.model.SessionInfo
@@ -11,6 +12,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -18,7 +20,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class SessionListViewModel @Inject constructor(
-    private val sessionRepository: SessionRepository
+    private val sessionRepository: SessionRepository,
+    private val settingsDataStore: SettingsDataStore
 ) : ViewModel() {
 
     private val _sessions = MutableStateFlow<List<SessionInfo>>(emptyList())
@@ -81,7 +84,8 @@ class SessionListViewModel @Inject constructor(
             _isLoading.value = true
             sessionRepository.getSessionDetail(sessionId).fold(
                 onSuccess = { detail ->
-                    _restoredMessages.value = detail.messages.map { it.toChatMessage() }
+                    val baseUrl = settingsDataStore.baseUrl.first()
+                    _restoredMessages.value = detail.messages.map { it.toChatMessage(baseUrl) }
                 },
                 onFailure = { e ->
                     Log.e("SessionListVM", "restoreSession failed", e)

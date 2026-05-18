@@ -63,7 +63,9 @@ class SettingsViewModel @Inject constructor(
     val currentVoiceId: StateFlow<String> = _currentVoiceId.asStateFlow()
 
     val availableVoices: List<VoiceInfo> = RemoteTTSController.AVAILABLE_VOICES
-    val scenicAreas: List<ScenicArea> = scenicDataSource.loadScenicAreas()
+
+    private val _scenicAreas = MutableStateFlow(scenicDataSource.loadScenicAreas())
+    val scenicAreas: StateFlow<List<ScenicArea>> = _scenicAreas.asStateFlow()
 
     private val _scenicId = MutableStateFlow<String?>(null)
     val scenicId: StateFlow<String?> = _scenicId.asStateFlow()
@@ -108,6 +110,7 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             settingsDataStore.authUsername.collect { _authUsername.value = it }
         }
+        refreshScenicAreas()
     }
 
     fun updateBaseUrl(url: String) {
@@ -155,7 +158,7 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun setScenicSpot(scenicId: String, spotId: String) {
+    fun setScenicSpot(scenicId: String, spotId: String?) {
         viewModelScope.launch {
             settingsDataStore.setScenicId(scenicId)
             settingsDataStore.setSpotId(spotId)
@@ -163,6 +166,16 @@ class SettingsViewModel @Inject constructor(
             _scenicId.value = scenicId
             _spotId.value = spotId
             _statusMessage.value = "景区景点已更新，会话已重置"
+        }
+    }
+
+    fun refreshScenicAreas() {
+        viewModelScope.launch {
+            repository.getPublicScenicAreas().onSuccess { remoteAreas ->
+                if (remoteAreas.isNotEmpty()) {
+                    _scenicAreas.value = remoteAreas
+                }
+            }
         }
     }
 

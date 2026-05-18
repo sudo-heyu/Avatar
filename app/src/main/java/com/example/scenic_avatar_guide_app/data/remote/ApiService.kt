@@ -21,10 +21,30 @@ interface ApiService {
     suspend fun healthCheck(): HealthResponse
 
     /**
+     * 获取公开景区列表
+     */
+    @GET("api/v1/scenics")
+    suspend fun listPublicScenics(): PublicScenicListResponse
+
+    /**
+     * 获取公开景区下的景点列表
+     */
+    @GET("api/v1/scenics/{scenic_id}/spots")
+    suspend fun listPublicScenicSpots(
+        @Path("scenic_id") scenicId: String
+    ): PublicScenicSpotListResponse
+
+    /**
      * 创建会话
      */
     @POST("api/v1/session/create")
     suspend fun createSession(@Body request: SessionCreateRequest): SessionCreateResponse
+
+    /**
+     * 文本问答（非流式）
+     */
+    @POST("api/v1/chat/text")
+    suspend fun chatText(@Body request: ChatTextRequest): ChatTextResponse
 
     /**
      * 中止当前对话

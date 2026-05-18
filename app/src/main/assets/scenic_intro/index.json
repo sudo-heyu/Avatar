@@ -3,10 +3,16 @@
   "lastUpdated": "2026-05-10",
   "scenics": [
     {
-      "scenicId": "xinhai_museum",
-      "name": "辛亥革命博物馆",
+      "scenicId": "1911museum",
+      "name": "辛亥革命纪念馆",
       "thumbnail": "file:///android_asset/scenic_intro/images/xinhai/hero_group.png",
       "description": "首义之区，共和之门——传承辛亥首义精神"
+    },
+    {
+      "scenicId": "site_of_the_august_7th_conference",
+      "name": "八七会议会址纪念馆",
+      "thumbnail": "file:///android_asset/scenic_intro/images/baqi/memorial_1.jpg",
+      "description": "危急关头挽救党、挽救革命的重要会议旧址"
     },
     {
       "scenicId": "xiangjingyu_cemetery",

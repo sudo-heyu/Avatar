@@ -45,6 +45,40 @@ class GuideRepository @Inject constructor(
     }
 
     /**
+     * 获取后端公开景区与景点列表。
+     * 后端 scenic_id 为 canonical ID，前端优先使用这里的数据，本地 assets 仅作为离线兜底。
+     */
+    suspend fun getPublicScenicAreas(): Result<List<ScenicArea>> {
+        return try {
+            val scenicItems = apiService.listPublicScenics().items
+            val areas = scenicItems.map { scenic ->
+                val spots = runCatching {
+                    apiService.listPublicScenicSpots(scenic.scenicId).items
+                        .sortedBy { it.sortOrder }
+                        .map { spot ->
+                            ScenicSpot(
+                                id = spot.spotId,
+                                name = spot.name,
+                                description = spot.description,
+                                sortOrder = spot.sortOrder
+                            )
+                        }
+                }.getOrDefault(emptyList())
+
+                ScenicArea(
+                    id = scenic.scenicId,
+                    name = scenic.name,
+                    description = scenic.description,
+                    spots = spots
+                )
+            }
+            Result.success(areas)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
      * 创建会话
      */
     suspend fun createSession(deviceId: String): Result<SessionData> {
@@ -105,11 +139,6 @@ class GuideRepository @Inject constructor(
         val pitch = settingsDataStore.pitch.first()
 
         Log.d("GuideRepository", "spotId=$spotId, scenicId=$scenicId, userId=$userId")
-        if (spotId == null) {
-            Log.e("GuideRepository", "spotId 为空，无法发送流式消息")
-            return flowOf(ChatStreamEvent.Error(message = "景点位置未选择"))
-        }
-
         Log.d("GuideRepository", "用户选择的发音人: $voiceId, rate=$rate, volume=$volume, pitch=$pitch")
 
         val request = ChatTextRequest(
@@ -130,6 +159,57 @@ class GuideRepository @Inject constructor(
 
         Log.d("GuideRepository", "调用 streamingChatClient.streamChat, voice=$voiceId")
         return streamingChatClient.streamChat(request)
+    }
+
+    /**
+     * 发送文本消息（非流式）
+     */
+    suspend fun sendTextMessage(
+        sessionId: String,
+        message: String,
+        mode: String = "chat",
+        imageUrl: String? = null
+    ): Result<ChatResponseData> {
+        return try {
+            val userId = settingsDataStore.userId.first()
+                ?: return Result.failure(IllegalStateException("用户 ID 不存在"))
+
+            val scenicId = settingsDataStore.scenicId.first() ?: "lingshan"
+            val spotId = settingsDataStore.spotId.first()
+            val voiceId = settingsDataStore.voiceId.first()
+            val rate = settingsDataStore.rate.first()
+            val volume = settingsDataStore.volume.first()
+            val pitch = settingsDataStore.pitch.first()
+
+            val request = ChatTextRequest(
+                sessionId = sessionId,
+                userId = userId,
+                scenicId = scenicId,
+                question = message,
+                spotId = spotId,
+                mode = mode,
+                imageUrl = imageUrl,
+                options = ChatOptions(
+                    voice = voiceId,
+                    rate = rate,
+                    volume = volume,
+                    pitch = pitch
+                )
+            )
+
+            val response = apiService.chatText(request)
+            if (response.code == 0) {
+                Result.success(
+                    response.data.copy(
+                        images = response.data.images.resolveImageUrls(settingsDataStore.baseUrl.first())
+                    )
+                )
+            } else {
+                Result.failure(Exception(response.message))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
     /**
@@ -238,6 +318,13 @@ class GuideRepository @Inject constructor(
      * 拼接完整音频 URL
      */
     suspend fun buildAudioUrl(relativePath: String): String {
+        return buildMediaUrl(relativePath)
+    }
+
+    /**
+     * 拼接后端返回的静态资源 URL（音频、图片等）
+     */
+    suspend fun buildMediaUrl(relativePath: String): String {
         if (relativePath.startsWith("http")) return relativePath
         val baseUrl = settingsDataStore.baseUrl.first()
         return "${baseUrl.removeSuffix("/")}/${relativePath.removePrefix("/")}"
@@ -282,6 +369,18 @@ class GuideRepository @Inject constructor(
             }
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+}
+
+private fun List<ChatImageInfo>.resolveImageUrls(baseUrl: String): List<ChatImageInfo> {
+    return map { image ->
+        val path = image.url?.takeIf { it.isNotBlank() }
+            ?: image.publicPath?.takeIf { it.isNotBlank() }
+        if (path == null || path.startsWith("http")) {
+            image
+        } else {
+            image.copy(url = "${baseUrl.removeSuffix("/")}/${path.removePrefix("/")}")
         }
     }
 }

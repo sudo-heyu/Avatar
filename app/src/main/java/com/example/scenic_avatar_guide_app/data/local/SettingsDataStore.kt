@@ -135,9 +135,13 @@ class SettingsDataStore @Inject constructor(
         }
     }
 
-    suspend fun setSpotId(id: String) {
+    suspend fun setSpotId(id: String?) {
         context.dataStore.edit { preferences ->
-            preferences[SPOT_ID_KEY] = id
+            if (id.isNullOrBlank()) {
+                preferences.remove(SPOT_ID_KEY)
+            } else {
+                preferences[SPOT_ID_KEY] = id
+            }
         }
     }
 

@@ -2,6 +2,7 @@ package com.example.scenic_avatar_guide_app.data.repository
 
 import android.util.Log
 import com.example.scenic_avatar_guide_app.data.local.SettingsDataStore
+import com.example.scenic_avatar_guide_app.domain.model.ChatImageInfo
 import com.example.scenic_avatar_guide_app.data.remote.ApiService
 import com.example.scenic_avatar_guide_app.domain.model.ChatMessage
 import com.example.scenic_avatar_guide_app.domain.model.MessageInfo
@@ -121,7 +122,7 @@ class SessionRepository @Inject constructor(
 /**
  * 将后端返回的消息转换为 UI 用 ChatMessage
  */
-fun MessageInfo.toChatMessage(): ChatMessage {
+fun MessageInfo.toChatMessage(baseUrl: String? = null): ChatMessage {
     val timeFormatter = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
     val timestamp = try {
         createdAt?.let { timeFormatter.parse(it)?.time } ?: System.currentTimeMillis()
@@ -137,7 +138,21 @@ fun MessageInfo.toChatMessage(): ChatMessage {
         isLoading = false,
         isError = false,
         sources = sources ?: emptyList(),
+        images = images.orEmpty().resolveImageUrls(baseUrl),
         avatarAction = avatarAction,
         routeData = routeData
     )
+}
+
+private fun List<ChatImageInfo>.resolveImageUrls(baseUrl: String?): List<ChatImageInfo> {
+    if (baseUrl.isNullOrBlank()) return this
+    return map { image ->
+        val path = image.url?.takeIf { it.isNotBlank() }
+            ?: image.publicPath?.takeIf { it.isNotBlank() }
+        if (path.isNullOrBlank() || path.startsWith("http")) {
+            image
+        } else {
+            image.copy(url = "${baseUrl.removeSuffix("/")}/${path.removePrefix("/")}")
+        }
+    }
 }

@@ -93,6 +93,48 @@ data class ChatOptions(
 )
 
 @Serializable
+data class ChatTextResponse(
+    val code: Int,
+    val message: String,
+    val data: ChatResponseData
+)
+
+@Serializable
+data class ChatResponseData(
+    @SerialName("message_id")
+    val messageId: String,
+
+    @SerialName("session_id")
+    val sessionId: String? = null,
+
+    @SerialName("reply_text")
+    val replyText: String,
+
+    @SerialName("latency_ms")
+    val latencyMs: Int? = null,
+
+    val confidence: Float? = null,
+
+    @SerialName("is_fallback")
+    val isFallback: Boolean? = null,
+
+    @SerialName("avatar_action")
+    val avatarAction: AvatarAction? = null,
+
+    val sources: List<SourceInfo> = emptyList(),
+
+    val images: List<ChatImageInfo> = emptyList(),
+
+    val metadata: ResponseMetadata? = null,
+
+    @SerialName("created_at")
+    val createdAt: String? = null,
+
+    @SerialName("route_data")
+    val routeData: RouteData? = null
+)
+
+@Serializable
 data class ChatAbortRequest(
     @SerialName("session_id")
     val sessionId: String? = null,
@@ -232,6 +274,47 @@ data class SourceInfo(
 
     @SerialName("relevance_score")
     val relevanceScore: Float? = null
+)
+
+// ==================== 图片引用 ====================
+
+@Serializable
+data class ChatImageInfo(
+    @SerialName("image_id")
+    val imageId: String? = null,
+
+    @SerialName("title")
+    val title: String? = null,
+
+    @SerialName("description")
+    val description: String? = null,
+
+    @SerialName("alt_text")
+    val altText: String? = null,
+
+    @SerialName("caption")
+    val caption: String? = null,
+
+    @SerialName("url")
+    val url: String? = null,
+
+    @SerialName("public_path")
+    val publicPath: String? = null,
+
+    @SerialName("document_id")
+    val documentId: String? = null,
+
+    @SerialName("chunk_id")
+    val chunkId: String? = null,
+
+    @SerialName("source_path")
+    val sourcePath: String? = null,
+
+    @SerialName("width")
+    val width: Int? = null,
+
+    @SerialName("height")
+    val height: Int? = null
 )
 
 // ==================== 元数据 ====================
@@ -437,6 +520,8 @@ data class MessageInfo(
     val avatarAction: AvatarAction? = null,
     @SerialName("sources")
     val sources: List<SourceInfo>? = null,
+    @SerialName("images")
+    val images: List<ChatImageInfo>? = null,
     @SerialName("route_data")
     val routeData: RouteData? = null,
     val emotion: String? = null,
@@ -525,6 +610,7 @@ data class ChatMessage(
     val isLoading: Boolean = false,
     val isError: Boolean = false,
     val sources: List<SourceInfo> = emptyList(),
+    val images: List<ChatImageInfo> = emptyList(),
     val avatarAction: AvatarAction? = null,
     /**
      * 路线规划数据（仅在路线模式下非空）

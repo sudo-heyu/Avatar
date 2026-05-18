@@ -42,9 +42,10 @@ import com.example.scenic_avatar_guide_app.ui.screens.ScenicIntroViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScenicIntroScreen(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    viewModel: ScenicIntroViewModel = hiltViewModel(),
+    showScenicSelector: Boolean = true
 ) {
-    val viewModel: ScenicIntroViewModel = hiltViewModel()
     val introState by viewModel.introState.collectAsState()
     val indexState by viewModel.indexState.collectAsState()
     val selectedScenicId by viewModel.selectedScenicId.collectAsState()
@@ -70,11 +71,12 @@ fun ScenicIntroScreen(
                     containerColor = Color(0xFFFFFBFA)
                 ),
                 actions = {
-                    if (indexItems.isNotEmpty()) {
+                    if (showScenicSelector && indexItems.isNotEmpty()) {
                         ScenicSelectorChip(
                             indexItems = indexItems,
                             selectedScenicId = selectedScenicId,
-                            onScenicSelected = viewModel::selectScenic
+                            onScenicSelected = viewModel::selectScenic,
+                            modifier = Modifier.padding(end = 16.dp, top = 8.dp, bottom = 8.dp)
                         )
                     }
                 }
@@ -115,11 +117,22 @@ fun ScenicIntroScreen(
             }
             is UiState.Success -> {
                 val content = state.data
-                if (content.scenicId == "xinhai_museum") {
+                if (content.scenicId == "1911museum") {
                     XinhaiImmersiveIntro(
                         indexItems = indexItems,
                         selectedScenicId = selectedScenicId,
-                        onScenicSelected = viewModel::selectScenic
+                        onScenicSelected = viewModel::selectScenic,
+                        showScenicSelector = showScenicSelector
+                    )
+                    return@Scaffold
+                }
+                if (content.scenicId == "site_of_the_august_7th_conference") {
+                    XinhaiImmersiveIntro(
+                        pages = BaqiStoryBookPages,
+                        indexItems = indexItems,
+                        selectedScenicId = selectedScenicId,
+                        onScenicSelected = viewModel::selectScenic,
+                        showScenicSelector = showScenicSelector
                     )
                     return@Scaffold
                 }
@@ -153,18 +166,17 @@ fun ScenicIntroScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ScenicSelectorChip(
+fun ScenicSelectorChip(
     indexItems: List<ScenicIndexItem>,
     selectedScenicId: String,
-    onScenicSelected: (String) -> Unit
+    onScenicSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selectedItem = indexItems.find { it.scenicId == selectedScenicId }
 
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+        modifier = modifier,
         contentAlignment = Alignment.CenterEnd
     ) {
         ExposedDropdownMenuBox(
@@ -236,24 +248,27 @@ private fun ScenicSelectorChip(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun XinhaiImmersiveIntro(
+    pages: List<XinhaiStoryBookPageData> = XinhaiStoryBookPages,
     indexItems: List<ScenicIndexItem>,
     selectedScenicId: String,
-    onScenicSelected: (String) -> Unit
+    onScenicSelected: (String) -> Unit,
+    showScenicSelector: Boolean
 ) {
-    val pages = remember { XinhaiStoryBookPages }
-    val pagerState = rememberPagerState(pageCount = { pages.size })
+    val storyPages = remember(pages) { pages }
+    val pagerState = rememberPagerState(pageCount = { storyPages.size })
     val coroutineScope = rememberCoroutineScope()
-    val currentPage = pages[pagerState.currentPage]
+    val currentPage = storyPages[pagerState.currentPage]
+    val firstPageId = storyPages.firstOrNull()?.id.orEmpty()
 
     fun goToPage(id: String) {
-        val targetIndex = pages.indexOfFirst { it.id == id }
+        val targetIndex = storyPages.indexOfFirst { it.id == id }
         if (targetIndex >= 0) {
             coroutineScope.launch { pagerState.animateScrollToPage(targetIndex) }
         }
     }
 
     fun goToNext() {
-        if (pagerState.currentPage < pages.lastIndex) {
+        if (pagerState.currentPage < storyPages.lastIndex) {
             coroutineScope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
         }
     }
@@ -274,12 +289,13 @@ private fun XinhaiImmersiveIntro(
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
-            key = { pages[it].id }
+            key = { storyPages[it].id }
         ) { pageIndex ->
             XinhaiStoryBookPage(
-                page = pages[pageIndex],
+                page = storyPages[pageIndex],
                 pageIndex = pageIndex,
-                pageCount = pages.size,
+                pageCount = storyPages.size,
+                firstPageId = firstPageId,
                 onCardClick = ::goToPage,
                 onNextClick = ::goToNext
             )
@@ -292,7 +308,7 @@ private fun XinhaiImmersiveIntro(
             horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            pages.forEachIndexed { index, page ->
+            storyPages.forEachIndexed { index, page ->
                 Box(
                     modifier = Modifier
                         .width(if (index == pagerState.currentPage) 22.dp else 7.dp)
@@ -306,22 +322,23 @@ private fun XinhaiImmersiveIntro(
             }
         }
 
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 6.dp, end = 2.dp)
-        ) {
-            if (indexItems.isNotEmpty()) {
+        if (showScenicSelector && indexItems.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 6.dp, end = 2.dp)
+            ) {
                 ScenicSelectorChip(
                     indexItems = indexItems,
                     selectedScenicId = selectedScenicId,
-                    onScenicSelected = onScenicSelected
+                    onScenicSelected = onScenicSelected,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
             }
         }
 
         Text(
-            text = "第 ${pagerState.currentPage + 1} 幕 / ${pages.size} · ${currentPage.levelName}",
+            text = "第 ${pagerState.currentPage + 1} 幕 / ${storyPages.size} · ${currentPage.levelName}",
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
@@ -337,6 +354,7 @@ private fun XinhaiStoryBookPage(
     page: XinhaiStoryBookPageData,
     pageIndex: Int,
     pageCount: Int,
+    firstPageId: String,
     onCardClick: (String) -> Unit,
     onNextClick: () -> Unit
 ) {
@@ -450,7 +468,7 @@ private fun XinhaiStoryBookPage(
                 page = page,
                 isLast = pageIndex == pageCount - 1,
                 onNextClick = onNextClick,
-                onRestartClick = { onCardClick(XinhaiStoryBookPages.first().id) }
+                onRestartClick = { onCardClick(firstPageId) }
             )
         }
     }
@@ -1061,7 +1079,173 @@ private const val XinhaiImageBase = "file:///android_asset/scenic_intro/images/x
 
 private const val XinhaiArtifactBase = "file:///android_asset/scenic_intro/images/xinhai/artifacts/"
 
+private const val BaqiImageBase = "file:///android_asset/scenic_intro/images/baqi/"
+
 // ==================== Page Data ====================
+
+private val BaqiStoryBookPages = listOf(
+    XinhaiStoryBookPageData(
+        id = "baqi_opening",
+        level = 0,
+        levelName = "会址印象",
+        eyebrow = "八七会议会址纪念馆",
+        title = "危急关头的历史转折",
+        subtitle = "1927年8月7日，中共中央在汉口秘密召开紧急会议，重新回答中国革命向何处去。",
+        body = "八七会议会址纪念馆依托汉口鄱阳街旧址而建。这里原是一排西式公寓的一部分，会议就在二楼小房间里举行。大革命失败后，党组织遭受严重破坏，许多人转入地下；正是在这样的危险环境中，会议完成了路线和方向的重大调整。",
+        imageUrl = BaqiImageBase + "memorial_1.jpg",
+        caption = "八七会议会址纪念馆外观。",
+        tags = listOf("汉口旧址", "1927", "历史转折"),
+        accent = Color(0xFFE26D4D),
+        detailBlocks = listOf(
+            XinhaiDetailBlock(
+                title = "旧址与会议现场",
+                body = "会址并不宏大，却承载了极重的历史分量。参观时可以重点看二楼复原场景、会议桌椅、代表图像和馆名题写，它们把一次秘密会议从文献记载拉回到真实空间。",
+                imageUrl = BaqiImageBase + "second_floor.jpg",
+                imageCaption = "会址二楼复原场景。",
+                style = DetailStyle.IMAGE_LEAD
+            ),
+            XinhaiDetailBlock(
+                title = "为什么必须召开",
+                body = "1927年春夏，国共合作破裂，大革命遭遇失败。继续依赖旧的合作方式，还是独立领导群众斗争；继续回避武装问题，还是建立自己的革命武装，成为必须回答的问题。",
+                style = DetailStyle.STANDARD
+            )
+        ),
+        focusItems = listOf(
+            XinhaiFocusItem("时间地点", "1927年8月7日 · 汉口", "会议在白色恐怖笼罩下秘密举行，时间短，议题重。"),
+            XinhaiFocusItem("参观重点", "二楼会场复原", "从真实空间理解秘密会议的紧张处境。"),
+            XinhaiFocusItem("历史定位", "危机中的重新出发", "会议让中国共产党从被动应对转向独立领导革命斗争。")
+        ),
+        gallery = listOf(
+            XinhaiGalleryImage(BaqiImageBase + "memorial_1.jpg", "纪念馆外观", "会址建筑保存了汉口近代街区的历史肌理。"),
+            XinhaiGalleryImage(BaqiImageBase + "second_floor.jpg", "二楼会场", "复原空间帮助观众进入会议现场。")
+        ),
+        cards = listOf(
+            XinhaiBookCard("一天会议", "看八七会议如何完成重大政治转向。", BaqiImageBase + "meeting_painting.jpg", "下一幕", "baqi_meeting")
+        ),
+        nextLabel = "进入会议现场"
+    ),
+    XinhaiStoryBookPageData(
+        id = "baqi_meeting",
+        level = 1,
+        levelName = "会议现场",
+        eyebrow = "一天之内的重大决定",
+        title = "从总结失败到明确方向",
+        subtitle = "会议集中纠正右倾错误，确定土地革命和武装斗争总方针。",
+        body = "八七会议不是简单回顾过去，而是在极端危险中作出面向未来的政治决断。会议总结大革命失败教训，改组中央领导机构，通过重要文件，并把武装斗争问题放到新的位置。",
+        imageUrl = BaqiImageBase + "meeting_painting.jpg",
+        caption = "油画作品《八七会议》。",
+        tags = listOf("纠正错误", "土地革命", "武装斗争"),
+        accent = Color(0xFFE5A94B),
+        detailBlocks = listOf(
+            XinhaiDetailBlock(
+                title = "会议记录留下的紧张讨论",
+                body = "馆内展示的会议记录复制件提示我们：转折不是凭空发生的，而是在大革命失败后的痛苦反思中形成的。代表们围绕农民运动、职工运动、军事斗争和党的组织问题展开讨论。",
+                imageUrl = BaqiImageBase + "meeting_record.jpg",
+                imageCaption = "会议记录手稿复制件。",
+                style = DetailStyle.IMAGE_LEAD
+            ),
+            XinhaiDetailBlock(
+                title = "重要论断",
+                body = "毛泽东在会上提出以后要非常重视军事，须知政权是由枪杆子中取得的。这句话来自血的教训，也成为理解此后革命道路转变的重要钥匙。",
+                imageCaption = "八七会议的核心记忆",
+                style = DetailStyle.QUOTE
+            )
+        ),
+        focusItems = listOf(
+            XinhaiFocusItem("核心任务", "总结失败，重建方向", "会议把失败教训转化为新的组织和斗争路线。"),
+            XinhaiFocusItem("关键方针", "土地革命与武装斗争", "中国革命开始更加明确地走向独立领导武装斗争。"),
+            XinhaiFocusItem("代表记忆", "秘密环境中的集中讨论", "有限空间里完成了关系革命前途的重大判断。")
+        ),
+        gallery = listOf(
+            XinhaiGalleryImage(BaqiImageBase + "meeting_painting.jpg", "八七会议", "油画将会议现场转化为可感知的历史图像。"),
+            XinhaiGalleryImage(BaqiImageBase + "meeting_record.jpg", "会议记录", "文字记录保留了危机时刻的判断过程。"),
+            XinhaiGalleryImage(BaqiImageBase + "delegates.jpg", "参会代表", "代表图像让宏大转折落到具体人物身上。")
+        ),
+        cards = listOf(
+            XinhaiBookCard("人物与题写", "从代表、会务和馆名题写看纪念馆的历史延伸。", BaqiImageBase + "inscription.jpg", "下一幕", "baqi_memory")
+        ),
+        nextLabel = "查看人物记忆"
+    ),
+    XinhaiStoryBookPageData(
+        id = "baqi_memory",
+        level = 2,
+        levelName = "人物记忆",
+        eyebrow = "代表、会务与馆名题写",
+        title = "历史转折背后的具体人物",
+        subtitle = "会场中的发言者、组织者和后来题写馆名的人，共同构成八七会议的公共记忆。",
+        body = "八七会议的历史意义很宏大，但参观时也要看见具体的人。参会代表的讨论、会务组织的隐蔽工作、邓小平后来题写馆名与指导复原，让这处旧址不只是会议发生地，也成为持续被纪念和阐释的历史现场。",
+        imageUrl = BaqiImageBase + "delegates.jpg",
+        caption = "参加八七会议的部分代表。",
+        tags = listOf("参会代表", "邓小平题写", "旧址复原"),
+        accent = Color(0xFFD85B45),
+        detailBlocks = listOf(
+            XinhaiDetailBlock(
+                title = "代表图像与会场复原",
+                body = "代表图像让观众意识到，重大历史转折由具体的人在具体空间中完成。二楼小房间、紧闭门窗和有限桌椅，都让会议的危险处境变得可感。",
+                imageUrl = BaqiImageBase + "delegates.jpg",
+                imageCaption = "参加八七会议的部分代表。",
+                style = DetailStyle.IMAGE_LEAD
+            ),
+            XinhaiDetailBlock(
+                title = "题写馆名",
+                body = "1980年，邓小平同志题写“八七会议会址”馆名，并来馆指导会址复原工作。这一细节把革命年代的亲历记忆和改革开放后的纪念建设连接起来。",
+                imageUrl = BaqiImageBase + "inscription.jpg",
+                imageCaption = "邓小平题写馆名。",
+                style = DetailStyle.STANDARD
+            )
+        ),
+        focusItems = listOf(
+            XinhaiFocusItem("人物入口", "从代表图像进入历史", "避免只记结论，也看见结论背后的人与讨论。"),
+            XinhaiFocusItem("旧址复原", "让会议回到真实空间", "复原陈设强化了秘密会议的现场感。"),
+            XinhaiFocusItem("纪念延续", "题写馆名与开放展示", "会址由历史发生地转化为公共教育空间。")
+        ),
+        gallery = listOf(
+            XinhaiGalleryImage(BaqiImageBase + "delegates.jpg", "代表图像", "人物线索支撑会议叙事。"),
+            XinhaiGalleryImage(BaqiImageBase + "inscription.jpg", "馆名题写", "题写馆名成为纪念馆的重要视觉记忆。"),
+            XinhaiGalleryImage(BaqiImageBase + "memorial_2.jpg", "纪念馆展陈", "展陈空间组织会议史料与现场记忆。")
+        ),
+        cards = listOf(
+            XinhaiBookCard("历史意义", "理解八七会议为什么是重要转折点。", BaqiImageBase + "memorial_3.jpg", "下一幕", "baqi_legacy")
+        ),
+        nextLabel = "理解历史意义"
+    ),
+    XinhaiStoryBookPageData(
+        id = "baqi_legacy",
+        level = 3,
+        levelName = "历史意义",
+        eyebrow = "从八七会议走向新的道路",
+        title = "在最低谷中重新出发",
+        subtitle = "八七会议使中国共产党开始更加自觉地独立领导革命战争、创建人民军队、开展土地革命。",
+        body = "八七会议的重要，不只在于提出新的路线，更在于它发生在失败、牺牲和迷茫之中。参观会址时，可以把它理解为一次危机中的重新组织：面对错误，重新判断形势；面对屠杀，重新确认斗争方式；面对低谷，重新寻找中国革命的道路。",
+        imageUrl = BaqiImageBase + "memorial_3.jpg",
+        caption = "纪念馆展陈空间。",
+        tags = listOf("历史转折", "武装斗争", "继续前行"),
+        accent = Color(0xFFE26D4D),
+        detailBlocks = listOf(
+            XinhaiDetailBlock(
+                title = "为什么值得重点参观",
+                body = "如果说辛亥革命博物院适合看近代中国如何走向共和，那么八七会议会址更适合理解一个政党如何在失败中重新站起来。它所回答的问题，关乎路线、组织、斗争方式，也关乎危机时刻的清醒选择。",
+                style = DetailStyle.HIGHLIGHT
+            ),
+            XinhaiDetailBlock(
+                title = "参观后的核心记忆",
+                body = "不要只记住一句口号，也要看到口号背后的历史逻辑：实事求是分析失败，敢于面对错误，敢于在危机中重新组织力量。",
+                imageCaption = "历史转折的现场记忆",
+                style = DetailStyle.QUOTE
+            )
+        ),
+        focusItems = listOf(
+            XinhaiFocusItem("会议意义", "从失败走向新道路", "会议推动革命由城市高潮转入长期艰苦的道路探索。"),
+            XinhaiFocusItem("精神线索", "清醒、担当、继续前行", "最低谷中的判断和选择，是会址最打动人的部分。"),
+            XinhaiFocusItem("观展收束", "从空间回到问题", "这处旧址最终要回答的是危机中如何重新出发。")
+        ),
+        gallery = listOf(
+            XinhaiGalleryImage(BaqiImageBase + "memorial_3.jpg", "展陈空间", "从展陈回望八七会议的历史意义。"),
+            XinhaiGalleryImage(BaqiImageBase + "memorial_1.jpg", "会址外观", "旧址建筑承载了危机时刻的历史记忆。")
+        ),
+        nextLabel = "完成导览"
+    )
+)
 
 private val XinhaiStoryBookPages = listOf(
     XinhaiStoryBookPageData(
@@ -1101,6 +1285,13 @@ private val XinhaiStoryBookPages = listOf(
                 body = "博物馆于2009年8月动工兴建，2011年9月落成，同年10月15日起免费对公众开放。博物院总建筑面积22142平方米，是首义文化区的核心建筑。\n\n2022年3月，辛亥革命博物院由北区（原辛亥革命武昌起义纪念馆）和南区（原辛亥革命博物馆）整合而成。北区是1981年依托武昌起义军政府旧址建立的纪念馆，因旧址主体建筑红墙红瓦，武汉人称之为红楼。南区是2011年建立的一座现代建筑形式的专题博物馆，外观为楚国红色调，呈V字造型。",
                 imageUrl = XinhaiImageBase + "museum_sunset.jpg",
                 imageCaption = "夕阳下的首义广场与博物院南区建筑",
+                style = DetailStyle.STANDARD
+            ),
+            XinhaiDetailBlock(
+                title = "故事继续：从一座馆进入一座城",
+                body = "完整的参观不应只停留在展厅内部。南馆把晚清危局、革命动员、武昌首义和共和创建串成时间线，首义广场把观众带回城市空间，红楼旧址则让历史落到具体建筑。沿着这条动线行走，观众会发现辛亥革命不是一组孤立展品，而是一座城市在近代中国转型中的集中见证。",
+                imageUrl = XinhaiImageBase + "museum_roof_top.jpg",
+                imageCaption = "从建筑屋顶回望首义文化区的空间关系",
                 style = DetailStyle.STANDARD
             ),
             XinhaiDetailBlock(
@@ -1177,6 +1368,11 @@ private val XinhaiStoryBookPages = listOf(
                 style = DetailStyle.STANDARD
             ),
             XinhaiDetailBlock(
+                title = "故事继续：保路风潮与社会动员",
+                body = "进入20世纪后，清政府在铁路、财政和地方利益问题上的失措进一步激化社会矛盾。1911年夏，保路运动在多省展开，四川风潮尤其激烈，清廷调兵入川又削弱了湖北防务。地方士绅、商人、学生、新军士兵和革命党人的情绪在不同议题上汇合，危机由制度层面传导到城市和军营，为武昌起义提供了更直接的社会背景。",
+                style = DetailStyle.HIGHLIGHT
+            ),
+            XinhaiDetailBlock(
                 title = "",
                 body = "危机不是一夜发生的，但改变往往在一夜之间开始。晚清的内忧外患为革命准备了土壤，而改革者的失败则让更多人相信：唯有彻底变革，才能救亡图存。",
                 style = DetailStyle.QUOTE
@@ -1235,6 +1431,13 @@ private val XinhaiStoryBookPages = listOf(
                 body = "早期起义虽多有失败，但每一次行动都在训练组织能力、测试社会反应、积累经验教训。从广州起义到黄花岗之役，革命者用鲜血换来了对敌我力量的更清晰认知，也为最终的武昌首义铺平了道路。",
                 imageUrl = XinhaiImageBase + "revolution_uprisings.png",
                 imageCaption = "战斗场景提示早期起义的行动经验",
+                style = DetailStyle.STANDARD
+            ),
+            XinhaiDetailBlock(
+                title = "故事继续：新军为何成为关键力量",
+                body = "革命思想最终能够转化为行动，离不开湖北新军中的组织基础。新军士兵受新式教育影响较深，接触报刊、学校和社团的机会更多，也更容易理解民族危机与制度问题。革命党人在军营中秘密联络，借助文学社、共进会等组织积累力量。到1911年秋，思想传播、组织网络和军事力量开始在武昌汇合。",
+                imageUrl = XinhaiImageBase + "revolution_groups.png",
+                imageCaption = "革命团体与新军网络共同形成行动基础",
                 style = DetailStyle.STANDARD
             ),
             XinhaiDetailBlock(
@@ -1298,6 +1501,11 @@ private val XinhaiStoryBookPages = listOf(
                 style = DetailStyle.STANDARD
             ),
             XinhaiDetailBlock(
+                title = "故事继续：从偶发风险到全城响应",
+                body = "起义前夕，革命机关因意外暴露，名单和文书面临泄露风险，许多革命党人已经没有继续等待的余地。10月10日晚的行动带有被迫提前发动的紧迫性，但长期积累的组织基础使它没有停留在局部骚动。工程营发难后，各营陆续响应，起义力量迅速夺取军械、控制要地，并把战斗推向总督署等核心目标。",
+                style = DetailStyle.HIGHLIGHT
+            ),
+            XinhaiDetailBlock(
                 title = "",
                 body = "武昌城的夜晚改变了历史方向。不是因为某一个人扣动了扳机，而是因为一群人、一座城、一个时刻共同构成了革命的现场。",
                 style = DetailStyle.QUOTE
@@ -1358,6 +1566,11 @@ private val XinhaiStoryBookPages = listOf(
                 style = DetailStyle.STANDARD
             ),
             XinhaiDetailBlock(
+                title = "故事继续：军事胜利之后的政治考题",
+                body = "占领武昌只是第一步，革命力量很快面对更复杂的问题：谁来组织军政秩序，如何发布号令，怎样稳定城市和争取各方响应。湖北军政府的成立，把起义从军事行动推进到政治建构。红楼因此成为一个分界点，在这里，革命者不只推翻旧秩序，也开始尝试建立新的公共权力。",
+                style = DetailStyle.HIGHLIGHT
+            ),
+            XinhaiDetailBlock(
                 title = "",
                 body = "从湖北咨议局到鄂军都督府，一座建筑的身份转换，折射出整个国家的方向转换。",
                 style = DetailStyle.QUOTE
@@ -1416,6 +1629,11 @@ private val XinhaiStoryBookPages = listOf(
                 imageUrl = XinhaiImageBase + "centenary.png",
                 imageCaption = "从历史事件走向公共纪念",
                 style = DetailStyle.STANDARD
+            ),
+            XinhaiDetailBlock(
+                title = "故事继续：共和理想为何仍需理解",
+                body = "辛亥革命结束帝制，却没有立即解决近代中国的全部难题。临时政府、议会政治、宪法文本和地方军政关系都在探索中摇摆，袁世凯掌权和此后的军阀割据说明共和制度的建立远比宣布共和更艰难。正因为如此，参观这一幕时既要看到推翻帝制的历史功绩，也要理解现代国家建设需要长期制度实践和社会动员。",
+                style = DetailStyle.HIGHLIGHT
             ),
             XinhaiDetailBlock(
                 title = "",
@@ -1486,6 +1704,13 @@ private val XinhaiStoryBookPages = listOf(
                 imageUrl = XinhaiArtifactBase + "huang_family_tree.jpg",
                 imageCaption = "清光绪壬辰年七修谱，线装木活字印刷",
                 style = DetailStyle.STANDARD
+            ),
+            XinhaiDetailBlock(
+                title = "故事继续：从文物回到人",
+                body = "这些文物的价值不只在材质和尺寸。瓷板肖像让革命者有了可被凝视的面容，勋章记录战斗之后的荣誉确认，手迹把政治理想浓缩为可传承的文字，家谱则提示革命发生在真实的宗族、地方和社会关系之中。把四件文物连起来看，辛亥革命就不再只是宏大叙事，而是由具体人物、家庭记忆和时代选择共同组成的历史。",
+                imageUrl = XinhaiArtifactBase + "boai_calligraphy.jpg",
+                imageCaption = "文物把宏大历史重新带回具体的人与记忆",
+                style = DetailStyle.HIGHLIGHT
             )
         ),
         focusItems = listOf(
@@ -2011,29 +2236,63 @@ fun TimelineSection(section: ContentSection) {
             Spacer(modifier = Modifier.height(12.dp))
         }
 
+        val lineColor = Color(0xFFB91C1C).copy(alpha = 0.28f)
+        val nodeColor = Color(0xFFB91C1C)
+
         events.forEachIndexed { index, event ->
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min),
+                verticalAlignment = Alignment.Top
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(86.dp)
+                        .fillMaxHeight()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(
+                                top = if (index == 0) 10.dp else 0.dp,
+                                end = 6.dp
+                            )
+                            .width(2.dp)
+                            .then(
+                                if (index == events.lastIndex) Modifier.height(10.dp)
+                                else Modifier.fillMaxHeight()
+                            )
+                            .background(lineColor)
+                    )
                     Text(
                         text = event.year,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .width(68.dp)
+                            .padding(top = 1.dp),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFFB91C1C)
+                        color = nodeColor,
+                        textAlign = TextAlign.End,
+                        maxLines = 1
                     )
                     Box(
                         modifier = Modifier
-                            .width(2.dp)
-                            .height(40.dp)
-                            .background(
-                                if (index < events.size - 1) Color(0xFFB91C1C).copy(alpha = 0.3f)
-                                else Color.Transparent
-                            )
+                            .align(Alignment.TopEnd)
+                            .padding(top = 4.dp, end = 1.dp)
+                            .size(12.dp)
+                            .background(nodeColor, CircleShape)
                     )
                 }
 
                 Spacer(modifier = Modifier.width(12.dp))
 
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(bottom = if (index == events.lastIndex) 0.dp else 16.dp)
+                ) {
                     Text(
                         text = event.title,
                         fontSize = 15.sp,
@@ -2045,7 +2304,7 @@ fun TimelineSection(section: ContentSection) {
                         fontSize = 13.sp,
                         color = Color(0xFF5A6772),
                         lineHeight = 18.sp,
-                        modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
+                        modifier = Modifier.padding(top = 2.dp)
                     )
                 }
             }

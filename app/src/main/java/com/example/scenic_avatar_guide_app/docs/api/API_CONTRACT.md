@@ -448,6 +448,7 @@
 | session_id | String | 会话 ID |
 | reply_text | String | 回复文本（已去除 emotion/combo 标签） |
 | avatar_action | Object? | 数字人动作（见 §十一 AvatarAction / §十二 Combo） |
+| images | Array | 回复关联图片，字段由后端生成，前端仅展示（见 §14.2 images 字段） |
 | sources | Array | RAG 知识引用列表（见 §十五 RAG） |
 | metadata | Object | 意图、情绪、置信度等（见 §十五 §6.2） |
 | latency_ms | Int | 响应延迟（毫秒） |
@@ -486,6 +487,7 @@ message_start
   → tts_segment_ready × N（音频就绪，含 duration_ms / marks；此时才可播放）
   → tts_audio_error（可选，与分段事件交替出现，表示某分段 TTS 合成失败）
   → avatar_action（收尾动作，可选）
+  → images（回复关联图片，mode=chat，可为空）
   → sources（RAG 引用，mode=chat）
   → route_data（可选，mode=route）
   → metadata
@@ -504,6 +506,7 @@ message_start
 | `tts_segment` | 分段预告 | 仅记录 `segment_id` / `segment_index`，不下载、不播放 |
 | `tts_segment_ready` | 音频就绪 | 拼接服务器 base URL 后用 ExoPlayer 播放 `audio_url` |
 | `tts_audio_error` | 分段合成失败 | 跳过该分段，继续后续分段 |
+| `images` | 回复关联图片 | 回填助手消息图片卡片；标题、描述、图注、替代文本均来自后端 |
 | `sources` | RAG 引用 | 回填消息来源 |
 | `route_data` | 路线结构化数据 | `mode=route` 时使用 |
 | `metadata` | 意图/情绪/耗时等 | 统计与 UI |
@@ -525,6 +528,9 @@ data: {"type":"tts_segment","segment_id":"m_xxx_000","segment_index":0,"text":"�
 
 event: tts_segment_ready
 data: {"type":"tts_segment_ready","segment_id":"m_xxx_000","segment_index":0,"audio_url":"/api/v1/tts/file/tts_m_xxx_000.mp3","file_name":"tts_m_xxx_000.mp3","duration_ms":2400,"marks":[{"text":"欢","start_ms":0,"end_ms":256,"phonemes":["h","u","an"]},{"text":"迎","start_ms":256,"end_ms":513,"phonemes":["i","ng"]}],"emotion":"neutral"}
+
+event: images
+data: {"type":"images","data":[{"image_id":"img_xxx","title":"北区红楼","description":"这张图片展示北区红楼的主体建筑。","alt_text":"北区红楼俯瞰","caption":"北区红楼主体建筑","url":"/static/knowledge/1911museum/images/%E5%8C%97%E5%8C%BA%E7%BA%A2%E6%A5%BC.jpg","public_path":"/static/knowledge/1911museum/images/%E5%8C%97%E5%8C%BA%E7%BA%A2%E6%A5%BC.jpg","width":800,"height":600}]}
 
 event: sources
 data: {"type":"sources","data":[]}
@@ -1081,7 +1087,33 @@ LLM 可在回复中插入 `<combo="C1"/>` 格式的短促情绪反馈标签。�
 
 > `sources` 为空数组表示无知识库命中（fallback 场景）。
 
-### 14.2 metadata 事件
+### 14.2 images 字段
+
+当 `mode=chat` 时，非流式 `data.images` 和流式 `type: "images"` 事件的 `data` 数组结构一致。`images` 可为空数组；为空时移动端保持纯文本气泡。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| image_id | String | 图片唯一标识，用于去重/缓存 |
+| title | String | 图片标题，移动端直接展示 |
+| description | String | 图片描述，移动端直接展示 |
+| alt_text | String | 替代文本；移动端在图片加载失败时展示 |
+| caption | String | 图注；当 `description` 为空时移动端可作为副标题展示 |
+| url | String | 图片访问路径；相对路径需由移动端拼接当前服务器 base URL |
+| public_path | String | 公开路径，通常与 `url` 等价，作为冗余兜底 |
+| document_id | String | 所属知识文档，移动端可忽略 |
+| chunk_id | String | 所属知识切片，移动端可忽略 |
+| source_path | String | 服务端存储路径，仅调试使用，不作为图片地址 |
+| width | Int? | 原始宽度，可用于布局 |
+| height | Int? | 原始高度，可用于布局 |
+
+移动端展示约定：
+
+- 图片、标题、描述、图注、替代文本均来自后端 `images` 字段；前端不根据图片内容生成介绍。
+- 展示优先级：标题使用 `title`；副标题使用 `description`，为空时使用 `caption`；加载失败占位使用 `alt_text`，再退回 `title`。
+- TTS 只播报 `reply_text` / `text_delta`，不得朗读图片标题、描述、路径或调试字段。
+- `url` / `public_path` 可能是 `/static/...` 相对路径，移动端需拼接当前后端地址后交给图片库加载。
+
+### 14.3 metadata 事件
 
 ```json
 {

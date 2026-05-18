@@ -13,9 +13,11 @@ import com.example.scenic_avatar_guide_app.domain.model.AvatarExpression
 import com.example.scenic_avatar_guide_app.domain.model.AvatarGesture
 import com.example.scenic_avatar_guide_app.domain.model.ChatStreamEvent
 import com.example.scenic_avatar_guide_app.domain.model.ChatMessage
+import com.example.scenic_avatar_guide_app.domain.model.ChatImageInfo
 import com.example.scenic_avatar_guide_app.domain.model.EmotionToExpression
 import com.example.scenic_avatar_guide_app.domain.model.IntentToGesture
 import com.example.scenic_avatar_guide_app.domain.model.RouteData
+import com.example.scenic_avatar_guide_app.domain.model.ScenicArea
 import com.example.scenic_avatar_guide_app.domain.model.AvatarState
 import com.example.scenic_avatar_guide_app.domain.model.AvatarFullState
 import com.example.scenic_avatar_guide_app.domain.model.ResponseMetadata
@@ -295,7 +297,8 @@ class MainViewModel @Inject constructor(
     private val scenicDataSource: ScenicDataSource
 ) : ViewModel() {
 
-    val scenicAreas = scenicDataSource.loadScenicAreas()
+    private val _scenicAreas = MutableStateFlow(scenicDataSource.loadScenicAreas())
+    val scenicAreas: StateFlow<List<ScenicArea>> = _scenicAreas.asStateFlow()
 
     // 认证状态
     private val _isAuthenticated = MutableStateFlow(false)
@@ -439,7 +442,7 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             val scenicId = settingsDataStore.scenicId.first()
             val spotId = settingsDataStore.spotId.first()
-            if (scenicId == null || spotId == null) {
+            if (scenicId == null) {
                 _showScenicSelection.value = true
             } else {
                 initSession()
@@ -458,9 +461,10 @@ class MainViewModel @Inject constructor(
         observeVoiceChanges()
         observeSessionChanges()
         observeVoiceSettings()
+        refreshScenicAreas()
     }
 
-    fun onScenicSpotSelected(scenicId: String, spotId: String) {
+    fun onScenicSpotSelected(scenicId: String, spotId: String?) {
         viewModelScope.launch {
             settingsDataStore.setScenicId(scenicId)
             settingsDataStore.setSpotId(spotId)
@@ -475,6 +479,16 @@ class MainViewModel @Inject constructor(
 
     fun dismissScenicSelection() {
         _showScenicSelection.value = false
+    }
+
+    private fun refreshScenicAreas() {
+        viewModelScope.launch {
+            repository.getPublicScenicAreas().onSuccess { remoteAreas ->
+                if (remoteAreas.isNotEmpty()) {
+                    _scenicAreas.value = remoteAreas
+                }
+            }
+        }
     }
 
     /**
@@ -760,6 +774,7 @@ class MainViewModel @Inject constructor(
             var receivedDone = false
             var latestAvatarAction: AvatarAction? = null
             var latestMetadata: ResponseMetadata? = null
+            var pendingAssistantImages: List<ChatImageInfo> = emptyList()
             // 记录 segment 预告和失败状态。真实播放只消费 tts_segment_ready。
             val segmentIndexById = mutableMapOf<String, Int>()
             val failedTtsSegmentIds = mutableSetOf<String>()
@@ -850,6 +865,20 @@ class MainViewModel @Inject constructor(
                             Log.d(TAG, "SourcesDelta: ${event.sources.size} sources")
                             updateAssistantMessage(assistantMessageId, sources = event.sources)
                         }
+                        is ChatStreamEvent.ImagesDelta -> {
+                            Log.d(TAG, "ImagesDelta: ${event.images.size} images")
+                            if (event.images.isNotEmpty()) {
+                                pendingAssistantImages = mergeChatImages(
+                                    pendingAssistantImages,
+                                    event.images.resolveImageUrls()
+                                )
+                                // 图片直接在助手消息中展示，不另开消息
+                                updateAssistantMessage(
+                                    assistantMessageId,
+                                    images = pendingAssistantImages
+                                )
+                            }
+                        }
                         is ChatStreamEvent.RouteDataDelta -> {
                             Log.d(TAG, "RouteDataDelta: ${event.routeData.title}")
                             updateAssistantMessage(assistantMessageId, routeData = event.routeData)
@@ -901,7 +930,8 @@ class MainViewModel @Inject constructor(
                             updateAssistantMessage(
                                 id = assistantMessageId,
                                 isLoading = false,
-                                backendMessageId = currentBackendMessageId
+                                backendMessageId = currentBackendMessageId,
+                                images = pendingAssistantImages.takeIf { it.isNotEmpty() }
                             )
                             playbackManager.finishStreamingInput()
                             // 对话完成后通知侧边栏刷新，使 firstUserMessage 及时更新
@@ -1031,10 +1061,12 @@ class MainViewModel @Inject constructor(
         isLoading: Boolean = false,
         isError: Boolean = false,
         sources: List<SourceInfo> = emptyList(),
+        images: List<ChatImageInfo> = emptyList(),
         avatarAction: AvatarAction? = null,
         routeData: RouteData? = null,
         pendingImageUri: String? = null,
-        imageUrl: String? = null
+        imageUrl: String? = null,
+        backendMessageId: String? = null
     ): String {
         val id = UUID.randomUUID().toString()
         val currentList = _messages.value.toMutableList()
@@ -1046,10 +1078,12 @@ class MainViewModel @Inject constructor(
             isLoading = isLoading,
             isError = isError,
             sources = sources,
+            images = images,
             avatarAction = avatarAction,
             routeData = routeData,
             pendingImageUri = pendingImageUri,
-            imageUrl = imageUrl
+            imageUrl = imageUrl,
+            backendMessageId = backendMessageId
         ))
         // N4: 防止长会话 OOM，保留最新 MAX_MESSAGES 条
         if (currentList.size > MAX_MESSAGES) {
@@ -1102,6 +1136,7 @@ class MainViewModel @Inject constructor(
         isLoading: Boolean? = null,
         isError: Boolean? = null,
         sources: List<SourceInfo>? = null,
+        images: List<ChatImageInfo>? = null,
         avatarAction: AvatarAction? = null,
         routeData: RouteData? = null,
         backendMessageId: String? = null
@@ -1116,6 +1151,7 @@ class MainViewModel @Inject constructor(
             isLoading = isLoading ?: current.isLoading,
             isError = isError ?: current.isError,
             sources = sources ?: current.sources,
+            images = images ?: current.images,
             avatarAction = avatarAction ?: current.avatarAction,
             routeData = routeData ?: current.routeData,
             backendMessageId = backendMessageId ?: current.backendMessageId
@@ -1125,6 +1161,40 @@ class MainViewModel @Inject constructor(
 
     private fun currentMessageContent(id: String): String {
         return _messages.value.firstOrNull { it.id == id }?.content.orEmpty()
+    }
+
+    private fun mergeChatImages(
+        existing: List<ChatImageInfo>,
+        incoming: List<ChatImageInfo>
+    ): List<ChatImageInfo> {
+        val merged = mutableListOf<ChatImageInfo>()
+        val seen = mutableSetOf<String>()
+        (existing + incoming).forEach { image ->
+            val key = image.imageKey()
+            if (key == null || seen.add(key)) {
+                merged += image
+            }
+        }
+        return merged
+    }
+
+    private fun ChatImageInfo.imageKey(): String? {
+        return imageId?.takeIf { it.isNotBlank() }
+            ?: url?.takeIf { it.isNotBlank() }
+            ?: publicPath?.takeIf { it.isNotBlank() }
+            ?: sourcePath?.takeIf { it.isNotBlank() }
+    }
+
+    private suspend fun List<ChatImageInfo>.resolveImageUrls(): List<ChatImageInfo> {
+        return map { image ->
+            val path = image.url?.takeIf { it.isNotBlank() }
+                ?: image.publicPath?.takeIf { it.isNotBlank() }
+            if (path.isNullOrBlank()) {
+                image
+            } else {
+                image.copy(url = repository.buildMediaUrl(path))
+            }
+        }
     }
 
     fun setPendingImage(uri: String) {
@@ -1243,7 +1313,8 @@ class MainViewModel @Inject constructor(
 
             sessionRepository.getSessionDetail(sessionId).fold(
                 onSuccess = { detail ->
-                    _messages.value = detail.messages.map { it.toChatMessage() }
+                    val baseUrl = settingsDataStore.baseUrl.first()
+                    _messages.value = detail.messages.map { it.toChatMessage(baseUrl) }
                 },
                 onFailure = { e ->
                     Log.e(TAG, "switchToSession failed", e)

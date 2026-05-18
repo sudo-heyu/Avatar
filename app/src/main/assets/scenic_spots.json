@@ -2,35 +2,30 @@
   {
     "id": "lingshan",
     "name": "灵山胜境",
+    "description": "软件杯项目默认景区",
     "spots": [
       {"id": "LS-001", "name": "灵山大照壁"},
-      {"id": "LS-002", "name": "五明桥"},
       {"id": "LS-003", "name": "佛足坛"},
-      {"id": "LS-004", "name": "五智门"},
       {"id": "LS-005", "name": "菩提大道"},
       {"id": "LS-006", "name": "九龙灌浴"},
-      {"id": "LS-007", "name": "降魔浮雕"},
-      {"id": "LS-008", "name": "阿育王柱"},
       {"id": "LS-009", "name": "百子戏弥勒"},
       {"id": "LS-010", "name": "祥符禅寺"},
       {"id": "LS-011", "name": "灵山大佛"},
-      {"id": "LS-012", "name": "佛教文化博览馆"},
       {"id": "LS-013", "name": "灵山梵宫"},
       {"id": "LS-014", "name": "五印坛城"},
-      {"id": "LS-015", "name": "曼飞龙塔"},
-      {"id": "LS-016", "name": "无尽意斋"}
+      {"id": "LS-015", "name": "曼飞龙塔"}
     ]
   },
   {
-    "id": "nianhuawan",
-    "name": "拈花湾禅意小镇",
-    "spots": [
-      {"id": "NH-001", "name": "拈花广场"},
-      {"id": "NH-002", "name": "梵天花海"},
-      {"id": "NH-003", "name": "香月花街"},
-      {"id": "NH-004", "name": "拈花堂"},
-      {"id": "NH-005", "name": "五灯湖"},
-      {"id": "NH-006", "name": "鹿鸣谷"}
-    ]
+    "id": "1911museum",
+    "name": "辛亥革命纪念馆",
+    "description": "首义之区，共和之门",
+    "spots": []
+  },
+  {
+    "id": "site_of_the_august_7th_conference",
+    "name": "八七会议会址纪念馆",
+    "description": "危急关头挽救党、挽救革命的重要会议旧址",
+    "spots": []
   }
 ]
