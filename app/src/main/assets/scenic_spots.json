@@ -1,22 +1,5 @@
 [
   {
-    "id": "lingshan",
-    "name": "灵山胜境",
-    "description": "软件杯项目默认景区",
-    "spots": [
-      {"id": "LS-001", "name": "灵山大照壁"},
-      {"id": "LS-003", "name": "佛足坛"},
-      {"id": "LS-005", "name": "菩提大道"},
-      {"id": "LS-006", "name": "九龙灌浴"},
-      {"id": "LS-009", "name": "百子戏弥勒"},
-      {"id": "LS-010", "name": "祥符禅寺"},
-      {"id": "LS-011", "name": "灵山大佛"},
-      {"id": "LS-013", "name": "灵山梵宫"},
-      {"id": "LS-014", "name": "五印坛城"},
-      {"id": "LS-015", "name": "曼飞龙塔"}
-    ]
-  },
-  {
     "id": "1911museum",
     "name": "辛亥革命纪念馆",
     "description": "首义之区，共和之门",
@@ -26,6 +9,132 @@
     "id": "site_of_the_august_7th_conference",
     "name": "八七会议会址纪念馆",
     "description": "危急关头挽救党、挽救革命的重要会议旧址",
+    "spots": []
+  },
+  {
+    "id": "xiangjingyu_cemetery",
+    "name": "向警予烈士陵园",
+    "description": "中国共产党唯一女创始人，巾帼英烈的永恒丰碑",
+    "spots": []
+  },
+  {
+    "id": "shiyang_cemetery",
+    "name": "施洋烈士陵园",
+    "description": "劳工律师施洋，二七大罢工烈士长眠之地",
+    "spots": []
+  },
+  {
+    "id": "wuhan_erqi_memorial",
+    "name": "武汉二七纪念馆",
+    "description": "京汉铁路工人运动的永恒纪念",
+    "spots": []
+  },
+  {
+    "id": "zhonggong_hankou_memorial",
+    "name": "武汉中共中央机关旧址纪念馆",
+    "description": "1926-1927年中共中央机关驻地",
+    "spots": []
+  },
+  {
+    "id": "wuhan_antiwar_memorial",
+    "name": "武汉抗战纪念园",
+    "description": "铭记武汉会战历史，缅怀抗战英烈",
+    "spots": []
+  },
+  {
+    "id": "balujun_wuhan_office",
+    "name": "八路军武汉办事处旧址",
+    "description": "抗战初期八路军驻武汉办事机构",
+    "spots": []
+  },
+  {
+    "id": "hankou_n4a_hq",
+    "name": "汉口新四军军部旧址",
+    "description": "新四军组建初期的军部驻地",
+    "spots": []
+  },
+  {
+    "id": "mao_zedong_house",
+    "name": "毛泽东故居陈列馆",
+    "description": "毛泽东在武汉从事革命活动的历史见证",
+    "spots": []
+  },
+  {
+    "id": "jinghan_railway_union",
+    "name": "京汉铁路总工会旧址",
+    "description": "中国工人运动的重要发源地",
+    "spots": []
+  },
+  {
+    "id": "hankou_allchina_union",
+    "name": "汉口中华全国总工会旧址",
+    "description": "大革命时期全国工人运动指挥中心",
+    "spots": []
+  },
+  {
+    "id": "ccp_leaders_hankou",
+    "name": "中共中央领导人汉口住地旧址",
+    "description": "中共中央领导人在汉口的重要历史驻地",
+    "spots": []
+  },
+  {
+    "id": "qiyimen",
+    "name": "起义门",
+    "description": "武昌起义攻城突破口，辛亥首义历史地标",
+    "spots": []
+  },
+  {
+    "id": "zhongshan_warship",
+    "name": "中山舰博物馆",
+    "description": "一代名舰，见证中国近代历史风云",
+    "spots": []
+  },
+  {
+    "id": "heshengqiao_cemetery",
+    "name": "贺胜桥北伐阵亡将士陵园",
+    "description": "北伐战争贺胜桥战役英烈安息之地",
+    "spots": []
+  },
+  {
+    "id": "wuhan_revolution_museum",
+    "name": "武汉革命博物馆",
+    "description": "集武昌农讲所、毛泽东旧居、中共五大会址于一体的综合性革命博物馆",
+    "spots": []
+  },
+  {
+    "id": "ccp_5th_congress_site",
+    "name": "中共五大会址纪念馆",
+    "description": "1927年中共五大召开地，党的历史上重要会议旧址",
+    "spots": []
+  },
+  {
+    "id": "peasant_movement_institute",
+    "name": "中央农民运动讲习所旧址",
+    "description": "毛泽东主办的大革命时期培养农民运动骨干的学校",
+    "spots": []
+  },
+  {
+    "id": "song_qingling_hankou_residence",
+    "name": "宋庆龄汉口旧居纪念馆",
+    "description": "1927年宋庆龄在武汉从事革命活动的历史见证",
+    "spots": []
+  },
+  {
+    "id": "zhan_tianyou_museum",
+    "name": "詹天佑故居博物馆",
+    "description": "中国铁路之父詹天佑的生平与成就展示",
+    "spots": []
+  },
+  {
+    "id": "zhang_zhidong_museum",
+    "name": "张之洞与武汉博物馆",
+    "description": "晚清洋务运动重臣张之洞督鄂十八年历史",
+    "spots": []
+  },
+  {
+    "id": "huangma_uprising_memorial",
+    "name": "黄麻起义和鄂豫皖苏区纪念园",
+    "description": "纪念黄麻起义和鄂豫皖革命根据地历史",
     "spots": []
   }
 ]

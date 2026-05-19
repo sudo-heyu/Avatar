@@ -52,7 +52,7 @@ fun AuthDialog(
                     .fillMaxWidth()
             ) {
                 Text(
-                    text = "欢迎使用景灵智导",
+                    text = "欢迎使用数智寻踪",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -147,7 +147,7 @@ fun AuthDialog(
                 Spacer(modifier = Modifier.height(20.dp))
 
                 // 主操作按钮
-                val primaryColor = Color(0xFF1D7A6D)   // 山湖青绿色 - 登录
+                val primaryColor = Color(0xFFB71C1C)   // 中国红 - 登录
                 val accentColor = Color(0xFFF2A541)    // 暖阳橙 - 注册
 
                 Button(

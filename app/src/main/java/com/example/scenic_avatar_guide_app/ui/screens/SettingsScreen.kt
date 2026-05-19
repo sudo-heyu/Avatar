@@ -276,7 +276,7 @@ fun SettingsScreen(
                     iconBg = TextHint.copy(alpha = 0.1f),
                     iconTint = TextSecondary,
                     title = "版本",
-                    subtitle = "景灵智导 v1.0.0"
+                    subtitle = "数智寻踪 v1.0.0"
                 )
             }
 

@@ -97,6 +97,48 @@
       "name": "贺胜桥北伐阵亡将士陵园",
       "thumbnail": "",
       "description": "北伐战争贺胜桥战役英烈安息之地"
+    },
+    {
+      "scenicId": "wuhan_revolution_museum",
+      "name": "武汉革命博物馆",
+      "thumbnail": "",
+      "description": "集武昌农讲所、毛泽东旧居、中共五大会址于一体的综合性革命博物馆"
+    },
+    {
+      "scenicId": "ccp_5th_congress_site",
+      "name": "中共五大会址纪念馆",
+      "thumbnail": "",
+      "description": "1927年中共五大召开地，党的历史上重要会议旧址"
+    },
+    {
+      "scenicId": "peasant_movement_institute",
+      "name": "中央农民运动讲习所旧址",
+      "thumbnail": "",
+      "description": "毛泽东主办的大革命时期培养农民运动骨干的学校"
+    },
+    {
+      "scenicId": "song_qingling_hankou_residence",
+      "name": "宋庆龄汉口旧居纪念馆",
+      "thumbnail": "",
+      "description": "1927年宋庆龄在武汉从事革命活动的历史见证"
+    },
+    {
+      "scenicId": "zhan_tianyou_museum",
+      "name": "詹天佑故居博物馆",
+      "thumbnail": "",
+      "description": "中国铁路之父詹天佑的生平与成就展示"
+    },
+    {
+      "scenicId": "zhang_zhidong_museum",
+      "name": "张之洞与武汉博物馆",
+      "thumbnail": "",
+      "description": "晚清洋务运动重臣张之洞督鄂十八年历史"
+    },
+    {
+      "scenicId": "huangma_uprising_memorial",
+      "name": "黄麻起义和鄂豫皖苏区纪念园",
+      "thumbnail": "",
+      "description": "纪念黄麻起义和鄂豫皖革命根据地历史"
     }
   ]
 }

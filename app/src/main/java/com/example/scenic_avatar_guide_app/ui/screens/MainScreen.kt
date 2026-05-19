@@ -750,7 +750,7 @@ private fun TopBar(
         }
 
         Text(
-            text = "景灵智导",
+            text = "数智寻踪",
             fontWeight = FontWeight.Bold,
             fontSize = 18.sp,
             color = TextSecondary,

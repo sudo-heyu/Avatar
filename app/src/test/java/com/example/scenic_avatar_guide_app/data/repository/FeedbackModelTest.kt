@@ -11,11 +11,11 @@ class FeedbackModelTest {
     @Test
     fun `ChatFeedbackRequest has correct default values`() {
         val request = ChatFeedbackRequest(
-            scenicId = "lingshan",
+            scenicId = "1911museum",
             rating = 5
         )
 
-        assertEquals("lingshan", request.scenicId)
+        assertEquals("1911museum", request.scenicId)
         assertEquals(5, request.rating)
         assertNull(request.sessionId)
         assertNull(request.userId)
@@ -27,7 +27,7 @@ class FeedbackModelTest {
     @Test
     fun `ChatFeedbackRequest with all fields populated`() {
         val request = ChatFeedbackRequest(
-            scenicId = "lingshan",
+            scenicId = "1911museum",
             rating = 3,
             sessionId = "s_001",
             userId = "u_001",
@@ -36,7 +36,7 @@ class FeedbackModelTest {
             comment = "服务态度一般"
         )
 
-        assertEquals("lingshan", request.scenicId)
+        assertEquals("1911museum", request.scenicId)
         assertEquals(3, request.rating)
         assertEquals("s_001", request.sessionId)
         assertEquals("u_001", request.userId)
@@ -52,7 +52,7 @@ class FeedbackModelTest {
             message = "ok",
             data = ChatFeedbackData(
                 feedbackId = "fb_001",
-                scenicId = "lingshan",
+                scenicId = "1911museum",
                 sessionId = "s_001",
                 userId = "u_001",
                 messageId = "m_001",
@@ -88,7 +88,7 @@ class FeedbackModelTest {
     fun `ChatFeedbackData with complaint`() {
         val data = ChatFeedbackData(
             feedbackId = "fb_002",
-            scenicId = "lingshan",
+            scenicId = "1911museum",
             rating = 1,
             isComplaint = true,
             comment = "服务态度差"

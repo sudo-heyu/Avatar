@@ -1822,7 +1822,7 @@ fun TextSection(section: ContentSection) {
                 text = it,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF1D7A6D)
+                color = Color(0xFFB71C1C)
             )
             Spacer(modifier = Modifier.height(4.dp))
         }
@@ -1879,7 +1879,7 @@ fun ImageFullSection(section: ContentSection) {
                 text = it,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF1D7A6D)
+                color = Color(0xFFB71C1C)
             )
             Spacer(modifier = Modifier.height(8.dp))
         }
@@ -1938,7 +1938,7 @@ fun ImageGallerySection(section: ContentSection) {
                 text = it,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF1D7A6D),
+                color = Color(0xFFB71C1C),
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -1996,7 +1996,7 @@ fun TextImageSection(section: ContentSection, imageOnRight: Boolean) {
                 text = it,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF1D7A6D)
+                color = Color(0xFFB71C1C)
             )
             Spacer(modifier = Modifier.height(8.dp))
         }
@@ -2112,12 +2112,12 @@ fun HighlightsSection(highlights: List<String>) {
         highlights.forEach { highlight ->
             Surface(
                 shape = RoundedCornerShape(8.dp),
-                color = Color(0xFF1D7A6D).copy(alpha = 0.1f)
+                color = Color(0xFFB71C1C).copy(alpha = 0.1f)
             ) {
                 Text(
                     text = highlight,
                     fontSize = 12.sp,
-                    color = Color(0xFF1D7A6D),
+                    color = Color(0xFFB71C1C),
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                 )
@@ -2174,7 +2174,7 @@ fun HighlightsStatisticSection(section: ContentSection) {
                 text = it,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF1D7A6D)
+                color = Color(0xFFB71C1C)
             )
             Spacer(modifier = Modifier.height(12.dp))
         }
@@ -2231,7 +2231,7 @@ fun TimelineSection(section: ContentSection) {
                 text = it,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF1D7A6D)
+                color = Color(0xFFB71C1C)
             )
             Spacer(modifier = Modifier.height(12.dp))
         }
@@ -2329,7 +2329,7 @@ fun SpotsGridSection(section: ContentSection) {
                 text = it,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF1D7A6D)
+                color = Color(0xFFB71C1C)
             )
             Spacer(modifier = Modifier.height(12.dp))
         }

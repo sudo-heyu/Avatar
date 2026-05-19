@@ -92,7 +92,7 @@ class GuideRepository @Inject constructor(
 
             settingsDataStore.setDeviceId(deviceId)
 
-            val scenicId = settingsDataStore.scenicId.first() ?: "lingshan"
+            val scenicId = settingsDataStore.scenicId.first() ?: "1911museum"
             val spotId = settingsDataStore.spotId.first()
 
             Log.d("GuideRepository", "createSession: userId=$userId, scenicId=$scenicId, spotId=$spotId, deviceId=$deviceId")
@@ -131,7 +131,7 @@ class GuideRepository @Inject constructor(
         val userId = settingsDataStore.userId.first()
             ?: return flowOf(ChatStreamEvent.Error(message = "用户 ID 不存在"))
 
-        val scenicId = settingsDataStore.scenicId.first() ?: "lingshan"
+        val scenicId = settingsDataStore.scenicId.first() ?: "1911museum"
         val spotId = settingsDataStore.spotId.first()
         val voiceId = settingsDataStore.voiceId.first()
         val rate = settingsDataStore.rate.first()
@@ -174,7 +174,7 @@ class GuideRepository @Inject constructor(
             val userId = settingsDataStore.userId.first()
                 ?: return Result.failure(IllegalStateException("用户 ID 不存在"))
 
-            val scenicId = settingsDataStore.scenicId.first() ?: "lingshan"
+            val scenicId = settingsDataStore.scenicId.first() ?: "1911museum"
             val spotId = settingsDataStore.spotId.first()
             val voiceId = settingsDataStore.voiceId.first()
             val rate = settingsDataStore.rate.first()
@@ -348,7 +348,7 @@ class GuideRepository @Inject constructor(
     ): Result<ChatFeedbackData> {
         return try {
             val userId = settingsDataStore.userId.first()
-            val scenicId = settingsDataStore.scenicId.first() ?: "lingshan"
+            val scenicId = settingsDataStore.scenicId.first() ?: "1911museum"
             val sessionId = settingsDataStore.sessionId.first()
 
             val request = ChatFeedbackRequest(

@@ -557,7 +557,7 @@ class MainViewModel @Inject constructor(
             }
 
             if (_messages.value.isEmpty()) {
-                addMessage("您好！我是景灵智导，很高兴为您服务。请问有什么可以帮助您？", isUser = false)
+                addMessage("您好！我是数智寻踪，很高兴为您服务。请问有什么可以帮助您？", isUser = false)
             }
         }
     }
@@ -1342,7 +1342,7 @@ class MainViewModel @Inject constructor(
                 addMessage("会话创建失败，请检查网络后重试", isUser = false, isError = true)
                 return@launch
             }
-            addMessage("您好！我是景灵智导，很高兴为您服务。请问有什么可以帮助您？", isUser = false)
+            addMessage("您好！我是数智寻踪，很高兴为您服务。请问有什么可以帮助您？", isUser = false)
         }
     }
 
@@ -1363,7 +1363,7 @@ class MainViewModel @Inject constructor(
         _sessionListNeedsRefresh.value++
         viewModelScope.launch {
             settingsDataStore.clearSession()
-            addMessage("您好！我是景灵智导，很高兴为您服务。请问有什么可以帮助您？", isUser = false)
+            addMessage("您好！我是数智寻踪，很高兴为您服务。请问有什么可以帮助您？", isUser = false)
         }
     }
 
