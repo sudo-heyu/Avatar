@@ -442,7 +442,7 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             val scenicId = settingsDataStore.scenicId.first()
             val spotId = settingsDataStore.spotId.first()
-            if (scenicId == null) {
+            if (scenicId == null || spotId == null) {
                 _showScenicSelection.value = true
             } else {
                 initSession()
@@ -461,10 +461,9 @@ class MainViewModel @Inject constructor(
         observeVoiceChanges()
         observeSessionChanges()
         observeVoiceSettings()
-        refreshScenicAreas()
     }
 
-    fun onScenicSpotSelected(scenicId: String, spotId: String?) {
+    fun onScenicSpotSelected(scenicId: String, spotId: String) {
         viewModelScope.launch {
             settingsDataStore.setScenicId(scenicId)
             settingsDataStore.setSpotId(spotId)
@@ -479,16 +478,6 @@ class MainViewModel @Inject constructor(
 
     fun dismissScenicSelection() {
         _showScenicSelection.value = false
-    }
-
-    private fun refreshScenicAreas() {
-        viewModelScope.launch {
-            repository.getPublicScenicAreas().onSuccess { remoteAreas ->
-                if (remoteAreas.isNotEmpty()) {
-                    _scenicAreas.value = remoteAreas
-                }
-            }
-        }
     }
 
     /**
@@ -557,7 +546,7 @@ class MainViewModel @Inject constructor(
             }
 
             if (_messages.value.isEmpty()) {
-                addMessage("您好！我是数智寻踪，很高兴为您服务。请问有什么可以帮助您？", isUser = false)
+                addMessage("您好！我是景灵智导，很高兴为您服务。请问有什么可以帮助您？", isUser = false)
             }
         }
     }

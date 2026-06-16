@@ -110,7 +110,6 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             settingsDataStore.authUsername.collect { _authUsername.value = it }
         }
-        refreshScenicAreas()
     }
 
     fun updateBaseUrl(url: String) {
@@ -158,7 +157,7 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun setScenicSpot(scenicId: String, spotId: String?) {
+    fun setScenicSpot(scenicId: String, spotId: String) {
         viewModelScope.launch {
             settingsDataStore.setScenicId(scenicId)
             settingsDataStore.setSpotId(spotId)
@@ -166,16 +165,6 @@ class SettingsViewModel @Inject constructor(
             _scenicId.value = scenicId
             _spotId.value = spotId
             _statusMessage.value = "景区景点已更新，会话已重置"
-        }
-    }
-
-    fun refreshScenicAreas() {
-        viewModelScope.launch {
-            repository.getPublicScenicAreas().onSuccess { remoteAreas ->
-                if (remoteAreas.isNotEmpty()) {
-                    _scenicAreas.value = remoteAreas
-                }
-            }
         }
     }
 

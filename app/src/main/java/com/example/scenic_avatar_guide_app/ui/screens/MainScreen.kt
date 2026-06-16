@@ -516,6 +516,13 @@ fun MainScreen(
                                 )
                             }
 
+                            // 功能卡片：模式选择器（位于输入框上方，随输入法同步移动）
+                            ModeSelector(
+                                currentMode = currentMode,
+                                onModeChange = { viewModel.switchMode(it) },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+
                             // 输入框：位于最下方
                             if (voiceInputMode) {
                                 VoiceInputButton(
@@ -750,7 +757,7 @@ private fun TopBar(
         }
 
         Text(
-            text = "数智寻踪",
+            text = "景灵智导",
             fontWeight = FontWeight.Bold,
             fontSize = 18.sp,
             color = TextSecondary,
@@ -1131,19 +1138,19 @@ private fun ScenicFeatureEntryItem(
             .height(52.dp)
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
-        color = Color(0xFFFFF4F2)
+        color = Color(0xFFE8F5F0)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .border(1.dp, Color(0xFFFFD0C8), RoundedCornerShape(12.dp))
+                .border(1.dp, Color(0xFF8BC4BC), RoundedCornerShape(12.dp))
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
                 modifier = Modifier.size(32.dp),
                 shape = RoundedCornerShape(9.dp),
-                color = Color(0xFFC72C2C)
+                color = Primary
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
@@ -1159,7 +1166,7 @@ private fun ScenicFeatureEntryItem(
                 text = tab.title,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = Color(0xFF7E1F1F),
+                color = Primary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Start
@@ -3542,7 +3549,7 @@ private fun createImageUri(context: android.content.Context): Uri? {
 @Composable
 fun ScenicSelectionDialog(
     scenicAreas: List<com.example.scenic_avatar_guide_app.domain.model.ScenicArea>,
-    onSelected: (String, String?) -> Unit,
+    onSelected: (String, String) -> Unit,
     onDismiss: () -> Unit
 ) {
     var selectedScenicId by remember { mutableStateOf<String?>(null) }
@@ -3584,33 +3591,6 @@ fun ScenicSelectionDialog(
                             modifier = Modifier.heightIn(max = 320.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            item {
-                                Surface(
-                                    onClick = { onSelected(area.id, null) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = Primary.copy(alpha = 0.1f)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.TravelExplore,
-                                            contentDescription = null,
-                                            tint = Primary,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                        Text(
-                                            "全景区",
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = Primary
-                                        )
-                                    }
-                                }
-                            }
                             items(area.spots) { spot ->
                                 Surface(
                                     onClick = { onSelected(area.id, spot.id) },

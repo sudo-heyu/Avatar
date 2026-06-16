@@ -52,7 +52,7 @@ fun AuthDialog(
                     .fillMaxWidth()
             ) {
                 Text(
-                    text = "欢迎使用数智寻踪",
+                    text = "欢迎使用景灵智导",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
