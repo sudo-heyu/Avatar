@@ -22,6 +22,8 @@ dependencyResolutionManagement {
         // 官方仓库作为备用
         google()
         mavenCentral()
+        // 高德地图 SDK 官方仓库
+        maven { url = uri("https://repository.amap.com/repository/maven-public/") }
         maven { url = uri("https://jitpack.io") }
     }
 }

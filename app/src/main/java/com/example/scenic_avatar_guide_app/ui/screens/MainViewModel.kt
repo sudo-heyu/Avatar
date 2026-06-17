@@ -120,6 +120,9 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
     // 文本更新回调
     var onTextUpdate: ((messageId: String, text: String) -> Unit)? = null
 
+    // 打字完成回调
+    var onFinished: ((messageId: String) -> Unit)? = null
+
     /**
      * 开始新的打字机会话
      * @param messageId 消息 ID
@@ -220,6 +223,8 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
                     onTextUpdate?.invoke(emitId!!, emitText!!)
                 }
                 if (shouldFinish) {
+                    val finishedId = currentMessageId
+                    onFinished?.invoke(finishedId!!)
                     return@launch
                 }
 
@@ -270,6 +275,10 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
         }
         if (emitId != null && emitText != null) {
             onTextUpdate?.invoke(emitId!!, emitText!!)
+        }
+        val flushedId = currentMessageId
+        if (flushedId != null) {
+            onFinished?.invoke(flushedId)
         }
     }
 
@@ -415,8 +424,14 @@ class MainViewModel @Inject constructor(
     // 用于判断是否需要在发送消息时创建新会话
     private var isFreshStart: Boolean = true
 
-    // 当前助手消息 ID，用于中止请求
-    private var currentAssistantMessageId: String? = null
+    // 当前助手消息 ID，用于中止请求及判断打字机是否在进行中
+    private val _currentAssistantMessageId = MutableStateFlow<String?>(null)
+    val currentAssistantMessageId: StateFlow<String?> = _currentAssistantMessageId.asStateFlow()
+
+    // 打字机已自然完成的消息 ID 集合
+    private val _typewriterFinishedIds = MutableStateFlow<Set<String>>(emptySet())
+    val typewriterFinishedIds: StateFlow<Set<String>> = _typewriterFinishedIds.asStateFlow()
+
     private var currentBackendMessageId: String? = null
 
     private var currentStreamJob: Job? = null
@@ -425,6 +440,12 @@ class MainViewModel @Inject constructor(
     private val typewriterController = TypewriterController(viewModelScope).apply {
         onTextUpdate = { messageId, text ->
             updateAssistantMessageContent(messageId, text)
+        }
+        onFinished = { messageId ->
+            _typewriterFinishedIds.value = _typewriterFinishedIds.value + messageId
+            if (_currentAssistantMessageId.value == messageId) {
+                _currentAssistantMessageId.value = null
+            }
         }
     }
 
@@ -500,7 +521,7 @@ class MainViewModel @Inject constructor(
                 if (state.state == AvatarState.IDLE && _isConversationActive.value && !streamStillRunning) {
                     Log.d(TAG, "observeAvatarState: 播放完成，重置 isConversationActive")
                     _isConversationActive.value = false
-                    currentAssistantMessageId = null
+                    _currentAssistantMessageId.value = null
                     streamResponseComplete = false  // 重置标志，为下次对话做准备
                 } else if (state.state == AvatarState.IDLE && _isConversationActive.value) {
                     Log.d(TAG, "observeAvatarState: 忽略流式回复中的临时 IDLE")
@@ -746,7 +767,8 @@ class MainViewModel @Inject constructor(
             }
 
             val assistantMessageId = addMessage(content = "", isUser = false, isLoading = true)
-            currentAssistantMessageId = assistantMessageId
+            _currentAssistantMessageId.value = assistantMessageId
+            _typewriterFinishedIds.value = _typewriterFinishedIds.value - assistantMessageId
             currentBackendMessageId = null
 
             // 启动打字机效果，等待第一个音频片段开始播放后再同步显示
@@ -1239,7 +1261,7 @@ class MainViewModel @Inject constructor(
         if (!_isConversationActive.value) return
 
         val sessionToAbort = sessionId
-        val localMessageId = currentAssistantMessageId
+        val localMessageId = _currentAssistantMessageId.value
         val messageToAbort = currentBackendMessageId ?: localMessageId
 
         cancelCurrentStream()
@@ -1266,7 +1288,7 @@ class MainViewModel @Inject constructor(
 
         _isConversationActive.value = false
         streamResponseComplete = false
-        currentAssistantMessageId = null
+        _currentAssistantMessageId.value = null
         currentBackendMessageId = null
 
         viewModelScope.launch {
@@ -1322,7 +1344,7 @@ class MainViewModel @Inject constructor(
         _messages.value = emptyList()
         _isConversationActive.value = false
         streamResponseComplete = false
-        currentAssistantMessageId = null
+        _currentAssistantMessageId.value = null
         currentBackendMessageId = null
 
         viewModelScope.launch {
@@ -1344,7 +1366,7 @@ class MainViewModel @Inject constructor(
         _messages.value = emptyList()
         _isConversationActive.value = false
         streamResponseComplete = false
-        currentAssistantMessageId = null
+        _currentAssistantMessageId.value = null
         currentBackendMessageId = null
         sessionId = null
         // 用户点击新建对话，标记为 fresh start，期望下次发送消息时创建新会话

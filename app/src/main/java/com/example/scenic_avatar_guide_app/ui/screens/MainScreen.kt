@@ -19,6 +19,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -39,6 +40,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -50,6 +52,10 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -94,6 +100,8 @@ import com.example.scenic_avatar_guide_app.ui.components.scenicintro.ScenicIntro
 import com.example.scenic_avatar_guide_app.ui.components.scenicintro.ScenicSelectorChip
 import com.example.scenic_avatar_guide_app.domain.model.ChatMessage
 import com.example.scenic_avatar_guide_app.domain.model.ChatImageInfo
+import com.example.scenic_avatar_guide_app.domain.model.RouteData
+import com.example.scenic_avatar_guide_app.domain.model.LatLngPoint
 import com.example.scenic_avatar_guide_app.domain.model.AvatarState
 import com.example.scenic_avatar_guide_app.core.speech.SpeechRecognizerHelper
 import com.example.scenic_avatar_guide_app.core.avatar.TestAvatarActions
@@ -117,9 +125,13 @@ fun MainScreen(
     viewModel: MainViewModel = hiltViewModel()
 ) {
     var scenicPortalTab by remember { mutableStateOf<ScenicIntroTab?>(null) }
+    var mapRouteData by remember { mutableStateOf<RouteData?>(null) }
 
-    BackHandler(enabled = scenicPortalTab != null) {
-        scenicPortalTab = null
+    BackHandler(enabled = scenicPortalTab != null || mapRouteData != null) {
+        when {
+            mapRouteData != null -> mapRouteData = null
+            scenicPortalTab != null -> scenicPortalTab = null
+        }
     }
 
     val messages by viewModel.messages.collectAsStateWithLifecycle()
@@ -145,6 +157,8 @@ fun MainScreen(
     val showFeedbackDialog by viewModel.showFeedbackDialog.collectAsStateWithLifecycle()
     val isSubmittingFeedback by viewModel.isSubmittingFeedback.collectAsStateWithLifecycle()
     val feedbackResult by viewModel.feedbackResult.collectAsStateWithLifecycle()
+    val currentAssistantMessageId by viewModel.currentAssistantMessageId.collectAsStateWithLifecycle()
+    val typewriterFinishedIds by viewModel.typewriterFinishedIds.collectAsStateWithLifecycle()
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -372,7 +386,7 @@ fun MainScreen(
                 }
             )
         },
-        gesturesEnabled = drawerState.isOpen && scenicPortalTab == null
+        gesturesEnabled = drawerState.isOpen && scenicPortalTab == null && mapRouteData == null
     ) {
         Scaffold(
             containerColor = Surface,
@@ -437,7 +451,10 @@ fun MainScreen(
                                 autoScrollEnabled = false
                                 autoScrollJob?.cancel()
                             },
-                            onFeedbackClick = { messageId -> viewModel.showFeedbackDialog(messageId) }
+                            onFeedbackClick = { messageId -> viewModel.showFeedbackDialog(messageId) },
+                            onRouteCardClick = { routeData -> mapRouteData = routeData },
+                            currentAssistantMessageId = currentAssistantMessageId,
+                            typewriterFinishedIds = typewriterFinishedIds
                         )
 
                         // 滚动到底部按钮：当用户上滑查看历史时显示
@@ -569,14 +586,35 @@ fun MainScreen(
         }
     }
 
-    scenicPortalTab?.let { tab ->
-        ScenicIntroPortalScreen(
-            tab = tab,
-            onBackClick = { scenicPortalTab = null },
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-        )
+    when {
+        mapRouteData != null -> {
+            com.example.scenic_avatar_guide_app.ui.screens.map.MapPortalScreen(
+                routeData = mapRouteData,
+                onBackClick = { mapRouteData = null },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+            )
+        }
+        scenicPortalTab != null -> {
+            val tab = scenicPortalTab!!
+            if (tab == ScenicIntroTab.Map) {
+                com.example.scenic_avatar_guide_app.ui.screens.map.MapPortalScreen(
+                    onBackClick = { scenicPortalTab = null },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                )
+            } else {
+                ScenicIntroPortalScreen(
+                    tab = tab,
+                    onBackClick = { scenicPortalTab = null },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                )
+            }
+        }
     }
 
     if (showImagePickerDialog) {
@@ -1182,7 +1220,8 @@ private enum class ScenicIntroTab(
 ) {
     Intro("景区介绍", R.drawable.ic_jingqu, "景区介绍内容待接入"),
     Stories("历史故事", R.drawable.ic_gushi, "历史故事内容待接入"),
-    Reservation("场馆预约", R.drawable.ic_changguan, "预约服务内容待接入")
+    Reservation("场馆预约", R.drawable.ic_changguan, "预约服务内容待接入"),
+    Map("景区地图", R.drawable.ic_map, "景区地图")
 }
 
 @Composable
@@ -1287,6 +1326,10 @@ private fun ScenicIntroPortalScreen(
                             scenicId = selectedScenicId,
                             scenicName = selectedScenicName
                         )
+                    }
+                    ScenicIntroTab.Map -> {
+                        // Map 由外层单独渲染为全屏 Portal，不会进入此处
+                        Box(modifier = Modifier.fillMaxSize())
                     }
                 }
             }
@@ -2796,7 +2839,10 @@ private fun MessageList(
     modifier: Modifier = Modifier,
     bottomPaddingDp: androidx.compose.ui.unit.Dp = 8.dp,
     onUserInteraction: () -> Unit = {},
-    onFeedbackClick: (String) -> Unit = {}
+    onFeedbackClick: (String) -> Unit = {},
+    onRouteCardClick: (RouteData) -> Unit = {},
+    currentAssistantMessageId: String? = null,
+    typewriterFinishedIds: Set<String> = emptySet()
 ) {
     val lastAssistantMessageId by remember(messages) {
         derivedStateOf { messages.findLast { !it.isUser }?.id }
@@ -2828,7 +2874,10 @@ private fun MessageList(
             MessageBubble(
                 message = message,
                 isLastAssistant = isLastAssistant,
-                onFeedbackClick = onFeedbackClick
+                onFeedbackClick = onFeedbackClick,
+                onRouteCardClick = onRouteCardClick,
+                currentAssistantMessageId = currentAssistantMessageId,
+                typewriterFinishedIds = typewriterFinishedIds
             )
         }
     }
@@ -2839,7 +2888,10 @@ private fun MessageList(
 private fun MessageBubble(
     message: ChatMessage,
     isLastAssistant: Boolean = false,
-    onFeedbackClick: (String) -> Unit = {}
+    onFeedbackClick: (String) -> Unit = {},
+    onRouteCardClick: (RouteData) -> Unit = {},
+    currentAssistantMessageId: String? = null,
+    typewriterFinishedIds: Set<String> = emptySet()
 ) {
     val isUser = message.isUser
     val imageUri = message.pendingImageUri ?: message.imageUrl
@@ -2988,6 +3040,19 @@ private fun MessageBubble(
                 Spacer(modifier = Modifier.height(10.dp))
                 ThinkingDotsAnimation()
             }
+
+            if (message.routeData != null && !message.isLoading) {
+                val isLiveTyping = message.id == currentAssistantMessageId && message.id !in typewriterFinishedIds
+                if (!isLiveTyping) {
+                    if (hasContent || message.images.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                    RoutePreviewCard(
+                        routeData = message.routeData,
+                        onClick = { onRouteCardClick(message.routeData) }
+                    )
+                }
+            }
         }
 
         if (canShowFeedback) {
@@ -3005,6 +3070,171 @@ private fun MessageBubble(
             image = image,
             onDismiss = { previewImage = null }
         )
+    }
+}
+
+@Composable
+private fun RoutePreviewCard(
+    routeData: RouteData,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val highlights = remember(routeData.highlights) {
+        routeData.highlights?.take(3) ?: emptyList()
+    }
+
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        color = Surface,
+        tonalElevation = 1.dp,
+        shadowElevation = 2.dp
+    ) {
+        Column {
+            RouteMapThumbnail(
+                routeData = routeData,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp)
+                    .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+            )
+
+            Column(
+                modifier = Modifier.padding(12.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = routeData.title,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        val durationText = buildString {
+                            append("约 ${routeData.totalDurationMin} 分钟")
+                            routeData.totalDistanceM?.let {
+                                append(" · 约 ${it / 1000} 公里")
+                            }
+                        }
+                        Text(
+                            text = durationText,
+                            fontSize = 12.sp,
+                            color = TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = TextHint
+                    )
+                }
+
+                if (highlights.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        highlights.forEach { highlight ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Primary.copy(alpha = 0.08f)
+                            ) {
+                                Text(
+                                    text = highlight,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    fontSize = 11.sp,
+                                    color = Primary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouteMapThumbnail(
+    routeData: RouteData,
+    modifier: Modifier = Modifier
+) {
+    val polyline = remember(routeData) {
+        routeData.polyline?.takeIf { it.isNotEmpty() }
+            ?: routeData.spots.map { LatLngPoint(it.lat, it.lng) }
+    }
+
+    if (polyline.isEmpty()) return
+
+    val routeColor = Primary
+    val backgroundColor = Color(0xFFEFF6F4)
+
+    Canvas(modifier = modifier.background(backgroundColor)) {
+        val width = size.width
+        val height = size.height
+
+        val lats = polyline.map { it.lat }
+        val lngs = polyline.map { it.lng }
+        val minLat = lats.minOrNull() ?: return@Canvas
+        val maxLat = lats.maxOrNull() ?: return@Canvas
+        val minLng = lngs.minOrNull() ?: return@Canvas
+        val maxLng = lngs.maxOrNull() ?: return@Canvas
+
+        val latRange = (maxLat - minLat).takeIf { it > 0.0 } ?: 0.001
+        val lngRange = (maxLng - minLng).takeIf { it > 0.0 } ?: 0.001
+
+        val padding = 16.dp.toPx()
+        val drawWidth = width - 2 * padding
+        val drawHeight = height - 2 * padding
+
+        fun toX(lng: Double) = padding + ((lng - minLng) / lngRange * drawWidth).toFloat()
+        fun toY(lat: Double) = height - (padding + ((lat - minLat) / latRange * drawHeight).toFloat())
+
+        // 背景网格，模拟地图道路
+        val gridColor = routeColor.copy(alpha = 0.08f)
+        val gridSteps = 4
+        for (i in 0..gridSteps) {
+            val x = padding + (drawWidth / gridSteps) * i
+            drawLine(gridColor, Offset(x, padding), Offset(x, height - padding), strokeWidth = 1.dp.toPx())
+            val y = padding + (drawHeight / gridSteps) * i
+            drawLine(gridColor, Offset(padding, y), Offset(width - padding, y), strokeWidth = 1.dp.toPx())
+        }
+
+        // 路线轨迹
+        if (polyline.size >= 2) {
+            val path = Path().apply {
+                moveTo(toX(polyline[0].lng), toY(polyline[0].lat))
+                for (i in 1 until polyline.size) {
+                    lineTo(toX(polyline[i].lng), toY(polyline[i].lat))
+                }
+            }
+            drawPath(
+                path = path,
+                color = routeColor.copy(alpha = 0.7f),
+                style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+        }
+
+        // 景点标记
+        routeData.spots.forEach { spot ->
+            val cx = toX(spot.lng)
+            val cy = toY(spot.lat)
+            drawCircle(routeColor.copy(alpha = 0.15f), radius = 8.dp.toPx(), center = Offset(cx, cy))
+            drawCircle(Color.White, radius = 4.dp.toPx(), center = Offset(cx, cy))
+            drawCircle(routeColor, radius = 2.5.dp.toPx(), center = Offset(cx, cy))
+        }
     }
 }
 

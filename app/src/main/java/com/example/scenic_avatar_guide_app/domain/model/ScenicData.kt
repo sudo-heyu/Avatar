@@ -16,7 +16,46 @@ data class ScenicSpot(
     val id: String,
     val name: String,
     val description: String = "",
-    val sortOrder: Int = 0
+    val sortOrder: Int = 0,
+    val lat: Double? = null,
+    val lng: Double? = null
+)
+
+/**
+ * 景区地图配置（前端本地数据）
+ */
+@Serializable
+data class ScenicMapData(
+    @SerialName("center_lat")
+    val centerLat: Double,
+    @SerialName("center_lng")
+    val centerLng: Double,
+    @SerialName("default_zoom")
+    val defaultZoom: Float,
+    val routes: List<ScenicRoute> = emptyList()
+)
+
+/**
+ * 景区地图中的推荐路线
+ */
+@Serializable
+data class ScenicRoute(
+    @SerialName("route_id")
+    val routeId: String,
+    val name: String,
+    val color: String = "#1D7A6D",
+    @SerialName("spot_order")
+    val spotOrder: List<String> = emptyList(),
+    val polyline: List<LatLngPoint> = emptyList()
+)
+
+/**
+ * 景区地图完整数据包（景点 + 地图配置 + 路线）
+ */
+data class ScenicMapBundle(
+    val area: ScenicArea,
+    val spotsWithLocation: List<ScenicSpot>,
+    val mapData: ScenicMapData
 )
 
 @Serializable

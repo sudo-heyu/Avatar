@@ -16,6 +16,10 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
+    <!-- 地图定位权限 -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
     <queries>
         <intent>
             <action android:name="android.speech.RecognitionService" />
@@ -34,6 +38,12 @@
         android:theme="@style/Theme.Scenic_avatar_guide_app"
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
+
+        <!-- 高德地图 API Key：请在 https://console.amap.com 申请后替换下方占位值 -->
+        <meta-data
+            android:name="com.amap.api.v2.apikey"
+            android:value="YOUR_AMAP_API_KEY" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

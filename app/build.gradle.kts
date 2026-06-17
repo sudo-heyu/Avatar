@@ -99,6 +99,9 @@ dependencies {
     implementation(files("libs/SparkChain.aar"))
     implementation(files("libs/Codec.aar"))
 
+    // 高德地图 SDK（3D 地图已内置定位能力）
+    implementation(libs.amap.map3d)
+
     // ExoPlayer 音频播放
     implementation("androidx.media3:media3-exoplayer:1.2.1")
     implementation("androidx.media3:media3-ui:1.2.1")
