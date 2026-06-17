@@ -10,4 +10,10 @@
     <string name="map_privacy_required">需要同意地图隐私政策才能显示地图</string>
     <string name="map_back">返回</string>
     <string name="map_locate_me">定位到我的位置</string>
+    <string name="map_stop_tracking">取消跟随</string>
+    <string name="map_locating">正在定位…</string>
+    <string name="map_privacy_redisplay">重新查看并同意</string>
+    <string name="map_marker_navigate">导航到这里</string>
+    <string name="map_marker_close">关闭</string>
+    <string name="map_no_nav_app">未找到可用的导航应用</string>
 </resources>

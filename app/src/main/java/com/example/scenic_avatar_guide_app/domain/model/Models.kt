@@ -399,11 +399,11 @@ data class RouteData(
 @Serializable
 data class RouteSpot(
     val name: String,
-    val lat: Double,
-    val lng: Double,
-    val order: Int,
+    val lat: Double? = null,
+    val lng: Double? = null,
+    val order: Int = 0,
     @SerialName("stay_min")
-    val stayMin: Int,
+    val stayMin: Int = 0,
     val description: String? = null,
     @SerialName("image_url")
     val imageUrl: String? = null

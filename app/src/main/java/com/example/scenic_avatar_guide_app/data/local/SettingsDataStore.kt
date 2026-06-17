@@ -33,6 +33,7 @@ class SettingsDataStore @Inject constructor(
         private val AUTH_USER_ID_KEY = stringPreferencesKey("auth_user_id")
         private val AUTH_USERNAME_KEY = stringPreferencesKey("auth_username")
         private val IS_AUTHENTICATED_KEY = booleanPreferencesKey("is_authenticated")
+        private val AMAP_PRIVACY_AGREED_KEY = booleanPreferencesKey("amap_privacy_agreed")
 
         const val DEFAULT_BASE_URL = "http://10.0.2.2:8000/"
         const val DEFAULT_VOICE_ID = "zh-CN-XiaoyiNeural"
@@ -91,6 +92,11 @@ class SettingsDataStore @Inject constructor(
 
     val isAuthenticated: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[IS_AUTHENTICATED_KEY] ?: false
+    }
+
+    /** 高德地图隐私协议是否已同意（全局持久化，同意后不再弹窗） */
+    val amapPrivacyAgreed: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[AMAP_PRIVACY_AGREED_KEY] ?: false
     }
 
     suspend fun setBaseUrl(url: String) {
@@ -193,6 +199,12 @@ class SettingsDataStore @Inject constructor(
             preferences.remove(AUTH_USER_ID_KEY)
             preferences.remove(AUTH_USERNAME_KEY)
             preferences.remove(IS_AUTHENTICATED_KEY)
+        }
+    }
+
+    suspend fun setAmapPrivacyAgreed(value: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[AMAP_PRIVACY_AGREED_KEY] = value
         }
     }
 

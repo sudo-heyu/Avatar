@@ -3173,7 +3173,9 @@ private fun RouteMapThumbnail(
 ) {
     val polyline = remember(routeData) {
         routeData.polyline?.takeIf { it.isNotEmpty() }
-            ?: routeData.spots.map { LatLngPoint(it.lat, it.lng) }
+            ?: routeData.spots.mapNotNull { s ->
+                s.lat?.let { la -> s.lng?.let { lng -> LatLngPoint(la, lng) } }
+            }
     }
 
     if (polyline.isEmpty()) return
@@ -3229,8 +3231,10 @@ private fun RouteMapThumbnail(
 
         // 景点标记
         routeData.spots.forEach { spot ->
-            val cx = toX(spot.lng)
-            val cy = toY(spot.lat)
+            val lat = spot.lat ?: return@forEach
+            val lng = spot.lng ?: return@forEach
+            val cx = toX(lng)
+            val cy = toY(lat)
             drawCircle(routeColor.copy(alpha = 0.15f), radius = 8.dp.toPx(), center = Offset(cx, cy))
             drawCircle(Color.White, radius = 4.dp.toPx(), center = Offset(cx, cy))
             drawCircle(routeColor, radius = 2.5.dp.toPx(), center = Offset(cx, cy))

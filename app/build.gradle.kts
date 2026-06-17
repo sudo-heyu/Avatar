@@ -101,6 +101,8 @@ dependencies {
 
     // 高德地图 SDK（3D 地图已内置定位能力）
     implementation(libs.amap.map3d)
+    // 高德搜索 SDK（POI 关键字检索 / 周边搜索）
+    implementation(libs.amap.search)
 
     // ExoPlayer 音频播放
     implementation("androidx.media3:media3-exoplayer:1.2.1")

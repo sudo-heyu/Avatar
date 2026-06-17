@@ -22,6 +22,7 @@ navigationCompose = "2.8.4"
 lottie = "6.4.1"
 ksp = "2.0.21-1.0.27"
 amap3d = "9.8.3"
+amapSearch = "9.7.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -70,6 +71,7 @@ androidx-activity-compose = { group = "androidx.activity", name = "activity-comp
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 lottie-compose = { group = "com.airbnb.android", name = "lottie-compose", version.ref = "lottie" }
 amap-map3d = { group = "com.amap.api", name = "3dmap", version.ref = "amap3d" }
+amap-search = { group = "com.amap.api", name = "search", version.ref = "amapSearch" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

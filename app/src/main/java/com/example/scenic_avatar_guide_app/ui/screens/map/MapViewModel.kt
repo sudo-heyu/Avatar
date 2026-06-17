@@ -8,10 +8,15 @@ import com.amap.api.location.AMapLocationClient
 import com.amap.api.location.AMapLocationClientOption
 import com.amap.api.location.AMapLocationListener
 import com.amap.api.maps.model.LatLng
+import com.amap.api.services.core.LatLonPoint
+import com.amap.api.services.core.PoiItem
+import com.amap.api.services.poisearch.PoiResult
+import com.amap.api.services.poisearch.PoiSearch
 import com.example.scenic_avatar_guide_app.core.common.UiState
 import com.example.scenic_avatar_guide_app.data.local.SettingsDataStore
 import com.example.scenic_avatar_guide_app.data.repository.MapDataRepository
 import com.example.scenic_avatar_guide_app.domain.model.LatLngPoint
+import com.example.scenic_avatar_guide_app.domain.model.MapPoi
 import com.example.scenic_avatar_guide_app.domain.model.RouteData
 import com.example.scenic_avatar_guide_app.domain.model.ScenicArea
 import com.example.scenic_avatar_guide_app.domain.model.ScenicMapBundle
@@ -19,6 +24,7 @@ import com.example.scenic_avatar_guide_app.domain.model.ScenicMapData
 import com.example.scenic_avatar_guide_app.domain.model.ScenicRoute
 import com.example.scenic_avatar_guide_app.domain.model.ScenicSpot
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -26,13 +32,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
+import kotlin.coroutines.resume
 
 @HiltViewModel
 class MapViewModel @Inject constructor(
     private val mapDataRepository: MapDataRepository,
-    settingsDataStore: SettingsDataStore
+    private val settingsDataStore: SettingsDataStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<UiState<ScenicMapBundle>>(UiState.Loading)
@@ -56,6 +64,18 @@ class MapViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
+     * 高德隐私协议是否已同意（全局持久化）。
+     */
+    val amapPrivacyAgreed: StateFlow<Boolean> = settingsDataStore.amapPrivacyAgreed
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    fun setAmapPrivacyAgreed(agreed: Boolean) {
+        viewModelScope.launch {
+            settingsDataStore.setAmapPrivacyAgreed(agreed)
+        }
+    }
+
+    /**
      * 加载指定景区的地图数据。
      */
     fun loadMap(scenicId: String) {
@@ -65,7 +85,9 @@ class MapViewModel @Inject constructor(
                 mapDataRepository.loadMapBundle(scenicId)
             }
             _uiState.value = if (bundle != null) {
-                _selectedRouteId.value = bundle.mapData.routes.firstOrNull()?.routeId
+                _selectedRouteId.value = null
+                updateScenicCenter(bundle.mapData.centerLat, bundle.mapData.centerLng)
+                clearSearch()
                 UiState.Success(bundle)
             } else {
                 UiState.Error("暂无该景区的地图数据")
@@ -84,7 +106,9 @@ class MapViewModel @Inject constructor(
                 buildRouteBundle(base, routeData)
             }
             _uiState.value = if (bundle != null) {
-                _selectedRouteId.value = bundle.mapData.routes.firstOrNull()?.routeId
+                _selectedRouteId.value = null
+                updateScenicCenter(bundle.mapData.centerLat, bundle.mapData.centerLng)
+                clearSearch()
                 UiState.Success(bundle)
             } else {
                 UiState.Error("路线数据无法显示")
@@ -169,7 +193,9 @@ class MapViewModel @Inject constructor(
         }
         val spotsWithLocation = spots.filter { it.lat != null && it.lng != null }
         val polyline = routeData.polyline?.takeIf { it.isNotEmpty() }
-            ?: spots.map { LatLngPoint(it.lat!!, it.lng!!) }
+            ?: spotsWithLocation.mapNotNull { s ->
+                s.lat?.let { la -> s.lng?.let { lng -> LatLngPoint(la, lng) } }
+            }
 
         val route = ScenicRoute(
             routeId = routeData.routeId ?: routeData.title,
@@ -225,6 +251,102 @@ class MapViewModel @Inject constructor(
         val avgLat = points.map { it.lat }.average()
         val avgLng = points.map { it.lng }.average()
         return avgLat to avgLng
+    }
+
+    // ==================== POI 搜索 ====================
+
+    private val _searchResults = MutableStateFlow<List<MapPoi>>(emptyList())
+    val searchResults: StateFlow<List<MapPoi>> = _searchResults.asStateFlow()
+
+    private val _isSearching = MutableStateFlow(false)
+    val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
+
+    private val _searchError = MutableStateFlow<String?>(null)
+    val searchError: StateFlow<String?> = _searchError.asStateFlow()
+
+    /** 当前景区中心坐标，供搜索周边使用 */
+    private var scenicCenter: LatLng? = null
+
+    /**
+     * 以当前景区中心为圆心做周边 POI 关键字搜索。
+     * @param keyword 关键字，如「卫生间」「餐厅」「出口」
+     */
+    fun searchPois(keyword: String) {
+        val trimmed = keyword.trim()
+        if (trimmed.isEmpty()) {
+            _searchResults.value = emptyList()
+            _searchError.value = null
+            return
+        }
+        val center = scenicCenter ?: run {
+            _searchError.value = "景区坐标未就绪，请稍后再试"
+            return
+        }
+        viewModelScope.launch {
+            _isSearching.value = true
+            _searchError.value = null
+            val results = withContext(Dispatchers.IO) {
+                runCatching { doPoiSearch(trimmed, center) }
+            }
+            _isSearching.value = false
+            results.fold(
+                onSuccess = { pois ->
+                    _searchResults.value = pois
+                    if (pois.isEmpty()) _searchError.value = "未找到相关地点"
+                },
+                onFailure = { _searchError.value = "搜索失败，请检查网络后重试" }
+            )
+        }
+    }
+
+    fun clearSearch() {
+        _searchResults.value = emptyList()
+        _searchError.value = null
+    }
+
+    /**
+     * 记录当前景区中心，供搜索使用。在 loadMap / loadRouteMap 成功后调用。
+     */
+    private fun updateScenicCenter(lat: Double, lng: Double) {
+        scenicCenter = LatLng(lat, lng)
+    }
+
+    private suspend fun doPoiSearch(keyword: String, center: LatLng): List<MapPoi> =
+        suspendCancellableCoroutine { cont ->
+            val query = PoiSearch.Query(keyword, "", "").apply {
+                pageSize = 20
+                pageNum = 0
+            }
+            val search = PoiSearch(null, query).apply {
+                // 周边 3000 米
+                bound = PoiSearch.SearchBound(LatLonPoint(center.latitude, center.longitude), 3000)
+                setOnPoiSearchListener(object : PoiSearch.OnPoiSearchListener {
+                    override fun onPoiSearched(result: PoiResult?, rCode: Int) {
+                        if (cont.isCompleted) return
+                        if (rCode != 1000) {
+                            cont.resume(emptyList())
+                            return
+                        }
+                        val pois = result?.pois?.mapNotNull { it.toMapPoi() } ?: emptyList()
+                        cont.resume(pois)
+                    }
+
+                    override fun onPoiItemSearched(item: PoiItem?, rCode: Int) {}
+                })
+            }
+            cont.invokeOnCancellation { runCatching { search } }
+            search.searchPOIAsyn()
+        }
+
+    private fun PoiItem.toMapPoi(): MapPoi? {
+        val point = latLonPoint ?: return null
+        return MapPoi(
+            poiId = poiId ?: "",
+            name = title ?: "未知地点",
+            address = snippet ?: "",
+            lat = point.latitude,
+            lng = point.longitude
+        )
     }
 
     override fun onCleared() {

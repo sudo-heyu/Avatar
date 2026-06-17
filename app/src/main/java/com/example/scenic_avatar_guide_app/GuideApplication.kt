@@ -2,6 +2,8 @@ package com.example.scenic_avatar_guide_app
 
 import android.app.Application
 import android.util.Log
+import com.amap.api.location.AMapLocationClient
+import com.amap.api.maps.MapsInitializer
 import com.iflytek.sparkchain.core.SparkChain
 import com.iflytek.sparkchain.core.SparkChainConfig
 import dagger.hilt.android.HiltAndroidApp
@@ -22,6 +24,18 @@ class GuideApplication : Application() {
         super.onCreate()
         // 初始化讯飞语音 SDK
         initSparkChain()
+        // 高德隐私合规：在进程启动时声明「应用已展示隐私政策，并包含高德政策」。
+        // 地图 SDK 与定位 SDK 各需调用一次，时机早于任何地图/定位 API 触发网络。
+        initAmapPrivacy()
+    }
+
+    private fun initAmapPrivacy() {
+        try {
+            MapsInitializer.updatePrivacyShow(applicationContext, true, true)
+            AMapLocationClient.updatePrivacyShow(applicationContext, true, true)
+        } catch (e: Exception) {
+            Log.e(TAG, "高德隐私声明初始化异常: ${e.message}", e)
+        }
     }
 
     private fun initSparkChain() {

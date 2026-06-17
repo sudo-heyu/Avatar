@@ -58,6 +58,17 @@ data class ScenicMapBundle(
     val mapData: ScenicMapData
 )
 
+/**
+ * 高德 POI 搜索结果（与 SDK 类型解耦，供 UI 层使用）
+ */
+data class MapPoi(
+    val poiId: String,
+    val name: String,
+    val address: String,
+    val lat: Double,
+    val lng: Double
+)
+
 @Serializable
 data class PublicScenicListResponse(
     val items: List<PublicScenicInfo> = emptyList()
