@@ -3,34 +3,232 @@
     "id": "lingshan",
     "name": "灵山胜境",
     "spots": [
-      {"id": "LS-001", "name": "灵山大照壁", "lat": 31.4092, "lng": 120.0955, "description": "景区入口标志性照壁"},
-      {"id": "LS-002", "name": "五明桥", "lat": 31.4090, "lng": 120.0958, "description": "五座拱桥寓意五明"},
-      {"id": "LS-003", "name": "佛足坛", "lat": 31.4087, "lng": 120.0961, "description": "佛祖足印圣迹"},
-      {"id": "LS-004", "name": "五智门", "lat": 31.4084, "lng": 120.0964, "description": "五座门楼象征五智"},
-      {"id": "LS-005", "name": "菩提大道", "lat": 31.4081, "lng": 120.0967, "description": "通往灵山大佛的主干道"},
-      {"id": "LS-006", "name": "九龙灌浴", "lat": 31.4078, "lng": 120.0970, "description": "大型音乐动态青铜雕塑"},
-      {"id": "LS-007", "name": "降魔浮雕", "lat": 31.4075, "lng": 120.0973, "description": "记述佛陀悟道历程"},
-      {"id": "LS-008", "name": "阿育王柱", "lat": 31.4072, "lng": 120.0976, "description": "国内最高阿育王石柱"},
-      {"id": "LS-009", "name": "百子戏弥勒", "lat": 31.4069, "lng": 120.0979, "description": "百子绕弥勒雕塑"},
-      {"id": "LS-010", "name": "祥符禅寺", "lat": 31.4066, "lng": 120.0982, "description": "千年古刹"},
-      {"id": "LS-011", "name": "灵山大佛", "lat": 31.4063, "lng": 120.0985, "description": "88米青铜立佛"},
-      {"id": "LS-012", "name": "佛教文化博览馆", "lat": 31.4060, "lng": 120.0988, "description": "佛教艺术与文化展示"},
-      {"id": "LS-013", "name": "灵山梵宫", "lat": 31.4057, "lng": 120.0991, "description": "宏伟的佛教建筑艺术殿堂"},
-      {"id": "LS-014", "name": "五印坛城", "lat": 31.4054, "lng": 120.0994, "description": "藏式佛教文化体验区"},
-      {"id": "LS-015", "name": "曼飞龙塔", "lat": 31.4051, "lng": 120.0997, "description": "南传佛教风格塔群"},
-      {"id": "LS-016", "name": "无尽意斋", "lat": 31.4048, "lng": 120.1000, "description": "素斋餐饮服务区"}
+      {
+        "id": "LS-001",
+        "name": "灵山大照壁",
+        "lat": 31.421388,
+        "lng": 120.102499,
+        "description": "景区入口标志性照壁",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-001_灵山大照壁.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-002",
+        "name": "五明桥",
+        "lat": 31.421749,
+        "lng": 120.102248,
+        "description": "五座拱桥寓意五明",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-002_五明桥.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-003",
+        "name": "佛足坛",
+        "lat": 31.422725,
+        "lng": 120.101497,
+        "description": "佛祖足印圣迹",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-011_灵山大佛.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-004",
+        "name": "五智门",
+        "lat": 31.423055,
+        "lng": 120.101292,
+        "description": "五座门楼象征五智",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-004_五智门.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-005",
+        "name": "菩提大道",
+        "lat": 31.423182,
+        "lng": 120.101143,
+        "description": "通往灵山大佛的主干道",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-005_菩提大道.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-006",
+        "name": "九龙灌浴",
+        "lat": 31.424601,
+        "lng": 120.099984,
+        "description": "大型音乐动态青铜雕塑",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-006_九龙灌浴.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-007",
+        "name": "降魔浮雕",
+        "lat": 31.425559,
+        "lng": 120.099569,
+        "description": "记述佛陀悟道历程",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-007_降魔浮雕.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-008",
+        "name": "阿育王柱",
+        "lat": 31.426188,
+        "lng": 120.099261,
+        "description": "国内最高阿育王石柱",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-008_阿育王柱.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-009",
+        "name": "百子戏弥勒",
+        "lat": 31.42719,
+        "lng": 120.098844,
+        "description": "百子绕弥勒雕塑",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-009_百子戏弥勒.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-010",
+        "name": "祥符禅寺",
+        "lat": 31.427949,
+        "lng": 120.098012,
+        "description": "千年古刹",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-010_祥符禅寺.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-011",
+        "name": "灵山大佛",
+        "lat": 31.430194,
+        "lng": 120.096477,
+        "description": "88米青铜立佛",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-011_灵山大佛.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-012",
+        "name": "佛教文化博览馆",
+        "lat": 31.430364,
+        "lng": 120.0964,
+        "description": "佛教艺术与文化展示",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-012_佛教文化博览馆.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-013",
+        "name": "灵山梵宫",
+        "lat": 31.428218,
+        "lng": 120.10242,
+        "description": "宏伟的佛教建筑艺术殿堂",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-013_灵山梵宫.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-014",
+        "name": "五印坛城",
+        "lat": 31.424676,
+        "lng": 120.103054,
+        "description": "藏式佛教文化体验区",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-014_五印坛城.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-015",
+        "name": "曼飞龙塔",
+        "lat": 31.42607,
+        "lng": 120.104609,
+        "description": "南传佛教风格塔群",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-015_曼飞龙塔.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-016",
+        "name": "无尽意斋",
+        "lat": 31.428768,
+        "lng": 120.096987,
+        "description": "素斋餐饮服务区",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-016_无尽意斋.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      }
     ]
   },
   {
     "id": "nianhuawan",
     "name": "拈花湾禅意小镇",
     "spots": [
-      {"id": "NH-001", "name": "拈花广场", "lat": 31.4502, "lng": 120.0755, "description": "小镇核心广场"},
-      {"id": "NH-002", "name": "梵天花海", "lat": 31.4505, "lng": 120.0760, "description": "季节性花海景观"},
-      {"id": "NH-003", "name": "香月花街", "lat": 31.4500, "lng": 120.0758, "description": "禅意主题商业街"},
-      {"id": "NH-004", "name": "拈花堂", "lat": 31.4498, "lng": 120.0762, "description": "文化展示与演出场所"},
-      {"id": "NH-005", "name": "五灯湖", "lat": 31.4495, "lng": 120.0765, "description": "夜间水幕光影秀"},
-      {"id": "NH-006", "name": "鹿鸣谷", "lat": 31.4492, "lng": 120.0768, "description": "禅意山谷自然景观"}
+      {
+        "id": "NH-001",
+        "name": "拈花广场",
+        "lat": 31.417075,
+        "lng": 120.073525,
+        "description": "小镇核心广场",
+        "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-001_拈花广场.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "NH-002",
+        "name": "梵天花海",
+        "lat": 31.415904,
+        "lng": 120.075421,
+        "description": "季节性花海景观",
+        "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-002_梵天花海.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "NH-003",
+        "name": "香月花街",
+        "lat": 31.416822,
+        "lng": 120.073636,
+        "description": "禅意主题商业街",
+        "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-003_香月花街.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "NH-004",
+        "name": "拈花堂",
+        "lat": 31.419622,
+        "lng": 120.077128,
+        "description": "文化展示与演出场所",
+        "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-004_拈花堂.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "NH-005",
+        "name": "五灯湖",
+        "lat": 31.418665,
+        "lng": 120.075312,
+        "description": "夜间水幕光影秀",
+        "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-005_五灯湖.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "NH-006",
+        "name": "鹿鸣谷",
+        "lat": 31.424319,
+        "lng": 120.079449,
+        "description": "禅意山谷自然景观",
+        "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-006_鹿鸣谷.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      }
     ]
   }
 ]

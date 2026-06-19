@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import com.amap.api.location.AMapLocationClient
 import com.amap.api.maps.MapsInitializer
+import com.amap.api.services.core.ServiceSettings
 import com.iflytek.sparkchain.core.SparkChain
 import com.iflytek.sparkchain.core.SparkChainConfig
 import dagger.hilt.android.HiltAndroidApp
@@ -33,6 +34,8 @@ class GuideApplication : Application() {
         try {
             MapsInitializer.updatePrivacyShow(applicationContext, true, true)
             AMapLocationClient.updatePrivacyShow(applicationContext, true, true)
+            // 搜索 SDK（PoiSearch 等）独立声明隐私政策，否则调用 PoiSearch 会崩溃
+            ServiceSettings.updatePrivacyShow(applicationContext, true, true)
         } catch (e: Exception) {
             Log.e(TAG, "高德隐私声明初始化异常: ${e.message}", e)
         }

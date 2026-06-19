@@ -24,7 +24,7 @@ import com.example.scenic_avatar_guide_app.domain.model.ScenicMapData
 import com.example.scenic_avatar_guide_app.domain.model.ScenicRoute
 import com.example.scenic_avatar_guide_app.domain.model.ScenicSpot
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.CancellationException
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -39,6 +39,7 @@ import kotlin.coroutines.resume
 
 @HiltViewModel
 class MapViewModel @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val mapDataRepository: MapDataRepository,
     private val settingsDataStore: SettingsDataStore
 ) : ViewModel() {
@@ -181,14 +182,17 @@ class MapViewModel @Inject constructor(
     ): ScenicMapBundle? {
         if (routeData.spots.isEmpty()) return null
 
+        val baseSpotByName = base?.area?.spots.orEmpty().associateBy { normalizePoiName(it.name) }
         val spots = routeData.spots.mapIndexed { index, spot ->
+            val localSpot = baseSpotByName[normalizePoiName(spot.name)]
             ScenicSpot(
                 id = routeSpotId(routeData, index),
                 name = spot.name,
                 description = spot.description ?: "",
                 sortOrder = spot.order,
                 lat = spot.lat,
-                lng = spot.lng
+                lng = spot.lng,
+                imageUrl = spot.imageUrl ?: localSpot?.imageUrl
             )
         }
         val spotsWithLocation = spots.filter { it.lat != null && it.lng != null }
@@ -225,7 +229,7 @@ class MapViewModel @Inject constructor(
                 mapData = ScenicMapData(
                     centerLat = centerLat,
                     centerLng = centerLng,
-                    defaultZoom = 15f,
+                    defaultZoom = 16.8f,
                     routes = listOf(route)
                 )
             )
@@ -282,6 +286,11 @@ class MapViewModel @Inject constructor(
             _searchError.value = "景区坐标未就绪，请稍后再试"
             return
         }
+        // 搜索 SDK 需隐私同意后才可用
+        if (!amapPrivacyAgreed.value) {
+            _searchError.value = "请先同意地图隐私政策"
+            return
+        }
         viewModelScope.launch {
             _isSearching.value = true
             _searchError.value = null
@@ -317,7 +326,7 @@ class MapViewModel @Inject constructor(
                 pageSize = 20
                 pageNum = 0
             }
-            val search = PoiSearch(null, query).apply {
+            val search = PoiSearch(appContext, query).apply {
                 // 周边 3000 米
                 bound = PoiSearch.SearchBound(LatLonPoint(center.latitude, center.longitude), 3000)
                 setOnPoiSearchListener(object : PoiSearch.OnPoiSearchListener {
@@ -353,4 +362,16 @@ class MapViewModel @Inject constructor(
         super.onCleared()
         stopLocationUpdates()
     }
+
+    private fun normalizePoiName(value: String): String =
+        value
+            .trim()
+            .replace("·", "")
+            .replace("・", "")
+            .replace(" ", "")
+            .replace("　", "")
+            .replace("-", "")
+            .replace("－", "")
+            .replace("景区", "")
+            .replace("景点", "")
 }

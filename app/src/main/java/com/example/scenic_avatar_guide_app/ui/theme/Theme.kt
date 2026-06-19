@@ -31,6 +31,15 @@ val TextPrimary = Color(0xFF1C2328)
 val TextSecondary = Color(0xFF5A6772)
 val TextHint = Color(0xFF9EA8A6)
 
+// 景区入口专用黄绿色系（主色 #8BC34A，独立于全局 Primary/Error）
+val ScenicPrimary = Color(0xFF8BC34A)        // 主黄绿：渐变中段、chip、强调
+val ScenicPrimaryDark = Color(0xFF689F38)    // 深黄绿：icon tint、实色 CTA、渐变顶
+val ScenicPrimaryDarker = Color(0xFF558B2F)  // 更深：浅底上的文字标签
+val ScenicPrimaryDeep = Color(0xFF33691E)    // 最深：HeroCard 暗底、section 标题
+val ScenicPrimaryLight = Color(0xFFC5E1A5)   // 浅：边框、轻强调
+val ScenicPrimaryLighter = Color(0xFFDCEDC8) // 更浅：次级边框/浅底
+val ScenicPrimaryBg = Color(0xFFF1F8E9)      // 极浅：卡片/容器底、渐变底
+
 // 聊天气泡颜色
 val UserBubbleBg = Color(0xFF1D7A6D)
 val UserBubbleText = Color.White

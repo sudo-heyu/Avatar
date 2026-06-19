@@ -1,0 +1,125 @@
+{
+  "scenicId": "lingshan",
+  "scenicName": "灵山胜境",
+  "subtitle": "东方佛国，太湖之滨的佛教文化圣地",
+  "heroImage": {
+    "url": "file:///android_asset/scenic_intro/images/lingshan/LS-011_灵山大佛.jpg",
+    "caption": "灵山大佛"
+  },
+  "highlights": [
+    "国家AAAAA级旅游景区",
+    "88米青铜灵山大佛",
+    "世界佛教论坛永久会址",
+    "汉藏南三大语系佛教建筑汇聚"
+  ],
+  "sections": [
+    {
+      "id": "overview",
+      "layout": "TEXT_IMAGE_RIGHT",
+      "title": "景区概况",
+      "subtitle": "集佛教文化、自然景观、人文体验于一体的综合性景区",
+      "items": [
+        {
+          "type": "PARAGRAPH",
+          "text": "灵山胜境坐落于江苏省无锡市滨湖区马山镇，太湖之滨，被誉为“东方佛国”。景区依托1300多年历史的祥符禅寺，融合汉传、藏传、南传三大语系佛教文化，是世界佛教论坛永久会址。占地约30万平方米，1994年奠基，1997年一期落成，2009年三期完工，集佛教朝圣、艺术展示、动态演艺、文化体验于一体。"
+        },
+        {
+          "type": "IMAGE",
+          "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-013_灵山梵宫.jpg",
+          "imageCaption": "灵山梵宫"
+        }
+      ]
+    },
+    {
+      "id": "wonders",
+      "layout": "HIGHLIGHTS",
+      "title": "灵山三大奇观",
+      "subtitle": "大、奇、特",
+      "items": [
+        { "type": "STATISTIC", "statisticValue": "88米", "statisticLabel": "灵山大佛——世界最高露天青铜释迦牟尼立像" },
+        { "type": "STATISTIC", "statisticValue": "九龙灌浴", "statisticLabel": "动态音乐喷泉再现佛诞祥瑞" },
+        { "type": "STATISTIC", "statisticValue": "72000㎡", "statisticLabel": "灵山梵宫——东方卢浮宫" }
+      ]
+    },
+    {
+      "id": "history",
+      "layout": "TIMELINE",
+      "title": "历史沿革",
+      "subtitle": "从玄奘命名小灵山到三期建成",
+      "items": [
+        {
+          "type": "TIMELINE",
+          "timelineEvents": [
+            { "year": "唐贞观年间", "title": "玄奘命名“小灵山”", "description": "玄奘法师见此山梵天巍峨，命名小灵山，弟子窥基开山建寺。" },
+            { "year": "北宋祥符年间", "title": "赐额“祥符禅寺”", "description": "宋真宗赐额，古刹得名沿用至今。" },
+            { "year": "1994", "title": "工程奠基", "description": "“修复祥符禅寺、建造灵山大佛”工程奠基。" },
+            { "year": "1997.11.15", "title": "大佛落成开光", "description": "88米灵山大佛落成开光。" },
+            { "year": "2003", "title": "九龙灌浴开放", "description": "二期工程九龙灌浴建成开放。" },
+            { "year": "2009.01.01", "title": "梵宫开放", "description": "灵山梵宫正式开放，世界佛教论坛永久会址落成。" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "spots",
+      "layout": "SPOTS_GRID",
+      "title": "核心景点",
+      "subtitle": "十六处景观串联中轴线",
+      "items": [
+        {
+          "type": "SPOTS",
+          "spots": [
+            { "name": "灵山大佛", "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-011_灵山大佛.jpg", "description": "88米青铜立像，五方五佛之东方大佛，登216级台阶抱佛脚。", "tags": ["核心地标", "抱佛脚"] },
+            { "name": "九龙灌浴", "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-006_九龙灌浴.jpg", "description": "大型音乐动态群雕，花开见佛、九龙沐浴，约15分钟。", "tags": ["动态演艺", "15分钟"] },
+            { "name": "灵山梵宫", "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-013_灵山梵宫.jpg", "description": "72000㎡艺术殿堂，东方卢浮宫，《吉祥颂》演出地。", "tags": ["艺术殿堂", "吉祥颂"] },
+            { "name": "五印坛城", "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-014_五印坛城.jpg", "description": "藏传佛教建筑，转经筒祈福，体验藏式文化。", "tags": ["藏传佛教"] },
+            { "name": "祥符禅寺", "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-010_祥符禅寺.jpg", "description": "千年古刹，玄奘命名小灵山之地，江南第一钟。", "tags": ["千年古刹"] },
+            { "name": "曼飞龙塔", "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-015_曼飞龙塔.jpg", "description": "南传傣族佛教风格塔群，园林景观。", "tags": ["南传佛教"] },
+            { "name": "佛教文化博览馆", "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-012_佛教文化博览馆.jpg", "description": "大佛座基内三层，免费定时讲解，万佛殿祈福。", "tags": ["免费讲解"] },
+            { "name": "菩提大道", "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-005_菩提大道.jpg", "description": "印度引进正宗菩提树，中轴线景观主干道。", "tags": ["中轴线"] }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "architecture",
+      "layout": "IMAGE_GALLERY",
+      "title": "佛教三大语系建筑",
+      "subtitle": "汉藏南三系汇聚一园",
+      "items": [
+        { "type": "IMAGE", "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-013_灵山梵宫.jpg", "imageCaption": "汉传佛教——灵山梵宫" },
+        { "type": "IMAGE", "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-014_五印坛城.jpg", "imageCaption": "藏传佛教——五印坛城" },
+        { "type": "IMAGE", "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-015_曼飞龙塔.jpg", "imageCaption": "南传佛教——曼飞龙塔" }
+      ]
+    },
+    {
+      "id": "quote",
+      "layout": "QUOTE",
+      "items": [
+        { "type": "QUOTE", "text": "玄奘见此山梵天巍峨，命名小灵山，千年香火由此而兴。", "imageCaption": "——景区历史渊源" }
+      ]
+    },
+    {
+      "id": "route",
+      "layout": "TEXT_IMAGE_LEFT",
+      "title": "推荐游览路线",
+      "subtitle": "精华游览 3–4 小时",
+      "items": [
+        { "type": "IMAGE", "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-005_菩提大道.jpg", "imageCaption": "菩提大道中轴线" },
+        { "type": "PARAGRAPH", "text": "南门入园 → 灵山大照壁 → 胜境广场 → 佛手广场（天下第一掌）→ 祥符禅寺 → 杏坛广场 → 佛前广场 → 灵山大佛（登顶抱佛脚）→ 灵山梵宫（《吉祥颂》演出）→ 五印坛城 → 出口。建议上午9点前入园避开人流，按当日演出时间合理规划行程。" }
+      ]
+    },
+    {
+      "id": "tips",
+      "layout": "TEXT_ONLY",
+      "title": "游览贴士",
+      "subtitle": "出行前参考",
+      "items": [
+        { "type": "PARAGRAPH", "text": "开放时间：夏季 8:00–17:00，冬季 8:00–16:30，具体以景区公告为准。" },
+        { "type": "PARAGRAPH", "text": "游览时长：精华 3–4 小时，深度 5–6 小时，完整 6–8 小时。" },
+        { "type": "PARAGRAPH", "text": "最佳季节为春秋（3–5月、9–11月）；穿舒适运动鞋，携带防晒、雨具与充电宝。" },
+        { "type": "PARAGRAPH", "text": "餐饮：梵宫素斋自助约 50元/位，灵山蔬食馆素面约 35元/位。咨询电话 400-128-7777。" }
+      ]
+    }
+  ]
+}

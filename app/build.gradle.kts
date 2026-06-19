@@ -7,6 +7,17 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+import java.util.Properties
+import java.io.FileInputStream
+
+// 从 local.properties（不进 git）读取高德 Web 服务 Key，用于静态地图封面。
+// 未配置时为空串，封面降级为占位图。
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) FileInputStream(f).use { load(it) }
+}
+val amapWebKey: String = localProps.getProperty("AMAP_WEB_KEY", "")
+
 android {
     namespace = "com.example.scenic_avatar_guide_app"
     compileSdk = 35
@@ -19,6 +30,9 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // 高德 Web 服务 Key（静态地图 REST API）。空串表示未配置。
+        buildConfigField("String", "AMAP_WEB_KEY", "\"$amapWebKey\"")
 
         // NDK 配置
         ndk {
@@ -50,6 +64,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     // NDK CMake 配置

@@ -1,6 +1,14 @@
 package com.example.scenic_avatar_guide_app.ui.screens.map
 
 import android.Manifest
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.Rect
+import android.graphics.RectF
+import android.graphics.Typeface
 import android.view.MotionEvent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -8,6 +16,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,6 +30,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,15 +47,22 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.amap.api.maps.CameraUpdateFactory
 import com.amap.api.maps.MapView
 import com.amap.api.maps.MapsInitializer
+import com.amap.api.maps.model.BitmapDescriptor
+import com.amap.api.maps.model.BitmapDescriptorFactory
+import com.amap.api.maps.model.CustomMapStyleOptions
 import com.amap.api.maps.model.LatLng
+import com.amap.api.maps.model.Marker
 import com.amap.api.maps.model.MarkerOptions
 import com.amap.api.maps.model.MyLocationStyle
+import com.amap.api.maps.model.PolylineOptions
 import com.amap.api.location.AMapLocationClient
+import com.amap.api.services.core.ServiceSettings
 import com.example.scenic_avatar_guide_app.R
 import com.example.scenic_avatar_guide_app.core.common.UiState
 import com.example.scenic_avatar_guide_app.domain.model.RouteData
 import com.example.scenic_avatar_guide_app.domain.model.MapPoi
 import com.example.scenic_avatar_guide_app.domain.model.ScenicMapBundle
+import com.example.scenic_avatar_guide_app.domain.model.ScenicRoute
 import com.example.scenic_avatar_guide_app.domain.model.ScenicSpot
 import com.example.scenic_avatar_guide_app.ui.theme.*
 
@@ -68,11 +85,23 @@ fun MapPortalScreen(
     val locationPermissionGranted by viewModel.locationPermissionGranted.collectAsStateWithLifecycle()
     val currentScenicId by viewModel.currentScenicId.collectAsStateWithLifecycle()
     val amapPrivacyAgreed by viewModel.amapPrivacyAgreed.collectAsStateWithLifecycle()
+    val selectedRouteId by viewModel.selectedRouteId.collectAsStateWithLifecycle()
 
     // 隐私同意状态：未同意时不初始化 MapView。
     // privacyAgreed 来自 DataStore（全局持久化，同意后不再弹窗）；
     // showPrivacyDialog 控制弹窗显隐，仅在尚未同意时弹出一次。
     var showPrivacyDialog by remember { mutableStateOf(!amapPrivacyAgreed) }
+
+    // 将 SDK 的 agree 状态与持久化状态对齐。已同意用户每次重启进入地图时
+    // 重新声明 agree(true)，避免 SDK 在重启后丢失同意状态（默认未同意）。
+    LaunchedEffect(amapPrivacyAgreed) {
+        runCatching {
+            MapsInitializer.updatePrivacyAgree(context, amapPrivacyAgreed)
+            AMapLocationClient.updatePrivacyAgree(context, amapPrivacyAgreed)
+            // 搜索 SDK 的 agree 必须与地图/定位同步，否则 PoiSearch 仍会崩溃
+            ServiceSettings.updatePrivacyAgree(context, amapPrivacyAgreed)
+        }
+    }
 
     // 是否正在跟踪用户位置（FAB 切换；用户拖图时自动取消）
     var isTrackingUser by remember { mutableStateOf(false) }
@@ -165,6 +194,8 @@ fun MapPortalScreen(
                     if (amapPrivacyAgreed) {
                         MapViewContainer(
                             bundle = bundle,
+                            selectedSpotId = selectedSpotId,
+                            selectedRouteId = selectedRouteId,
                             userLocation = userLocation,
                             isTrackingUser = isTrackingUser,
                             locationPermissionGranted = locationPermissionGranted,
@@ -202,71 +233,56 @@ fun MapPortalScreen(
                         }
                     }
 
-                    // 搜索框：以当前景区中心为圆心做周边 POI 搜索
-                    MapSearchBar(
-                        text = searchText,
-                        isSearching = isSearching,
-                        onTextChange = {
-                            searchText = it
-                            showSearchPanel = it.isNotBlank()
-                        },
-                        onSearch = {
-                            viewModel.searchPois(searchText)
-                            showSearchPanel = true
-                        },
-                        onClear = {
-                            searchText = ""
-                            viewModel.clearSearch()
-                            showSearchPanel = false
-                        },
+                    // 顶部叠加层：搜索框 + (搜索结果面板 / 路线切换栏) 纵向堆叠，
+                    // 避免绝对定位在不同字号/密度下相互重叠
+                    Column(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
-                            .padding(top = 12.dp, start = 12.dp, end = 12.dp)
-                    )
-
-                    // 搜索结果面板
-                    if (showSearchPanel) {
-                        SearchResultsPanel(
-                            results = searchResults,
+                            .fillMaxWidth()
+                            .padding(top = 12.dp, start = 12.dp, end = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        MapSearchBar(
+                            text = searchText,
                             isSearching = isSearching,
-                            error = searchError,
-                            onResultClick = { poi ->
-                                selectedPoi = poi
-                                selectedSpotId = null
+                            onTextChange = {
+                                searchText = it
+                                showSearchPanel = it.isNotBlank()
+                            },
+                            onSearch = {
+                                viewModel.searchPois(searchText)
+                                showSearchPanel = true
+                            },
+                            onClear = {
+                                searchText = ""
+                                viewModel.clearSearch()
                                 showSearchPanel = false
                             },
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = 68.dp, start = 12.dp, end = 12.dp)
-                                .fillMaxWidth()
-                                .heightIn(max = 280.dp)
+                            modifier = Modifier.fillMaxWidth()
                         )
-                    }
-
-                    FloatingActionButton(
-                        onClick = {
-                            if (!isTrackingUser && userLocation == null) {
-                                android.widget.Toast.makeText(
-                                    context,
-                                    context.getString(R.string.map_locating),
-                                    android.widget.Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                            isTrackingUser = !isTrackingUser
-                        },
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 16.dp, bottom = 160.dp),
-                        shape = CircleShape,
-                        containerColor = if (isTrackingUser) Primary else Surface,
-                        contentColor = if (isTrackingUser) androidx.compose.ui.graphics.Color.White else Primary
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MyLocation,
-                            contentDescription = stringResource(
-                                if (isTrackingUser) R.string.map_stop_tracking else R.string.map_locate_me
+                        // 搜索结果面板与路线切换栏互斥，避免同时占位
+                        if (showSearchPanel) {
+                            SearchResultsPanel(
+                                results = searchResults,
+                                isSearching = isSearching,
+                                error = searchError,
+                                onResultClick = { poi ->
+                                    selectedPoi = poi
+                                    selectedSpotId = null
+                                    showSearchPanel = false
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 280.dp)
                             )
-                        )
+                        } else if (bundle.mapData.routes.isNotEmpty()) {
+                            RouteChipsRow(
+                                routes = bundle.mapData.routes,
+                                selectedRouteId = selectedRouteId,
+                                onSelect = { viewModel.selectRoute(it) },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                     }
 
                     // 信息卡：优先显示搜索 POI，其次景点 Marker
@@ -298,17 +314,50 @@ fun MapPortalScreen(
                             infoNav = null
                         }
                     }
-                    if (infoName != null && infoNav != null) {
-                        SpotInfoCard(
-                            name = infoName,
-                            description = infoDesc,
-                            onNavigate = infoNav,
-                            onDismiss = {
-                                selectedPoi = null
-                                selectedSpotId = null
+
+                    // 底部叠加层：定位 FAB + 景点信息卡纵向堆叠，信息卡出现时 FAB 自动上移避免重叠
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth(),
+                        horizontalAlignment = Alignment.End
+                    ) {
+                        FloatingActionButton(
+                            onClick = {
+                                if (!isTrackingUser && userLocation == null) {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        context.getString(R.string.map_locating),
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                                isTrackingUser = !isTrackingUser
                             },
-                            modifier = Modifier.align(Alignment.BottomCenter)
-                        )
+                            modifier = Modifier
+                                .padding(end = 16.dp, bottom = 12.dp),
+                            shape = CircleShape,
+                            containerColor = if (isTrackingUser) Primary else Surface,
+                            contentColor = if (isTrackingUser) androidx.compose.ui.graphics.Color.White else Primary
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MyLocation,
+                                contentDescription = stringResource(
+                                    if (isTrackingUser) R.string.map_stop_tracking else R.string.map_locate_me
+                                )
+                            )
+                        }
+                        if (infoName != null && infoNav != null) {
+                            SpotInfoCard(
+                                name = infoName,
+                                description = infoDesc,
+                                onNavigate = infoNav,
+                                onDismiss = {
+                                    selectedPoi = null
+                                    selectedSpotId = null
+                                },
+                                modifier = Modifier.padding(bottom = 12.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -341,6 +390,8 @@ private fun PrivacyConsentDialog(
 @Composable
 private fun MapViewContainer(
     bundle: ScenicMapBundle,
+    selectedSpotId: String?,
+    selectedRouteId: String?,
     userLocation: LatLng?,
     isTrackingUser: Boolean,
     locationPermissionGranted: Boolean,
@@ -356,6 +407,10 @@ private fun MapViewContainer(
     val context = LocalContext.current
     val mapView = rememberMapViewWithLifecycle()
     val aMap = remember { mapView.map }
+
+    // 单独维护的 POI 搜索结果标记：切换结果时移除上一个，避免叠加堆积
+    val poiMarker = remember { mutableStateOf<Marker?>(null) }
+    val markerIconCache = remember { mutableMapOf<String, SpotMarkerIcon>() }
 
     // 用 rememberUpdatedState 让只注册一次的监听器始终调用最新 lambda
     val currentOnUserDragged by rememberUpdatedState(onUserDragged)
@@ -394,6 +449,8 @@ private fun MapViewContainer(
     LaunchedEffect(aMap) {
         aMap ?: return@LaunchedEffect
         aMap.uiSettings.isMyLocationButtonEnabled = false
+        // 关闭高德内置缩放按钮：默认位于右下角，会与底部信息卡/FAB 叠加，改为手势缩放
+        aMap.uiSettings.isZoomControlsEnabled = false
         aMap.setMyLocationEnabled(true)
         aMap.myLocationStyle = MyLocationStyle().apply {
             // 蓝点持续显示，但不自动居中、不旋转，相机完全由我们控制
@@ -415,20 +472,57 @@ private fun MapViewContainer(
         }
     }
 
-    // Effect B — 绘制 Marker（仅依赖 bundle，不读 userLocation/isTrackingUser，不碰相机）
-    LaunchedEffect(bundle) {
+    // Effect B — 应用自定义样式、绘制景点 Marker 与选中路线折线（依赖 bundle/选中态/路线）
+    LaunchedEffect(bundle, selectedSpotId, selectedRouteId) {
         aMap ?: return@LaunchedEffect
+
+        // 应用景区自定义地图样式（离线 styleJson）
+        bundle.mapData.styleJsonPath?.let { path ->
+            runCatching {
+                val styleData = context.assets.open(path).use { it.readBytes() }
+                val options = CustomMapStyleOptions()
+                    .setEnable(true)
+                    .setStyleData(styleData)
+                aMap.setCustomMapStyle(options)
+            }.onFailure {
+                android.util.Log.w("MapPortal", "加载自定义地图样式失败: $path", it)
+            }
+        } ?: aMap.setCustomMapStyle(CustomMapStyleOptions().setEnable(false))
+
         aMap.clear()
         bundle.spotsWithLocation.forEach { spot ->
             val lat = spot.lat ?: return@forEach
             val lng = spot.lng ?: return@forEach
+            val isSelected = selectedSpotId == spot.id
+            val markerKey = buildMarkerIconCacheKey(context, spot, isSelected)
+            val markerIcon = markerIconCache.getOrPut(markerKey) {
+                createSpotMarkerIcon(context, spot, isSelected)
+            }
             val marker = aMap.addMarker(
                 MarkerOptions()
                     .position(LatLng(lat, lng))
+                    .icon(markerIcon.descriptor)
+                    .anchor(0.5f, markerIcon.anchorY)
                     .title(spot.name)
                     .snippet(spot.description.takeIf { it.isNotBlank() })
             )
             marker.`object` = spot.id
+        }
+
+        // 绘制选中路线折线。必须与 Marker 同一 Effect：aMap.clear() 会清掉所有 overlay，
+        // 若放在单独 Effect，selectedSpotId 变化触发本 Effect 的 clear 会抹掉折线且不重画。
+        val route = bundle.mapData.routes.firstOrNull { it.routeId == selectedRouteId }
+        if (route != null && route.polyline.isNotEmpty()) {
+            val points = route.polyline.map { LatLng(it.lat, it.lng) }
+            val colorInt = runCatching {
+                android.graphics.Color.parseColor(route.color)
+            }.getOrElse { android.graphics.Color.parseColor("#1D7A6D") }
+            aMap.addPolyline(
+                PolylineOptions()
+                    .addAll(points)
+                    .color(colorInt)
+                    .width(10f)
+            )
         }
     }
 
@@ -453,22 +547,279 @@ private fun MapViewContainer(
         onInitialFocusDone()
     }
 
-    // Effect E — 选中 POI 搜索结果：落点 Marker（橙色）+ 移动相机
+    // Effect E — 选中 POI 搜索结果：落点橙色 Marker + 移动相机。单独维护，切换时移除上一个
     LaunchedEffect(selectedPoi) {
         aMap ?: return@LaunchedEffect
+        // 移除上一次的 POI 标记（Effect B 的 clear() 也会清掉它，remove 失效标记用 runCatching 兜底）
+        poiMarker.value?.let { runCatching { it.remove() } }
+        poiMarker.value = null
         val poi = selectedPoi ?: return@LaunchedEffect
-        // 清掉上一次的 POI 标记，避免叠加。用 title 前缀区分景点。
-        // 注意：aMap.clear() 会连景点 Marker 一起清掉，因此不在此处 clear；
-        // POI 标记单独维护较复杂，这里接受 POI 标记叠加（切换结果时旧的仍在，
-        // 但视觉影响小，且景区 Marker 在 bundle 不变时不会重绘）。
-        aMap.addMarker(
+        val marker = aMap.addMarker(
             MarkerOptions()
                 .position(LatLng(poi.lat, poi.lng))
+                .icon(createPoiMarkerDescriptor(context))
+                .anchor(0.5f, 0.5f)
                 .title(poi.name)
                 .snippet(poi.address.takeIf { it.isNotBlank() })
         )
+        poiMarker.value = marker
         aMap.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(poi.lat, poi.lng), FOLLOW_ZOOM))
     }
+}
+
+private data class SpotMarkerIcon(
+    val descriptor: BitmapDescriptor,
+    val anchorY: Float
+)
+
+private fun buildMarkerIconCacheKey(
+    context: android.content.Context,
+    spot: ScenicSpot,
+    isSelected: Boolean
+): String {
+    val metrics = context.resources.displayMetrics
+    val fontScale = context.resources.configuration.fontScale
+    return listOf(
+        spot.id,
+        spot.name,
+        spot.imageUrl.orEmpty(),
+        isSelected.toString(),
+        metrics.density.toString(),
+        fontScale.toString()
+    ).joinToString("|")
+}
+
+/**
+ * 为景点生成参考图样式的图片气泡 Marker：左侧景点图作为 logo，右侧显示景点名。
+ */
+private fun createSpotMarkerIcon(
+    context: android.content.Context,
+    spot: ScenicSpot,
+    isSelected: Boolean
+): SpotMarkerIcon {
+    val density = context.resources.displayMetrics.density
+    val fontScale = context.resources.configuration.fontScale
+
+    val logoSize = (42 * density).toInt()
+    val horizontalPadding = (8 * density).toInt()
+    val verticalPadding = (6 * density).toInt()
+    val textGap = (8 * density).toInt()
+    val bubbleRadius = 12 * density
+    val logoRadius = 8 * density
+    val tailHeight = (10 * density).toInt()
+    val tailHalfWidth = 8 * density
+    val shadowPadding = (3 * density).toInt()
+    val textSize = 14 * density * fontScale
+    val maxTextWidth = 108 * density
+
+    val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        this.textSize = textSize
+        typeface = Typeface.DEFAULT_BOLD
+        color = android.graphics.Color.parseColor("#1C2328")
+        textAlign = Paint.Align.LEFT
+    }
+
+    val textBounds = Rect()
+    val normalizedName = spot.name.trim()
+    val displayName = ellipsizeText(normalizedName, textPaint, maxTextWidth)
+    textPaint.getTextBounds(displayName, 0, displayName.length, textBounds)
+
+    val textWidth = textPaint.measureText(displayName).toInt()
+    val bubbleWidth = (
+        horizontalPadding + logoSize + textGap + textWidth + horizontalPadding
+    ).coerceAtLeast((112 * density).toInt())
+    val bubbleHeight = maxOf(
+        logoSize + verticalPadding * 2,
+        textBounds.height() + verticalPadding * 2
+    )
+    val totalWidth = bubbleWidth + shadowPadding * 2
+    val totalHeight = bubbleHeight + tailHeight + shadowPadding * 2
+
+    val bitmap = Bitmap.createBitmap(totalWidth, totalHeight, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val bubbleLeft = shadowPadding.toFloat()
+    val bubbleTop = shadowPadding.toFloat()
+    val bubbleRight = bubbleLeft + bubbleWidth
+    val bubbleBottom = bubbleTop + bubbleHeight
+    val bubbleRect = RectF(bubbleLeft, bubbleTop, bubbleRight, bubbleBottom)
+    val tailTipX = totalWidth / 2f
+    val tailTipY = bubbleBottom + tailHeight
+    val tailPath = Path().apply {
+        moveTo(tailTipX - tailHalfWidth, bubbleBottom - 1f)
+        lineTo(tailTipX + tailHalfWidth, bubbleBottom - 1f)
+        lineTo(tailTipX, tailTipY)
+        close()
+    }
+
+    // 1. 绘制气泡阴影、背景与底部指针。
+    val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.parseColor("#1D000000")
+        style = Paint.Style.FILL
+    }
+    val shadowTailPath = Path(tailPath)
+    shadowTailPath.offset(1f, 2f)
+    canvas.drawPath(shadowTailPath, shadowPaint)
+    canvas.drawRoundRect(
+        bubbleRect.left + 1f,
+        bubbleRect.top + 2f,
+        bubbleRect.right + 1f,
+        bubbleRect.bottom + 2f,
+        bubbleRadius,
+        bubbleRadius,
+        shadowPaint
+    )
+    val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.parseColor(if (isSelected) "#FFF7E6" else "#FFFFFF")
+        style = Paint.Style.FILL
+    }
+    canvas.drawPath(tailPath, bgPaint)
+    canvas.drawRoundRect(bubbleRect, bubbleRadius, bubbleRadius, bgPaint)
+    val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.parseColor(if (isSelected) "#F2A541" else "#00000000")
+        style = Paint.Style.STROKE
+        strokeWidth = if (isSelected) 2f * density else 0f
+    }
+    if (isSelected) canvas.drawRoundRect(bubbleRect, bubbleRadius, bubbleRadius, borderPaint)
+
+    // 2. 绘制左侧景点图片 logo。
+    val imageLeft = bubbleLeft + horizontalPadding
+    val imageTop = bubbleTop + (bubbleHeight - logoSize) / 2f
+    val imageRect = RectF(imageLeft, imageTop, imageLeft + logoSize, imageTop + logoSize)
+    val imageBitmap = loadMarkerBitmap(context, spot.imageUrl, logoSize)
+    if (imageBitmap != null) {
+        drawRoundedBitmap(canvas, imageBitmap, imageRect, logoRadius)
+    } else {
+        drawFallbackLogo(canvas, imageRect, logoRadius, normalizedName, density)
+    }
+
+    // 3. 绘制景点名称。
+    val textX = imageRect.right + textGap
+    val textY = bubbleTop + bubbleHeight / 2f - (textPaint.descent() + textPaint.ascent()) / 2f
+    canvas.drawText(displayName, textX, textY, textPaint)
+
+    return SpotMarkerIcon(
+        descriptor = BitmapDescriptorFactory.fromBitmap(bitmap),
+        anchorY = (tailTipY / totalHeight).coerceIn(0f, 1f)
+    )
+}
+
+private fun ellipsizeText(text: String, paint: Paint, maxWidth: Float): String {
+    if (paint.measureText(text) <= maxWidth) return text
+    val ellipsis = "…"
+    var end = text.length
+    while (end > 1 && paint.measureText(text.substring(0, end) + ellipsis) > maxWidth) {
+        end--
+    }
+    return text.substring(0, end) + ellipsis
+}
+
+private fun loadMarkerBitmap(
+    context: android.content.Context,
+    imageUrl: String?,
+    targetSize: Int
+): Bitmap? {
+    val assetPath = imageUrl
+        ?.takeIf { it.startsWith("file:///android_asset/") }
+        ?.removePrefix("file:///android_asset/")
+        ?: return null
+
+    return runCatching {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.assets.open(assetPath).use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = markerBitmapSampleSize(bounds.outWidth, bounds.outHeight, targetSize)
+        }
+        context.assets.open(assetPath).use { BitmapFactory.decodeStream(it, null, options) }
+    }.getOrNull()
+}
+
+private fun markerBitmapSampleSize(width: Int, height: Int, targetSize: Int): Int {
+    var sampleSize = 1
+    while (width / (sampleSize * 2) >= targetSize && height / (sampleSize * 2) >= targetSize) {
+        sampleSize *= 2
+    }
+    return sampleSize
+}
+
+private fun drawRoundedBitmap(canvas: Canvas, bitmap: Bitmap, dest: RectF, radius: Float) {
+    val src = centerCropSource(bitmap, dest)
+    val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        isFilterBitmap = true
+        isDither = true
+    }
+    val clip = Path().apply {
+        addRoundRect(dest, radius, radius, Path.Direction.CW)
+    }
+    canvas.save()
+    canvas.clipPath(clip)
+    canvas.drawBitmap(bitmap, src, dest, imagePaint)
+    canvas.restore()
+}
+
+private fun centerCropSource(bitmap: Bitmap, dest: RectF): Rect {
+    val srcAspect = bitmap.width.toFloat() / bitmap.height.toFloat()
+    val destAspect = dest.width() / dest.height()
+    return if (srcAspect > destAspect) {
+        val cropWidth = (bitmap.height * destAspect).toInt().coerceAtMost(bitmap.width)
+        val left = (bitmap.width - cropWidth) / 2
+        Rect(left, 0, left + cropWidth, bitmap.height)
+    } else {
+        val cropHeight = (bitmap.width / destAspect).toInt().coerceAtMost(bitmap.height)
+        val top = (bitmap.height - cropHeight) / 2
+        Rect(0, top, bitmap.width, top + cropHeight)
+    }
+}
+
+private fun drawFallbackLogo(
+    canvas: Canvas,
+    dest: RectF,
+    radius: Float,
+    name: String,
+    density: Float
+) {
+    val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.parseColor("#DCEBE7")
+        style = Paint.Style.FILL
+    }
+    canvas.drawRoundRect(dest, radius, radius, bgPaint)
+    val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.parseColor("#1D7A6D")
+        textSize = 18f * density
+        typeface = Typeface.DEFAULT_BOLD
+        textAlign = Paint.Align.CENTER
+    }
+    val label = name.take(1).ifBlank { "景" }
+    val textY = dest.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f
+    canvas.drawText(label, dest.centerX(), textY, textPaint)
+}
+
+/**
+ * 为 POI 搜索结果生成橙色圆点 Marker（与景点绿色定位针视觉区分）。
+ */
+private fun createPoiMarkerDescriptor(
+    context: android.content.Context
+): com.amap.api.maps.model.BitmapDescriptor {
+    val density = context.resources.displayMetrics.density
+    val size = (22 * density).toInt()
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val cx = size / 2f
+    val cy = size / 2f
+    val radius = size / 2f - (2 * density)
+    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.parseColor("#F2A541")
+        style = Paint.Style.FILL
+    }
+    canvas.drawCircle(cx, cy, radius, fill)
+    val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 3f * density
+    }
+    canvas.drawCircle(cx, cy, radius, stroke)
+    return BitmapDescriptorFactory.fromBitmap(bitmap)
 }
 
 /**
@@ -529,12 +880,12 @@ private fun SpotInfoCard(
         color = Surface,
         shadowElevation = 8.dp
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = name,
                     modifier = Modifier.weight(1f),
-                    fontSize = 17.sp,
+                    fontSize = 16.sp,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                     color = TextPrimary,
                     maxLines = 1,
@@ -553,8 +904,8 @@ private fun SpotInfoCard(
                 Text(
                     text = description,
                     modifier = Modifier.padding(top = 4.dp),
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
                     color = TextSecondary,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis
@@ -574,7 +925,7 @@ private fun SpotInfoCard(
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(Modifier.width(6.dp))
-                Text(stringResource(R.string.map_marker_navigate), fontSize = 15.sp)
+                Text(stringResource(R.string.map_marker_navigate), fontSize = 14.sp)
             }
         }
     }
@@ -738,6 +1089,68 @@ private fun SearchResultsPanel(
             }
         }
     }
+}
+
+@Composable
+private fun RouteChipsRow(
+    routes: List<ScenicRoute>,
+    selectedRouteId: String?,
+    onSelect: (String?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyRow(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        item {
+            RouteChip(
+                label = "全部景点",
+                colorHex = "#1D7A6D",
+                selected = selectedRouteId == null,
+                onClick = { onSelect(null) }
+            )
+        }
+        items(routes, key = { it.routeId }) { route ->
+            RouteChip(
+                label = route.name,
+                colorHex = route.color,
+                selected = selectedRouteId == route.routeId,
+                onClick = { onSelect(route.routeId) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun RouteChip(
+    label: String,
+    colorHex: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val containerColor = remember(colorHex) {
+        runCatching { android.graphics.Color.parseColor(colorHex) }
+            .getOrDefault(0xFF1D7A6D.toInt())
+    }
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label, fontSize = 13.sp) },
+        leadingIcon = if (selected) {
+            {
+                Icon(
+                    imageVector = Icons.Default.LocationOn,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+        } else null,
+        colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = Color(containerColor),
+            selectedLabelColor = Color.White,
+            selectedLeadingIconColor = Color.White
+        )
+    )
 }
 
 @Composable

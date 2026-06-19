@@ -1,0 +1,98 @@
+{
+  "scenicId": "nianhua",
+  "scenicName": "禅意小镇·拈花湾",
+  "subtitle": "东方禅意生活乐土，唐风宋韵的心灵度假花园",
+  "heroImage": {
+    "url": "file:///android_asset/scenic_intro/images/nianhua/NH-hero.jpg",
+    "caption": "拈花湾水岸街区"
+  },
+  "highlights": [
+    "国家AAAAA级景区",
+    "唐风宋韵禅意小镇",
+    "《禅行》沉浸式夜游",
+    "五瓣莲花布局"
+  ],
+  "sections": [
+    {
+      "id": "overview",
+      "layout": "TEXT_ONLY",
+      "title": "景区概况",
+      "subtitle": "以禅文化为核心的休闲度假小镇",
+      "items": [
+        { "type": "PARAGRAPH", "text": "拈花湾以“禅”为主题，是灵山集团继梵宫之后的精品力作，2015年正式开园。景区依托太湖山水，融合唐风建筑与禅修文化，集休闲度假、娱乐体验于一体，被誉为“东方禅意生活乐土”，核心区域约1平方公里。" },
+        { "type": "PARAGRAPH", "text": "建筑风格为唐风宋韵——白墙黛瓦、飞檐斗拱、原木梁柱，融入水系小桥流水，整体与日本奈良相似，却源于中国唐风。" },
+        { "type": "PARAGRAPH", "text": "景区传达简单、快乐、健康的生活方式——“好好生活”，好好吃饭、好好睡觉，是一处可慢游、可夜游、可度假的心灵花园。" }
+      ]
+    },
+    {
+      "id": "overview_image",
+      "layout": "IMAGE_FULL",
+      "items": [
+        { "type": "IMAGE", "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-hero.jpg", "imageCaption": "拈花湾湖岸景观" }
+      ]
+    },
+    {
+      "id": "layout_zones",
+      "layout": "HIGHLIGHTS",
+      "title": "五瓣莲花布局",
+      "subtitle": "五大谷区环绕香月花街",
+      "items": [
+        { "type": "STATISTIC", "statisticValue": "云门谷", "statisticLabel": "入口服务区" },
+        { "type": "STATISTIC", "statisticValue": "竹溪谷", "statisticLabel": "休闲区" },
+        { "type": "STATISTIC", "statisticValue": "银杏谷", "statisticLabel": "住宿区" },
+        { "type": "STATISTIC", "statisticValue": "禅心谷", "statisticLabel": "文化体验区" },
+        { "type": "STATISTIC", "statisticValue": "鹿鸣谷", "statisticLabel": "自然生态区" }
+      ]
+    },
+    {
+      "id": "spots",
+      "layout": "SPOTS_GRID",
+      "title": "主要景点",
+      "subtitle": "一街一堂与日夜演艺",
+      "items": [
+        {
+          "type": "SPOTS",
+          "spots": [
+            { "name": "拈花广场", "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-001_拈花广场.jpg", "description": "“拈花微笑”主题雕塑，12米高，入园第一景。", "tags": ["入口"] },
+            { "name": "香月花街", "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-003_香月花街.jpg", "description": "800米禅意商业街，禅意商铺聚集，小镇核心。", "tags": ["核心街区"] },
+            { "name": "拈花塔", "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-007_拈花塔.jpg", "description": "亮塔仪式核心，夜间灯光秀地标。", "tags": ["夜游地标"] },
+            { "name": "五灯湖", "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-005_五灯湖.jpg", "description": "“花开五叶”水秀表演，夜间核心观赏点。", "tags": ["夜游演艺"] },
+            { "name": "妙音台", "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-008_妙音台.jpg", "description": "传统戏曲与禅意文化结合的演艺空间。", "tags": ["日间演艺"] },
+            { "name": "拈花堂", "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-004_拈花堂.jpg", "description": "禅坐、抄经、禅茶体验场所。", "tags": ["禅修体验"] },
+            { "name": "梵天花海", "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-002_梵天花海.jpg", "description": "生态赏花景观，四季花田。", "tags": ["自然景观"] },
+            { "name": "鹿鸣谷", "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-006_鹿鸣谷.jpg", "description": "自然生态休闲区，山林幽谷。", "tags": ["自然景观"] }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "night_show",
+      "layout": "TIMELINE",
+      "title": "《禅行》夜游四篇章",
+      "subtitle": "行进式沉浸夜游",
+      "items": [
+        {
+          "type": "TIMELINE",
+          "timelineEvents": [
+            { "year": "18:00–20:50", "title": "一苇渡江", "description": "水域水幕舞蹈，流水之上流光溢彩，每20分钟一场。" },
+            { "year": "18:30–20:50", "title": "亮塔仪式", "description": "拈花塔逐层亮起，灯光+舞蹈+撒花，每30分钟一场。" },
+            { "year": "18:45–20:45", "title": "花开五叶", "description": "五灯湖水秀+舞蹈，源自“一花开五叶”，每30分钟一场。" },
+            { "year": "19:30 / 20:30", "title": "拈花一笑", "description": "微笑广场18米动态雕塑+无人机+演员，每日两场。" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tips",
+      "layout": "TEXT_ONLY",
+      "title": "游览贴士",
+      "subtitle": "出行前参考",
+      "items": [
+        { "type": "PARAGRAPH", "text": "开放时间：夏令 09:00–21:00（周五六至21:30），冬令 09:00–20:30（周五六至21:00）；南入口24小时可检票。" },
+        { "type": "PARAGRAPH", "text": "建议下午3点后入园兼顾日景与夜景；必看拈花塔亮塔仪式与《禅行》灯光秀。" },
+        { "type": "PARAGRAPH", "text": "住宿：27家拈花客栈与波罗蜜多五星级酒店，住景区内可无限次进出。" },
+        { "type": "PARAGRAPH", "text": "手作体验（香囊/陶艺/木刻约50元、漆扇68–98元）可提前小程序预约。咨询电话 400-128-7777。" }
+      ]
+    }
+  ]
+}

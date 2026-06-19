@@ -19,7 +19,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -52,10 +52,6 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -84,7 +80,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
 import coil.compose.SubcomposeAsyncImage
+import coil.compose.rememberAsyncImagePainter
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.ClipboardManager
@@ -101,7 +99,7 @@ import com.example.scenic_avatar_guide_app.ui.components.scenicintro.ScenicSelec
 import com.example.scenic_avatar_guide_app.domain.model.ChatMessage
 import com.example.scenic_avatar_guide_app.domain.model.ChatImageInfo
 import com.example.scenic_avatar_guide_app.domain.model.RouteData
-import com.example.scenic_avatar_guide_app.domain.model.LatLngPoint
+import com.example.scenic_avatar_guide_app.domain.model.MapCover
 import com.example.scenic_avatar_guide_app.domain.model.AvatarState
 import com.example.scenic_avatar_guide_app.core.speech.SpeechRecognizerHelper
 import com.example.scenic_avatar_guide_app.core.avatar.TestAvatarActions
@@ -454,7 +452,8 @@ fun MainScreen(
                             onFeedbackClick = { messageId -> viewModel.showFeedbackDialog(messageId) },
                             onRouteCardClick = { routeData -> mapRouteData = routeData },
                             currentAssistantMessageId = currentAssistantMessageId,
-                            typewriterFinishedIds = typewriterFinishedIds
+                            typewriterFinishedIds = typewriterFinishedIds,
+                            resolveMapCover = viewModel::resolveMapCover
                         )
 
                         // 滚动到底部按钮：当用户上滑查看历史时显示
@@ -1172,23 +1171,24 @@ private fun ScenicFeatureEntryItem(
     modifier: Modifier = Modifier
 ) {
     Surface(
+        onClick = onClick,
         modifier = modifier
-            .height(52.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick),
-        color = Color(0xFFE8F5F0)
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 52.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = ScenicPrimaryBg,
+        border = BorderStroke(1.dp, ScenicPrimaryLight)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .border(1.dp, Color(0xFF8BC4BC), RoundedCornerShape(12.dp))
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
                 modifier = Modifier.size(32.dp),
                 shape = RoundedCornerShape(9.dp),
-                color = Primary
+                color = ScenicPrimaryDark
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
@@ -1204,10 +1204,9 @@ private fun ScenicFeatureEntryItem(
                 text = tab.title,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = Primary,
+                color = ScenicPrimaryDarker,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Start
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -1219,7 +1218,6 @@ private enum class ScenicIntroTab(
     val placeholder: String
 ) {
     Intro("景区介绍", R.drawable.ic_jingqu, "景区介绍内容待接入"),
-    Stories("历史故事", R.drawable.ic_gushi, "历史故事内容待接入"),
     Reservation("场馆预约", R.drawable.ic_changguan, "预约服务内容待接入"),
     Map("景区地图", R.drawable.ic_map, "景区地图")
 }
@@ -1240,7 +1238,7 @@ private fun ScenicIntroPortalScreen(
 
     Scaffold(
         modifier = modifier,
-        containerColor = Color(0xFFFFF8F5),
+        containerColor = ScenicPrimaryBg,
         contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp)
     ) { paddingValues ->
         Column(
@@ -1249,9 +1247,9 @@ private fun ScenicIntroPortalScreen(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color(0xFFB91C1C),
-                            Color(0xFFE5483B),
-                            Color(0xFFFFF8F5)
+                            ScenicPrimaryDark,
+                            ScenicPrimary,
+                            ScenicPrimaryBg
                         )
                     )
                 )
@@ -1304,7 +1302,7 @@ private fun ScenicIntroPortalScreen(
                     .fillMaxWidth()
                     .weight(1f),
                 shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-                color = Color(0xFFFFFBFA)
+                color = ScenicPrimaryBg
             ) {
                 val selectedScenicName = indexItems.find { it.scenicId == selectedScenicId }?.name ?: "当前景区"
                 when (tab) {
@@ -1313,12 +1311,6 @@ private fun ScenicIntroPortalScreen(
                             modifier = Modifier.fillMaxSize(),
                             viewModel = scenicIntroViewModel,
                             showScenicSelector = false
-                        )
-                    }
-                    ScenicIntroTab.Stories -> {
-                        ScenicStoryScreen(
-                            scenicId = selectedScenicId,
-                            scenicName = selectedScenicName
                         )
                     }
                     ScenicIntroTab.Reservation -> {
@@ -1333,91 +1325,6 @@ private fun ScenicIntroPortalScreen(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun ScenicIntroPlaceholder(tab: ScenicIntroTab) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 28.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Surface(
-            modifier = Modifier.size(72.dp),
-            shape = RoundedCornerShape(22.dp),
-            color = Color(0xFFFFEFEC)
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    painter = painterResource(id = tab.iconRes),
-                    contentDescription = null,
-                    modifier = Modifier.size(40.dp),
-                    tint = Color(0xFFC72C2C)
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(18.dp))
-        Text(
-            text = tab.title,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Color(0xFF5C1515)
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = tab.placeholder,
-            fontSize = 14.sp,
-            color = Color(0xFF9B5A55),
-            textAlign = TextAlign.Center
-        )
-    }
-}
-
-@Composable
-private fun ScenicStoryScreen(
-    scenicId: String,
-    scenicName: String
-) {
-    val content = remember(scenicId) { scenicStoryContent(scenicId) }
-    if (content == null) {
-        ScenicPortalEmptyState(
-            title = scenicName,
-            message = "历史故事内容正在整理中"
-        )
-        return
-    }
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            ScenicPortalHeroCard(
-                title = content.title,
-                subtitle = content.subtitle,
-                imageUrl = content.heroImage,
-                badges = content.badges
-            )
-        }
-        item {
-            ScenicStoryFactRow(facts = content.facts)
-        }
-        items(content.storyCards) { card ->
-            ScenicStoryCard(card = card)
-        }
-        item {
-            ScenicTimelineCard(events = content.timeline)
-        }
-        item {
-            ScenicImageStrip(
-                title = "图像线索",
-                images = content.gallery
-            )
         }
     }
 }
@@ -1491,7 +1398,7 @@ private fun ScenicPortalHeroCard(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 16.dp),
         shape = RoundedCornerShape(26.dp),
-        color = Color(0xFF2B0D0D),
+        color = ScenicPrimaryDeep,
         shadowElevation = 8.dp
     ) {
         Box(modifier = Modifier.height(240.dp)) {
@@ -1508,8 +1415,8 @@ private fun ScenicPortalHeroCard(
                         Brush.verticalGradient(
                             listOf(
                                 Color.Transparent,
-                                Color(0xFF2B0D0D).copy(alpha = 0.2f),
-                                Color(0xFF2B0D0D).copy(alpha = 0.88f)
+                                ScenicPrimaryDeep.copy(alpha = 0.2f),
+                                ScenicPrimaryDeep.copy(alpha = 0.88f)
                             )
                         )
                     )
@@ -1559,219 +1466,6 @@ private fun ScenicPortalHeroCard(
 }
 
 @Composable
-private fun ScenicStoryFactRow(facts: List<ScenicFact>) {
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        items(facts) { fact ->
-            Surface(
-                modifier = Modifier
-                    .width(154.dp)
-                    .height(90.dp),
-                shape = RoundedCornerShape(18.dp),
-                color = Color(0xFFFFF3EE),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFD8CE))
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = fact.value,
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFB91C1C),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = fact.label,
-                        modifier = Modifier.padding(top = 5.dp),
-                        fontSize = 12.sp,
-                        lineHeight = 16.sp,
-                        color = Color(0xFF7C4B43)
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ScenicStoryCard(card: ScenicStoryCardData) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        shape = RoundedCornerShape(22.dp),
-        color = Color.White,
-        shadowElevation = 3.dp,
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFE2DC))
-    ) {
-        Column {
-            card.imageUrl?.let { image ->
-                AsyncImage(
-                    model = image,
-                    contentDescription = card.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(168.dp)
-                        .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
-                )
-            }
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = card.label,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFFE5483B)
-                )
-                Text(
-                    text = card.title,
-                    modifier = Modifier.padding(top = 5.dp),
-                    fontSize = 19.sp,
-                    lineHeight = 25.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF2A181A)
-                )
-                Text(
-                    text = card.body,
-                    modifier = Modifier.padding(top = 9.dp),
-                    fontSize = 14.sp,
-                    lineHeight = 23.sp,
-                    color = Color(0xFF5F4641)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ScenicTimelineCard(events: List<ScenicTimelineEventData>) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        shape = RoundedCornerShape(22.dp),
-        color = Color(0xFFFFFBFA),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFD8CE)),
-        shadowElevation = 2.dp
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = "历史脉络",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF5C1515)
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            events.forEachIndexed { index, event ->
-                Row(verticalAlignment = Alignment.Top) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(
-                            modifier = Modifier
-                                .size(12.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFFE5483B))
-                        )
-                        if (index < events.lastIndex) {
-                            Box(
-                                modifier = Modifier
-                                    .width(2.dp)
-                                    .height(70.dp)
-                                    .background(Color(0xFFFFC9BF))
-                            )
-                        }
-                    }
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(start = 12.dp, bottom = 14.dp)
-                    ) {
-                        Text(
-                            text = event.time,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFB91C1C)
-                        )
-                        Text(
-                            text = event.title,
-                            modifier = Modifier.padding(top = 3.dp),
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF2A181A)
-                        )
-                        Text(
-                            text = event.description,
-                            modifier = Modifier.padding(top = 5.dp),
-                            fontSize = 13.sp,
-                            lineHeight = 19.sp,
-                            color = Color(0xFF6F5C56)
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ScenicImageStrip(
-    title: String,
-    images: List<ScenicGalleryImage>
-) {
-    Column {
-        Text(
-            text = title,
-            modifier = Modifier.padding(start = 20.dp, bottom = 8.dp),
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFF5C1515)
-        )
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(images) { image ->
-                Surface(
-                    modifier = Modifier
-                        .width(224.dp)
-                        .height(178.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    color = Color.White,
-                    shadowElevation = 3.dp,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFE2DC))
-                ) {
-                    Column {
-                        AsyncImage(
-                            model = image.imageUrl,
-                            contentDescription = image.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(118.dp)
-                                .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
-                        )
-                        Text(
-                            text = image.title,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                            fontSize = 13.sp,
-                            lineHeight = 18.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF4C2A27),
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun ScenicReservationSummary(content: ScenicReservationContent) {
     Row(
         modifier = Modifier.padding(horizontal = 16.dp),
@@ -1802,8 +1496,8 @@ private fun ScenicMiniInfoCard(
     Surface(
         modifier = modifier.height(112.dp),
         shape = RoundedCornerShape(18.dp),
-        color = Color(0xFFFFF3EE),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFD8CE))
+        color = ScenicPrimaryBg,
+        border = androidx.compose.foundation.BorderStroke(1.dp, ScenicPrimaryLighter)
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -1812,14 +1506,14 @@ private fun ScenicMiniInfoCard(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = Color(0xFFB91C1C),
+                tint = ScenicPrimaryDark,
                 modifier = Modifier.size(24.dp)
             )
             Column {
                 Text(
                     text = title,
                     fontSize = 12.sp,
-                    color = Color(0xFF9B5A55)
+                    color = ScenicPrimaryDarker
                 )
                 Text(
                     text = value,
@@ -1827,7 +1521,7 @@ private fun ScenicMiniInfoCard(
                     fontSize = 15.sp,
                     lineHeight = 20.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF5C1515),
+                    color = ScenicPrimaryDeep,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -1850,7 +1544,7 @@ private fun ScenicInfoCard(
         shape = RoundedCornerShape(22.dp),
         color = Color.White,
         shadowElevation = 3.dp,
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFE2DC))
+        border = androidx.compose.foundation.BorderStroke(1.dp, ScenicPrimaryLighter)
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -1859,13 +1553,13 @@ private fun ScenicInfoCard(
             Surface(
                 modifier = Modifier.size(44.dp),
                 shape = RoundedCornerShape(14.dp),
-                color = Color(0xFFFFEFEC)
+                color = ScenicPrimaryBg
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
-                        tint = Color(0xFFB91C1C),
+                        tint = ScenicPrimaryDark,
                         modifier = Modifier.size(24.dp)
                     )
                 }
@@ -1879,21 +1573,21 @@ private fun ScenicInfoCard(
                     text = label,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFFE5483B)
+                    color = ScenicPrimary
                 )
                 Text(
                     text = title,
                     modifier = Modifier.padding(top = 4.dp),
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF2A181A)
+                    color = TextPrimary
                 )
                 Text(
                     text = body,
                     modifier = Modifier.padding(top = 7.dp),
                     fontSize = 14.sp,
                     lineHeight = 22.sp,
-                    color = Color(0xFF5F4641)
+                    color = TextSecondary
                 )
             }
         }
@@ -1907,7 +1601,7 @@ private fun ScenicReservationSteps(steps: List<String>) {
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
         shape = RoundedCornerShape(22.dp),
-        color = Color(0xFFB91C1C),
+        color = ScenicPrimaryDark,
         shadowElevation = 5.dp
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -1988,14 +1682,14 @@ private fun ScenicPortalEmptyState(
         Surface(
             modifier = Modifier.size(72.dp),
             shape = RoundedCornerShape(22.dp),
-            color = Color(0xFFFFEFEC)
+            color = ScenicPrimaryBg
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = Icons.Default.Info,
                     contentDescription = null,
                     modifier = Modifier.size(38.dp),
-                    tint = Color(0xFFC72C2C)
+                    tint = ScenicPrimaryDark
                 )
             }
         }
@@ -2004,52 +1698,18 @@ private fun ScenicPortalEmptyState(
             text = title,
             fontSize = 22.sp,
             fontWeight = FontWeight.SemiBold,
-            color = Color(0xFF5C1515),
+            color = ScenicPrimaryDeep,
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = message,
             fontSize = 14.sp,
-            color = Color(0xFF9B5A55),
+            color = ScenicPrimaryDarker,
             textAlign = TextAlign.Center
         )
     }
 }
-
-private data class ScenicStoryContent(
-    val title: String,
-    val subtitle: String,
-    val heroImage: String,
-    val badges: List<String>,
-    val facts: List<ScenicFact>,
-    val storyCards: List<ScenicStoryCardData>,
-    val timeline: List<ScenicTimelineEventData>,
-    val gallery: List<ScenicGalleryImage>
-)
-
-private data class ScenicFact(
-    val value: String,
-    val label: String
-)
-
-private data class ScenicStoryCardData(
-    val label: String,
-    val title: String,
-    val body: String,
-    val imageUrl: String? = null
-)
-
-private data class ScenicTimelineEventData(
-    val time: String,
-    val title: String,
-    val description: String
-)
-
-private data class ScenicGalleryImage(
-    val imageUrl: String,
-    val title: String
-)
 
 private data class ScenicReservationContent(
     val title: String,
@@ -2070,170 +1730,75 @@ private data class ScenicInfoBlock(
     val body: String
 )
 
-private fun scenicStoryContent(scenicId: String): ScenicStoryContent? {
-    val xinhaiBase = "file:///android_asset/scenic_intro/images/xinhai/immersive/"
-    val baqiBase = "file:///android_asset/scenic_intro/images/baqi/"
-    return when (scenicId) {
-        "1911museum" -> ScenicStoryContent(
-            title = "辛亥革命真实故事",
-            subtitle = "从宝善里意外爆炸到武昌城头枪响，读几个改变起义进程的现场故事。",
-            heroImage = xinhaiBase + "wuchang_uprising_scene.png",
-            badges = listOf("真实事件", "武昌首义"),
-            facts = listOf(
-                ScenicFact("1911", "辛亥年革命爆发"),
-                ScenicFact("10月9日", "宝善里机关意外暴露"),
-                ScenicFact("10月10日", "工程营发难、武昌城响应")
-            ),
-            storyCards = listOf(
-                ScenicStoryCardData(
-                    label = "起义前夜",
-                    title = "宝善里爆炸：计划被迫提前",
-                    body = "1911年10月9日，汉口俄租界宝善里机关里，孙武等革命党人正在为起义准备炸药、文告和旗帜。配制炸药时意外爆炸，孙武面部和手部受伤，被同伴紧急送往医院。爆炸声惊动俄租界巡捕，巡捕进入机关后搜出革命旗帜、起义文告、袖章、印信和革命党人名册。\n\n这些材料很快落到清方手中，原本隐蔽在新军中的革命网络突然暴露。湖广总督瑞澂下令戒严搜捕，武汉三镇气氛骤然紧张。起义本来还在筹划和等待时机，但名册已经暴露，许多革命党人随时可能被捕。正是这场意外，把“准备起义”推成了“必须立刻行动”。",
-                    imageUrl = xinhaiBase + "revolution_origin.png"
-                ),
-                ScenicStoryCardData(
-                    label = "黎明之前",
-                    title = "彭刘杨三烈士：牺牲在起义爆发前",
-                    body = "宝善里机关暴露后，清方按名册和线索搜捕革命党人，彭楚藩、刘复基、杨洪胜相继被捕。三人都是武昌起义筹备中的重要人物：有人负责军务联络，有人参与政治和组织筹备，有人在新军中推动革命力量。他们被捕时，起义尚未真正发动，武昌城仍笼罩在搜捕和恐惧之中。\n\n10月9日晚，三人在刑讯中没有屈服。据报道，他们痛斥时政、慷慨不屈。10月10日凌晨，三人在湖广总督署东辕门外遇害。白天，武昌城看似仍被清方控制；到了夜里，枪声从新军工程营响起。彭刘杨三烈士没有看到起义爆发，却成为首义前夜最沉重的一笔。",
-                    imageUrl = xinhaiBase + "memorial_wall.png"
-                ),
-                ScenicStoryCardData(
-                    label = "第一枪后",
-                    title = "工程营奔向楚望台军械库",
-                    body = "10月10日晚，武昌城南的新军第八镇工程营里，紧张已经压到极点。名册暴露后，革命党人知道再等下去只会被逐个搜捕。熊秉坤等人在营中集合队伍，枪声响起后，工程营士兵冲出营房，目标直指楚望台军械库。这里储有大量枪械弹药，谁先控制军械库，谁就能把零散的起义变成真正的武装行动。\n\n工程营占领楚望台后，起义军获得武器，形势迅速变化。城内外新军听到枪声后相继响应，原本分散在各营的革命力量开始汇合。起义军推举吴兆麟为临时总指挥，战斗向湖广总督署、湖北藩署等清方要害推进。武昌起义不是一声枪响就自然成功，而是在夺取武器、组织响应、攻打要害的一连串行动中完成了突破。",
-                    imageUrl = xinhaiBase + "uprising_sculpture.png"
-                ),
-                ScenicStoryCardData(
-                    label = "城门打开",
-                    title = "中和门成为“首义胜利的开端”",
-                    body = "工程八营发难后，起义军并不只是在城内作战，还必须让城外力量进入武昌。按计划，他们占领中和门，打开城门，迎接驻城外的南湖炮队、马队入城。这个动作极为关键：如果城门不能打开，城外队伍无法及时支援，城内起义军就可能陷入孤立。\n\n炮队入城后，在蛇山等制高点布炮，支援攻打湖广总督署。炮火和各营响应让清方防线迅速动摇，次日凌晨起义军占领武昌全城。中和门后来改名为起义门，被称为“首义胜利的开端”。它的意义不只是一个城门名称，而是那一夜城内外革命力量真正连接起来的节点。",
-                    imageUrl = xinhaiBase + "zhonghe_gate.png"
-                )
-            ),
-            timeline = listOf(
-                ScenicTimelineEventData("1911.10.09", "宝善里机关暴露", "爆炸牵出名册、文告和旗帜，武汉三镇搜捕骤紧。"),
-                ScenicTimelineEventData("1911.10.10 凌晨", "彭刘杨就义", "三位起义骨干在湖广总督署东辕门外遇害。"),
-                ScenicTimelineEventData("1911.10.10 晚", "工程营发难", "熊秉坤等率队奔占楚望台军械库，武昌起义爆发。"),
-                ScenicTimelineEventData("1911.10.11 凌晨", "武昌光复", "起义军攻克湖广总督署和湖北藩署，武昌城局势改变。")
-            ),
-            gallery = listOf(
-                ScenicGalleryImage(xinhaiBase + "sun_yatsen_portrait.png", "孙中山与革命理想"),
-                ScenicGalleryImage(xinhaiBase + "revolution_origin.png", "革命源起"),
-                ScenicGalleryImage(xinhaiBase + "found_republic.png", "创建中华民国"),
-                ScenicGalleryImage(xinhaiBase + "centenary.png", "辛亥百年纪念")
-            )
-        )
-        "site_of_the_august_7th_conference" -> ScenicStoryContent(
-            title = "八七会议真实故事",
-            subtitle = "不是泛讲会议意义，而是回到鄱阳街二楼那一天，看会议如何在秘密、炎热和白色恐怖中完成。",
-            heroImage = baqiBase + "meeting_painting.jpg",
-            badges = listOf("真实事件", "1927"),
-            facts = listOf(
-                ScenicFact("1927.8.7", "八七会议在汉口召开"),
-                ScenicFact("21人", "出席代表人数"),
-                ScenicFact("56次", "一天会议中的发言记录")
-            ),
-            storyCards = listOf(
-                ScenicStoryCardData(
-                    label = "秘密会场",
-                    title = "二楼小房间里，门窗紧闭开了一整天",
-                    body = "1927年8月7日，参加中央紧急会议的代表们分批来到汉口鄱阳街一栋三层西式建筑。会议地点设在二楼一个二十多平方米的小房间里，桌椅并不宽裕，却要容纳来自不同岗位的代表讨论党和革命的出路。此时大革命失败不久，白色恐怖笼罩武汉，公开身份的共产党员和革命群众随时可能遭到搜捕。\n\n为了安全，会场门窗紧闭。那是武汉盛夏，室内闷热，但会议不能随意开窗，也不能频繁出入。中午，代表们只吃干粮、喝白开水，然后继续开会。这个故事真正打动人的地方，不是“开了一次会”这样简单，而是在敌人眼皮底下，一群人把一天时间压缩成决定生死方向的讨论。",
-                    imageUrl = baqiBase + "second_floor.jpg"
-                ),
-                ScenicStoryCardData(
-                    label = "会务安全",
-                    title = "邓小平第一个到会场，最后一个离开",
-                    body = "八七会议召开时，邓小平任中共中央秘书，承担了大量不显眼却极其关键的会务工作。他第一个来到开会地点，负责接待代表、安排食宿、维持联络和安全。代表们不能集中公开抵达，有的需要由交通员带入，有的需要变换身份和路线，任何一个环节出错，都可能让会议暴露。\n\n会议本身只开了一天，但邓小平在会场前后待了六天。他最早进会场，最后离开，既要保障会议能开起来，也要让会后不留下明显痕迹。后来邓小平多次回忆八七会议，这段经历也成为他参加的第一次中央级别重要会议。历史故事里常记住发言者，但这类幕后组织和安全工作，正是秘密会议能够完成的前提。",
-                    imageUrl = baqiBase + "inscription.jpg"
-                ),
-                ScenicStoryCardData(
-                    label = "纸上证词",
-                    title = "20页、12800字：会议记录保存了当天的激烈讨论",
-                    body = "八七会议只有一天，但它并不是几句口号式结论。中央档案馆保存的会议记录共20页、12800字，武汉八七会议会址纪念馆也保存有复制件。根据这份记录，出席会议的代表有21人，一天之内留下了56次发言。也就是说，那个二楼小房间里曾经有过密集而尖锐的讨论。\n\n这份记录的珍贵之处，在于它把危机时刻的判断过程留了下来。人们后来谈到八七会议，常直接记住“转折”二字；但记录告诉我们，转折不是凭空发生的，而是在大革命失败后的痛苦反思中，在对错误路线、武装斗争、土地革命和组织重建的反复讨论中形成的。纸上的每一页，都是那一天紧张气氛的证词。",
-                    imageUrl = baqiBase + "meeting_record.jpg"
-                ),
-                ScenicStoryCardData(
-                    label = "关键发言",
-                    title = "毛泽东在会上提出“须知政权是由枪杆子中取得的”",
-                    body = "八七会议讨论军事斗争问题时，毛泽东的发言成为后来最常被提起的历史瞬间。他批评过去“不做军事运动专做民众运动”的偏向，提出以后要非常注意军事，并说“须知政权是由枪杆子中取得的”。这句话并不是孤立的豪言，而是从大革命失败、革命力量遭到屠杀的现实中得出的判断。\n\n这次会议之后，中国共产党开始更加明确地把创建人民武装、领导军事斗争摆到重要位置。毛泽东随后以中央特派员身份前往湖南，传达八七会议精神并领导秋收起义。后来，“须知政权是由枪杆子中取得的”演化为“枪杆子里面出政权”，成为理解八七会议乃至中国革命道路转变的一把钥匙。",
-                    imageUrl = baqiBase + "delegates.jpg"
-                )
-            ),
-            timeline = listOf(
-                ScenicTimelineEventData("1927.07", "会议一再推迟", "因形势紧急、交通困难，原定7月下旬的紧急会议无法如期召开。"),
-                ScenicTimelineEventData("1927.08.07", "代表秘密到场", "代表分批进入会场，有的乔装成农民或商人，由交通员秘密带入。"),
-                ScenicTimelineEventData("1927.08.07", "一天内56次发言", "会议在二楼房间持续一整天，记录留下密集讨论。"),
-                ScenicTimelineEventData("1980", "会址复原考证", "邓小平重返会址，结合回忆帮助确认会场空间。")
-            ),
-            gallery = listOf(
-                ScenicGalleryImage(baqiBase + "second_floor.jpg", "会址二楼复原场景"),
-                ScenicGalleryImage(baqiBase + "meeting_record.jpg", "会议记录手稿复制件"),
-                ScenicGalleryImage(baqiBase + "memorial_2.jpg", "纪念馆展陈空间"),
-                ScenicGalleryImage(baqiBase + "memorial_3.jpg", "纪念馆外观与陈列")
-            )
-        )
-        else -> null
-    }
-}
-
 private fun scenicReservationContent(scenicId: String): ScenicReservationContent? {
-    val xinhaiBase = "file:///android_asset/scenic_intro/images/xinhai/immersive/"
-    val baqiBase = "file:///android_asset/scenic_intro/images/baqi/"
+    val lingshanBase = "file:///android_asset/scenic_intro/images/lingshan/"
+    val nianhuaBase = "file:///android_asset/scenic_intro/images/nianhua/"
     return when (scenicId) {
-        "1911museum" -> ScenicReservationContent(
-            title = "辛亥革命博物院参观预约",
-            subtitle = "南北馆区错峰开放，个人免费入馆，团体需提前预约。",
-            heroImage = xinhaiBase + "museum_hall_1.jpg",
-            badges = listOf("免费开放", "团体预约"),
-            ticket = "免费",
-            bookingType = "个人免预约",
+        "lingshan" -> ScenicReservationContent(
+            title = "灵山胜境演出与讲解预约",
+            subtitle = "吉祥颂需另购票，博览馆讲解免费定时，建议按场次规划行程。",
+            heroImage = lingshanBase + "LS-013_灵山梵宫.jpg",
+            badges = listOf("演出预约", "免费讲解"),
+            ticket = "吉祥颂 50元/人",
+            bookingType = "小程序/现场",
             openingCards = listOf(
                 ScenicInfoBlock(
-                    label = "南区",
-                    title = "辛亥革命博物院南区",
-                    body = "每周一闭馆；每周二至周日开放。开放时间为9:00-17:00，16:00停止入馆。法定节假日和特殊情况除外。"
+                    label = "吉祥颂",
+                    title = "灵山梵宫圣坛《吉祥颂》",
+                    body = "270°沉浸式实景演绎，约20分钟。场次 10:35、11:30、14:00、16:00，节假日可能加演。普通门票不含，另购 50元/人，6周岁以下或70周岁以上同价。建议提前30分钟排队入场。"
                 ),
                 ScenicInfoBlock(
-                    label = "北区",
-                    title = "辛亥革命博物院北区（红楼）",
-                    body = "每周二闭馆；每周三至周一开放。开放时间为9:00-17:00，16:00停止入馆。法定节假日和特殊情况除外。"
+                    label = "九龙灌浴",
+                    title = "九龙灌浴动态音乐群雕",
+                    body = "大型音乐动态群雕，约15分钟。平日 10:00、11:30、13:30、15:00，周末节假日加场以广播为准。含门票，表演结束后可接取龙头流出的“圣水”。"
+                ),
+                ScenicInfoBlock(
+                    label = "博览馆讲解",
+                    title = "佛教文化博览馆免费定时讲解",
+                    body = "位于灵山大佛座基内三层。场次 9:30、11:00、14:30、16:00。一层五方五佛与四大名山，二层世界佛教发展史，三层万佛殿祈福。免费，另有每30分钟一场沉浸式投影，可免费领取祈福卡。"
                 )
             ),
             steps = listOf(
-                "关注辛亥革命博物院官方微信公众号。",
-                "点击底部菜单栏“参观预约”，选择“团体预约”。",
-                "进入预约界面后点击“立即预约”。",
-                "按提示填写预约日期等信息并上传材料，提交后按提示完成预约。"
+                "关注“灵山胜境”官方小程序，查看当日演出场次表。",
+                "《吉祥颂》需在小程序或现场另购票，提前30分钟排队入场。",
+                "九龙灌浴与博览馆讲解含门票或免费，提前10分钟到场即可。",
+                "节假日以景区广播与小程序公告为准，适时调整行程。"
             ),
-            contact = "北区 027-88875305；南区 027-88051911",
-            notice = "节假日等特殊情况以博物院最新安排为准；个人凭有效证件有序入馆。"
+            contact = "400-128-7777 / 0510-85086637",
+            notice = "演出时间可能因天气、节假日或现场管理调整，出行前建议通过“灵山胜境”官方小程序确认当日场次。"
         )
-        "site_of_the_august_7th_conference" -> ScenicReservationContent(
-            title = "八七会议会址纪念馆预约",
-            subtitle = "提前预约或携带本人身份证原件，按现场开放状态有序入馆。",
-            heroImage = baqiBase + "memorial_1.jpg",
-            badges = listOf("免费参观", "凭证入馆"),
-            ticket = "免费参观",
-            bookingType = "公众号/文旅码",
+        "nianhua" -> ScenicReservationContent(
+            title = "拈花湾夜游演艺与体验预约",
+            subtitle = "《禅行》夜游为核心，手作与禅修体验可提前预约，建议下午入园兼顾日夜。",
+            heroImage = nianhuaBase + "NH-007_拈花塔.jpg",
+            badges = listOf("夜游演艺", "手作预约"),
+            ticket = "含大门票",
+            bookingType = "小程序/现场",
             openingCards = listOf(
                 ScenicInfoBlock(
-                    label = "开放时间",
-                    title = "周一至周四、周六至周日",
-                    body = "每年1月31日至12月31日，09:00-17:00开放，16:30停止入园。"
+                    label = "禅行夜游",
+                    title = "《禅行》沉浸式夜游四大篇章",
+                    body = "行进式夜游含一苇渡江、亮塔仪式、花开五叶、拈花一笑。一苇渡江 18:00–20:50 每20分钟一场，亮塔仪式 18:30–20:50 每30分钟一场，花开五叶 18:45–20:45 每30分钟一场，拈花一笑 19:30/20:30 两场。建议提前30分钟到观赏点占位。"
                 ),
                 ScenicInfoBlock(
-                    label = "闭馆安排",
-                    title = "周五闭馆",
-                    body = "每周五不开放，法定节假日除外；具体营业状态以当天开放情况为准。"
+                    label = "开园仪式",
+                    title = "拈花广场开园仪式",
+                    body = "每日 9:30，节假日加演 14:30，约15分钟。入园第一项仪式，建议准点到场。"
+                ),
+                ScenicInfoBlock(
+                    label = "禅修体验",
+                    title = "拈花堂禅坐·抄经·禅茶",
+                    body = "9:30–19:00 开放，禅坐、抄经、禅茶免费，讲座 10:30、15:30 各一场。手作体验（香囊/陶艺/木刻约50元、漆扇68–98元）可小程序或店铺预约。"
                 )
             ),
             steps = listOf(
-                "通过八七会议会址纪念馆微信公众号或武汉文旅码提前预约。",
-                "到馆后凭预约码入馆参观。",
-                "也可携带本人身份证原件至检票口，刷身份证入馆参观。"
+                "微信搜索“拈花湾”小程序，首页“节目演艺”查看当日场次表。",
+                "《禅行》含大门票，按场次提前30分钟到达各观赏点。",
+                "手作体验可小程序或店铺预约，禅修至拈花堂现场参与。",
+                "雨天部分室外演出可能调整，以景区公告为准。"
             ),
-            contact = "027-82835088",
-            notice = "开放时间可能因节假日、活动或现场管理安排调整，出行前建议确认当天开放状态。"
+            contact = "400-128-7777 / 0510-85086637",
+            notice = "建议下午3点后入园兼顾日景与夜景；住景区内酒店可无限次进出并有专属观赏区域。"
         )
         else -> null
     }
@@ -2842,7 +2407,8 @@ private fun MessageList(
     onFeedbackClick: (String) -> Unit = {},
     onRouteCardClick: (RouteData) -> Unit = {},
     currentAssistantMessageId: String? = null,
-    typewriterFinishedIds: Set<String> = emptySet()
+    typewriterFinishedIds: Set<String> = emptySet(),
+    resolveMapCover: (RouteData) -> MapCover? = { null }
 ) {
     val lastAssistantMessageId by remember(messages) {
         derivedStateOf { messages.findLast { !it.isUser }?.id }
@@ -2877,7 +2443,8 @@ private fun MessageList(
                 onFeedbackClick = onFeedbackClick,
                 onRouteCardClick = onRouteCardClick,
                 currentAssistantMessageId = currentAssistantMessageId,
-                typewriterFinishedIds = typewriterFinishedIds
+                typewriterFinishedIds = typewriterFinishedIds,
+                resolveMapCover = resolveMapCover
             )
         }
     }
@@ -2891,7 +2458,8 @@ private fun MessageBubble(
     onFeedbackClick: (String) -> Unit = {},
     onRouteCardClick: (RouteData) -> Unit = {},
     currentAssistantMessageId: String? = null,
-    typewriterFinishedIds: Set<String> = emptySet()
+    typewriterFinishedIds: Set<String> = emptySet(),
+    resolveMapCover: (RouteData) -> MapCover? = { null }
 ) {
     val isUser = message.isUser
     val imageUri = message.pendingImageUri ?: message.imageUrl
@@ -2899,6 +2467,8 @@ private fun MessageBubble(
     val clipboardManager = LocalClipboardManager.current
     val vibrator = context.getSystemService<Vibrator>()
     var previewImage by remember(message.id) { mutableStateOf<ChatImageInfo?>(null) }
+    // 图片是否全部加载渲染成功（供地图卡片弹出门控；无图片时立即就绪）
+    var imagesReady by remember(message.id) { mutableStateOf(message.images.isEmpty()) }
 
     val contentToShow by remember(message.content) {
         derivedStateOf { message.content.trimEnd() }
@@ -3032,7 +2602,8 @@ private fun MessageBubble(
                 }
                 AssistantImageGallery(
                     images = message.images,
-                    onImageClick = { previewImage = it }
+                    onImageClick = { previewImage = it },
+                    onReadyChange = { imagesReady = it }
                 )
             }
 
@@ -3041,17 +2612,20 @@ private fun MessageBubble(
                 ThinkingDotsAnimation()
             }
 
-            if (message.routeData != null && !message.isLoading) {
-                val isLiveTyping = message.id == currentAssistantMessageId && message.id !in typewriterFinishedIds
-                if (!isLiveTyping) {
-                    if (hasContent || message.images.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                    }
-                    RoutePreviewCard(
-                        routeData = message.routeData,
-                        onClick = { onRouteCardClick(message.routeData) }
-                    )
+            // 地图入口卡片：必须等文本、图片全部加载渲染成功（对话框全部结束）后才在结尾弹出。
+            // 用 typewriterFinishedIds（打字机 onFinished / 历史恢复时加入，稳定）作为
+            // "文本已输入完"信号——不依赖 currentAssistantMessageId（会被数字人 IDLE 提前置 null，导致提前弹出+抖动）。
+            val textFinished = message.id in typewriterFinishedIds
+            val responseSettled = !message.isLoading && !message.isError
+            if (message.routeData != null && responseSettled && textFinished && imagesReady) {
+                if (hasContent || message.images.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(12.dp))
                 }
+                MapEntryCard(
+                    routeData = message.routeData,
+                    onClick = { onRouteCardClick(message.routeData) },
+                    resolveMapCover = resolveMapCover
+                )
             }
         }
 
@@ -3074,14 +2648,16 @@ private fun MessageBubble(
 }
 
 @Composable
-private fun RoutePreviewCard(
+private fun MapEntryCard(
     routeData: RouteData,
     onClick: () -> Unit,
+    resolveMapCover: (RouteData) -> MapCover?,
     modifier: Modifier = Modifier
 ) {
     val highlights = remember(routeData.highlights) {
         routeData.highlights?.take(3) ?: emptyList()
     }
+    val cover = remember(routeData) { resolveMapCover(routeData) }
 
     Surface(
         modifier = modifier
@@ -3093,8 +2669,8 @@ private fun RoutePreviewCard(
         shadowElevation = 2.dp
     ) {
         Column {
-            RouteMapThumbnail(
-                routeData = routeData,
+            ScenicMapCover(
+                cover = cover,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(120.dp)
@@ -3167,88 +2743,109 @@ private fun RoutePreviewCard(
 }
 
 @Composable
-private fun RouteMapThumbnail(
-    routeData: RouteData,
+private fun ScenicMapCover(
+    cover: MapCover?,
     modifier: Modifier = Modifier
 ) {
-    val polyline = remember(routeData) {
-        routeData.polyline?.takeIf { it.isNotEmpty() }
-            ?: routeData.spots.mapNotNull { s ->
-                s.lat?.let { la -> s.lng?.let { lng -> LatLngPoint(la, lng) } }
-            }
+    // 未配置高德 Web Key 或无坐标：直接占位，避免空请求
+    val webKey = com.example.scenic_avatar_guide_app.BuildConfig.AMAP_WEB_KEY
+    if (cover == null || webKey.isBlank()) {
+        MapCoverPlaceholder(modifier = modifier)
+        return
     }
 
-    if (polyline.isEmpty()) return
-
-    val routeColor = Primary
-    val backgroundColor = Color(0xFFEFF6F4)
-
-    Canvas(modifier = modifier.background(backgroundColor)) {
-        val width = size.width
-        val height = size.height
-
-        val lats = polyline.map { it.lat }
-        val lngs = polyline.map { it.lng }
-        val minLat = lats.minOrNull() ?: return@Canvas
-        val maxLat = lats.maxOrNull() ?: return@Canvas
-        val minLng = lngs.minOrNull() ?: return@Canvas
-        val maxLng = lngs.maxOrNull() ?: return@Canvas
-
-        val latRange = (maxLat - minLat).takeIf { it > 0.0 } ?: 0.001
-        val lngRange = (maxLng - minLng).takeIf { it > 0.0 } ?: 0.001
-
-        val padding = 16.dp.toPx()
-        val drawWidth = width - 2 * padding
-        val drawHeight = height - 2 * padding
-
-        fun toX(lng: Double) = padding + ((lng - minLng) / lngRange * drawWidth).toFloat()
-        fun toY(lat: Double) = height - (padding + ((lat - minLat) / latRange * drawHeight).toFloat())
-
-        // 背景网格，模拟地图道路
-        val gridColor = routeColor.copy(alpha = 0.08f)
-        val gridSteps = 4
-        for (i in 0..gridSteps) {
-            val x = padding + (drawWidth / gridSteps) * i
-            drawLine(gridColor, Offset(x, padding), Offset(x, height - padding), strokeWidth = 1.dp.toPx())
-            val y = padding + (drawHeight / gridSteps) * i
-            drawLine(gridColor, Offset(padding, y), Offset(width - padding, y), strokeWidth = 1.dp.toPx())
-        }
-
-        // 路线轨迹
-        if (polyline.size >= 2) {
-            val path = Path().apply {
-                moveTo(toX(polyline[0].lng), toY(polyline[0].lat))
-                for (i in 1 until polyline.size) {
-                    lineTo(toX(polyline[i].lng), toY(polyline[i].lat))
-                }
+    // 高德静态地图 REST API：纯图片，无 MapView/GL 线程，不会触发 native 销毁崩溃。
+    // 注意 location 参数为「经度,纬度」顺序；zoom 取景区配置；size 取接近卡片封面比例。
+    // 如果本地有景点坐标，把所有景点以默认 marker 标注在封面图上。
+    val url = remember(cover) {
+        val markers = buildString {
+            val list = cover.spotMarkers
+                .filter { it.lat != 0.0 && it.lng != 0.0 }
+                .take(10)
+            if (list.isNotEmpty()) {
+                append("&markers=")
+                append("mid,0x1D7A6D,:")
+                append(
+                    list.joinToString(";") { spot ->
+                        "${spot.lng},${spot.lat}"
+                    }
+                )
             }
-            drawPath(
-                path = path,
-                color = routeColor.copy(alpha = 0.7f),
-                style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
-            )
         }
+        "https://restapi.amap.com/v3/staticmap" +
+            "?location=${cover.lng},${cover.lat}" +
+            "&zoom=${cover.zoom.toInt()}" +
+            "&size=750*380" +
+            "&scale=2" +
+            markers +
+            "&key=$webKey"
+    }
 
-        // 景点标记
-        routeData.spots.forEach { spot ->
-            val lat = spot.lat ?: return@forEach
-            val lng = spot.lng ?: return@forEach
-            val cx = toX(lng)
-            val cy = toY(lat)
-            drawCircle(routeColor.copy(alpha = 0.15f), radius = 8.dp.toPx(), center = Offset(cx, cy))
-            drawCircle(Color.White, radius = 4.dp.toPx(), center = Offset(cx, cy))
-            drawCircle(routeColor, radius = 2.5.dp.toPx(), center = Offset(cx, cy))
-        }
+    SubcomposeAsyncImage(
+        model = url,
+        contentDescription = "景区地图",
+        modifier = modifier,
+        contentScale = ContentScale.Crop,
+        loading = {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFFEFF6F4)),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(22.dp),
+                    strokeWidth = 2.dp,
+                    color = Primary
+                )
+            }
+        },
+        error = { MapCoverPlaceholder(modifier = Modifier.fillMaxSize()) }
+    )
+}
+
+@Composable
+private fun MapCoverPlaceholder(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.background(Color(0xFFEFF6F4)),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.LocationOn,
+            contentDescription = null,
+            tint = Primary.copy(alpha = 0.4f),
+            modifier = Modifier.size(36.dp)
+        )
     }
 }
 
 @Composable
 private fun AssistantImageGallery(
     images: List<ChatImageInfo>,
-    onImageClick: (ChatImageInfo) -> Unit
+    onImageClick: (ChatImageInfo) -> Unit,
+    onReadyChange: ((Boolean) -> Unit)? = null
 ) {
     val displayImages = remember(images) { images.take(3).filter { it.imageModel().isNotBlank() } }
-    if (displayImages.isEmpty()) return
+    if (displayImages.isEmpty()) {
+        // 无可渲染图片：立即就绪
+        LaunchedEffect(Unit) { onReadyChange?.invoke(true) }
+        return
+    }
+
+    // 每张图的加载结果（true=成功，false=失败）；key = imageId ?: imageModel()
+    // 不按 images 列表 key：流式追加图片时列表会变，若重置 map 会丢失已加载状态，
+    // 而 painter.state 不变不会重发，导致就绪态卡死为 false。map 在画廊存活期内保持稳定。
+    val loadStates = remember { mutableStateMapOf<String, Boolean>() }
+
+    // 汇总：所有展示图片均加载成功才算就绪（严格门控）
+    LaunchedEffect(displayImages) {
+        snapshotFlow {
+            val keys = displayImages.map { it.imageId ?: it.imageModel() }
+            keys to loadStates.toMap()
+        }.collect { (keys, states) ->
+            onReadyChange?.invoke(keys.isNotEmpty() && keys.all { states[it] == true })
+        }
+    }
 
     if (displayImages.size == 1) {
         AssistantImageCard(
@@ -3256,7 +2853,8 @@ private fun AssistantImageGallery(
             imageHeight = 190.dp,
             reserveCaptionSpace = false,
             modifier = Modifier.fillMaxWidth(),
-            onClick = onImageClick
+            onClick = onImageClick,
+            onState = { ok -> loadStates[displayImages.first().imageId ?: displayImages.first().imageModel()] = ok }
         )
     } else {
         LazyRow(
@@ -3270,7 +2868,8 @@ private fun AssistantImageGallery(
                     imageHeight = 132.dp,
                     reserveCaptionSpace = true,
                     modifier = Modifier.width(210.dp),
-                    onClick = onImageClick
+                    onClick = onImageClick,
+                    onState = { ok -> loadStates[image.imageId ?: image.imageModel()] = ok }
                 )
             }
         }
@@ -3283,7 +2882,8 @@ private fun AssistantImageCard(
     imageHeight: Dp,
     reserveCaptionSpace: Boolean,
     modifier: Modifier = Modifier,
-    onClick: (ChatImageInfo) -> Unit
+    onClick: (ChatImageInfo) -> Unit,
+    onState: ((loaded: Boolean) -> Unit)? = null
 ) {
     val title = image.title?.takeIf { it.isNotBlank() }
     val description = image.description?.takeIf { it.isNotBlank() }
@@ -3293,6 +2893,18 @@ private fun AssistantImageCard(
         ?: "图片加载失败"
     val hasCaption = title != null || description != null
 
+    val painter = rememberAsyncImagePainter(model = image.imageModel())
+    // 观察 Coil 加载状态，向上汇报成功/失败（供卡片弹出门控）
+    LaunchedEffect(painter) {
+        snapshotFlow { painter.state }.collect { state ->
+            when (state) {
+                is AsyncImagePainter.State.Success -> onState?.invoke(true)
+                is AsyncImagePainter.State.Error -> onState?.invoke(false)
+                else -> {}
+            }
+        }
+    }
+
     Surface(
         modifier = modifier.clickable { onClick(image) },
         shape = RoundedCornerShape(8.dp),
@@ -3301,32 +2913,38 @@ private fun AssistantImageCard(
         shadowElevation = 1.dp
     ) {
         Column {
-            SubcomposeAsyncImage(
-                model = image.imageModel(),
-                contentDescription = altText,
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(imageHeight)
-                    .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)),
-                contentScale = ContentScale.Crop,
-                loading = {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFFECEFF3)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            strokeWidth = 2.dp,
-                            color = Primary
-                        )
+                    .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+            ) {
+                Image(
+                    painter = painter,
+                    contentDescription = altText,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+                when (painter.state) {
+                    is AsyncImagePainter.State.Loading,
+                    is AsyncImagePainter.State.Empty -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFFECEFF3)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                strokeWidth = 2.dp,
+                                color = Primary
+                            )
+                        }
                     }
-                },
-                error = {
-                    ImageErrorPlaceholder(text = altText)
+                    is AsyncImagePainter.State.Error -> ImageErrorPlaceholder(text = altText)
+                    else -> {}
                 }
-            )
+            }
             if (hasCaption || reserveCaptionSpace) {
                 val captionModifier = if (reserveCaptionSpace) {
                     Modifier

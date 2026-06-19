@@ -1,144 +1,18 @@
 {
-  "version": 1,
-  "lastUpdated": "2026-05-10",
+  "version": 2,
+  "lastUpdated": "2026-06-19",
   "scenics": [
     {
-      "scenicId": "1911museum",
-      "name": "辛亥革命纪念馆",
-      "thumbnail": "file:///android_asset/scenic_intro/images/xinhai/hero_group.png",
-      "description": "首义之区，共和之门——传承辛亥首义精神"
+      "scenicId": "lingshan",
+      "name": "灵山胜境",
+      "thumbnail": "file:///android_asset/scenic_intro/images/lingshan/LS-011_灵山大佛.jpg",
+      "description": "东方佛国，88米灵山大佛与三大奇观"
     },
     {
-      "scenicId": "site_of_the_august_7th_conference",
-      "name": "八七会议会址纪念馆",
-      "thumbnail": "file:///android_asset/scenic_intro/images/baqi/memorial_1.jpg",
-      "description": "危急关头挽救党、挽救革命的重要会议旧址"
-    },
-    {
-      "scenicId": "xiangjingyu_cemetery",
-      "name": "向警予烈士陵园",
-      "thumbnail": "",
-      "description": "中国共产党唯一女创始人，巾帼英烈的永恒丰碑"
-    },
-    {
-      "scenicId": "shiyang_cemetery",
-      "name": "施洋烈士陵园",
-      "thumbnail": "",
-      "description": "劳工律师施洋，二七大罢工烈士长眠之地"
-    },
-    {
-      "scenicId": "wuhan_erqi_memorial",
-      "name": "武汉二七纪念馆",
-      "thumbnail": "",
-      "description": "京汉铁路工人运动的永恒纪念"
-    },
-    {
-      "scenicId": "zhonggong_hankou_memorial",
-      "name": "武汉中共中央机关旧址纪念馆",
-      "thumbnail": "",
-      "description": "1926-1927年中共中央机关驻地"
-    },
-    {
-      "scenicId": "wuhan_antiwar_memorial",
-      "name": "武汉抗战纪念园",
-      "thumbnail": "",
-      "description": "铭记武汉会战历史，缅怀抗战英烈"
-    },
-    {
-      "scenicId": "balujun_wuhan_office",
-      "name": "八路军武汉办事处旧址",
-      "thumbnail": "",
-      "description": "抗战初期八路军驻武汉办事机构"
-    },
-    {
-      "scenicId": "hankou_n4a_hq",
-      "name": "汉口新四军军部旧址",
-      "thumbnail": "",
-      "description": "新四军组建初期的军部驻地"
-    },
-    {
-      "scenicId": "mao_zedong_house",
-      "name": "毛泽东故居陈列馆",
-      "thumbnail": "",
-      "description": "毛泽东在武汉从事革命活动的历史见证"
-    },
-    {
-      "scenicId": "jinghan_railway_union",
-      "name": "京汉铁路总工会旧址",
-      "thumbnail": "",
-      "description": "中国工人运动的重要发源地"
-    },
-    {
-      "scenicId": "hankou_allchina_union",
-      "name": "汉口中华全国总工会旧址",
-      "thumbnail": "",
-      "description": "大革命时期全国工人运动指挥中心"
-    },
-    {
-      "scenicId": "ccp_leaders_hankou",
-      "name": "中共中央领导人汉口住地旧址",
-      "thumbnail": "",
-      "description": "中共中央领导人在汉口的重要历史驻地"
-    },
-    {
-      "scenicId": "qiyimen",
-      "name": "起义门",
-      "thumbnail": "",
-      "description": "武昌起义攻城突破口，辛亥首义历史地标"
-    },
-    {
-      "scenicId": "zhongshan_warship",
-      "name": "中山舰博物馆",
-      "thumbnail": "",
-      "description": "一代名舰，见证中国近代历史风云"
-    },
-    {
-      "scenicId": "heshengqiao_cemetery",
-      "name": "贺胜桥北伐阵亡将士陵园",
-      "thumbnail": "",
-      "description": "北伐战争贺胜桥战役英烈安息之地"
-    },
-    {
-      "scenicId": "wuhan_revolution_museum",
-      "name": "武汉革命博物馆",
-      "thumbnail": "",
-      "description": "集武昌农讲所、毛泽东旧居、中共五大会址于一体的综合性革命博物馆"
-    },
-    {
-      "scenicId": "ccp_5th_congress_site",
-      "name": "中共五大会址纪念馆",
-      "thumbnail": "",
-      "description": "1927年中共五大召开地，党的历史上重要会议旧址"
-    },
-    {
-      "scenicId": "peasant_movement_institute",
-      "name": "中央农民运动讲习所旧址",
-      "thumbnail": "",
-      "description": "毛泽东主办的大革命时期培养农民运动骨干的学校"
-    },
-    {
-      "scenicId": "song_qingling_hankou_residence",
-      "name": "宋庆龄汉口旧居纪念馆",
-      "thumbnail": "",
-      "description": "1927年宋庆龄在武汉从事革命活动的历史见证"
-    },
-    {
-      "scenicId": "zhan_tianyou_museum",
-      "name": "詹天佑故居博物馆",
-      "thumbnail": "",
-      "description": "中国铁路之父詹天佑的生平与成就展示"
-    },
-    {
-      "scenicId": "zhang_zhidong_museum",
-      "name": "张之洞与武汉博物馆",
-      "thumbnail": "",
-      "description": "晚清洋务运动重臣张之洞督鄂十八年历史"
-    },
-    {
-      "scenicId": "huangma_uprising_memorial",
-      "name": "黄麻起义和鄂豫皖苏区纪念园",
-      "thumbnail": "",
-      "description": "纪念黄麻起义和鄂豫皖革命根据地历史"
+      "scenicId": "nianhua",
+      "name": "禅意小镇·拈花湾",
+      "thumbnail": "file:///android_asset/scenic_intro/images/nianhua/NH-hero.jpg",
+      "description": "唐风宋韵的禅意心灵度假花园"
     }
   ]
 }

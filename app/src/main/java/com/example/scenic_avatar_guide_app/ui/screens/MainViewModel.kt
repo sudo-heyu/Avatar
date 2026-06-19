@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.scenic_avatar_guide_app.data.repository.AuthRepository
 import com.example.scenic_avatar_guide_app.data.repository.GuideRepository
+import com.example.scenic_avatar_guide_app.data.repository.MapDataRepository
 import com.example.scenic_avatar_guide_app.data.repository.SessionRepository
 import com.example.scenic_avatar_guide_app.data.repository.toChatMessage
 import com.example.scenic_avatar_guide_app.data.local.SettingsDataStore
@@ -16,6 +17,8 @@ import com.example.scenic_avatar_guide_app.domain.model.ChatMessage
 import com.example.scenic_avatar_guide_app.domain.model.ChatImageInfo
 import com.example.scenic_avatar_guide_app.domain.model.EmotionToExpression
 import com.example.scenic_avatar_guide_app.domain.model.IntentToGesture
+import com.example.scenic_avatar_guide_app.domain.model.MapCover
+import com.example.scenic_avatar_guide_app.domain.model.MapCoverSpot
 import com.example.scenic_avatar_guide_app.domain.model.RouteData
 import com.example.scenic_avatar_guide_app.domain.model.ScenicArea
 import com.example.scenic_avatar_guide_app.domain.model.AvatarState
@@ -303,11 +306,44 @@ class MainViewModel @Inject constructor(
     private val sessionRepository: SessionRepository,
     private val authRepository: AuthRepository,
     private val settingsDataStore: SettingsDataStore,
-    private val scenicDataSource: ScenicDataSource
+    private val scenicDataSource: ScenicDataSource,
+    private val mapDataRepository: MapDataRepository
 ) : ViewModel() {
 
     private val _scenicAreas = MutableStateFlow(scenicDataSource.loadScenicAreas())
     val scenicAreas: StateFlow<List<ScenicArea>> = _scenicAreas.asStateFlow()
+
+    /**
+     * 解析路线对应的地图封面中心点：优先用景区配置中心，其次用路线景点坐标质心。
+     * 同步读取本地缓存（scenic_map_data.json 极小且按 scenicId 缓存）。
+     */
+    fun resolveMapCover(routeData: RouteData): MapCover? {
+        val bundle = routeData.scenicId?.let { mapDataRepository.loadMapBundle(it) }
+        if (bundle != null) {
+            return MapCover(
+                lat = bundle.mapData.centerLat,
+                lng = bundle.mapData.centerLng,
+                zoom = bundle.mapData.defaultZoom,
+                styleJsonPath = bundle.mapData.styleJsonPath,
+                spotMarkers = bundle.spotsWithLocation.map {
+                    MapCoverSpot(
+                        lat = it.lat ?: return@map null,
+                        lng = it.lng ?: return@map null,
+                        name = it.name
+                    )
+                }.filterNotNull()
+            )
+        }
+        val pts = routeData.spots.mapNotNull { s ->
+            s.lat?.let { la -> s.lng?.let { lng -> la to lng } }
+        }
+        if (pts.isEmpty()) return null
+        return MapCover(
+            lat = pts.map { it.first }.average(),
+            lng = pts.map { it.second }.average(),
+            zoom = 15f
+        )
+    }
 
     // 认证状态
     private val _isAuthenticated = MutableStateFlow(false)
@@ -1325,7 +1361,13 @@ class MainViewModel @Inject constructor(
             sessionRepository.getSessionDetail(sessionId).fold(
                 onSuccess = { detail ->
                     val baseUrl = settingsDataStore.baseUrl.first()
-                    _messages.value = detail.messages.map { it.toChatMessage(baseUrl) }
+                    val historyMessages = detail.messages.map { it.toChatMessage(baseUrl) }
+                    _messages.value = historyMessages
+                    // 历史消息文本已展示完毕，标记为可显示地图卡片（与打字机 onFinished 同语义）
+                    if (historyMessages.isNotEmpty()) {
+                        _typewriterFinishedIds.value =
+                            _typewriterFinishedIds.value + historyMessages.map { it.id }
+                    }
                 },
                 onFailure = { e ->
                     Log.e(TAG, "switchToSession failed", e)

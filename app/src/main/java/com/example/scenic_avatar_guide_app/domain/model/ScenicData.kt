@@ -18,7 +18,12 @@ data class ScenicSpot(
     val description: String = "",
     val sortOrder: Int = 0,
     val lat: Double? = null,
-    val lng: Double? = null
+    val lng: Double? = null,
+    val imageUrl: String? = null,
+    @SerialName("coordinate_system")
+    val coordinateSystem: String? = null,
+    @SerialName("coordinate_locked")
+    val coordinateLocked: Boolean = false
 )
 
 /**
@@ -32,6 +37,10 @@ data class ScenicMapData(
     val centerLng: Double,
     @SerialName("default_zoom")
     val defaultZoom: Float,
+    @SerialName("style_json_path")
+    val styleJsonPath: String? = null,
+    @SerialName("coordinate_system")
+    val coordinateSystem: String = "GCJ02",
     val routes: List<ScenicRoute> = emptyList()
 )
 

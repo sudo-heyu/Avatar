@@ -418,6 +418,26 @@ data class LatLngPoint(
     val lng: Double
 )
 
+/**
+ * 地图封面中心点（景区中心，供卡片截图用）
+ */
+data class MapCover(
+    val lat: Double,
+    val lng: Double,
+    val zoom: Float,
+    val styleJsonPath: String? = null,
+    val spotMarkers: List<MapCoverSpot> = emptyList()
+)
+
+/**
+ * 封面卡片上的景点标注点
+ */
+data class MapCoverSpot(
+    val lat: Double,
+    val lng: Double,
+    val name: String
+)
+
 // ==================== 会话列表 ====================
 
 @Serializable
