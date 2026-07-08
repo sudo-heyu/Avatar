@@ -22,6 +22,13 @@
 using namespace Csm;
 using namespace LAppDefine;
 
+namespace
+{
+    constexpr int AvatarDisplayMode_FullBodyFit = 0;
+    constexpr int AvatarDisplayMode_UpperBody = 1;
+    constexpr int AvatarDisplayMode_FullBodyExpanded = 2;
+}
+
 namespace {
     LAppLive2DManager* s_instance = NULL;
     std::mutex s_instanceMutex;
@@ -68,7 +75,7 @@ void LAppLive2DManager::ReleaseInstance()
 
 LAppLive2DManager::LAppLive2DManager()
     : _viewMatrix(NULL),
-      _upperBodyMode(false)
+      _avatarDisplayMode(AvatarDisplayMode_FullBodyFit)
 {
     _viewMatrix = new CubismMatrix44();
     SetUpModel();
@@ -242,7 +249,7 @@ void LAppLive2DManager::OnUpdate() const
 
         float canvasRatio = model->GetModel()->GetCanvasHeight() / model->GetModel()->GetCanvasWidth();
 
-        if (_upperBodyMode)
+        if (_avatarDisplayMode == AvatarDisplayMode_UpperBody)
         {
             // 上半身模式：宽度适配 + 正常 aspect ratio + 放大 + 下移
             model->GetModelMatrix()->SetWidth(2.0f);
@@ -254,6 +261,14 @@ void LAppLive2DManager::OnUpdate() const
             // 向下平移，使画布中心（腰部附近）靠近视口底部
             // 裁剪空间 Y 范围 [-1, 1]，底部为 -1
             projection.TranslateRelative(0.0f, -0.9f);
+        }
+        else if (_avatarDisplayMode == AvatarDisplayMode_FullBodyExpanded)
+        {
+            // 全身展开模式：保持接近半身模式的人物大小，由 Compose 扩大视口高度来露出下半身。
+            model->GetModelMatrix()->SetWidth(2.0f);
+            projection.Scale(1.0f, aspectRatio);
+            projection.ScaleRelative(1.6f, 1.6f);
+            projection.TranslateRelative(0.0f, -0.45f);
         }
         else if (canvasRatio < displayRatio)
         {
@@ -400,8 +415,17 @@ void LAppLive2DManager::SetViewMatrix(CubismMatrix44* m)
 
 void LAppLive2DManager::SetUpperBodyMode(bool enabled)
 {
+    SetAvatarDisplayMode(enabled ? AvatarDisplayMode_UpperBody : AvatarDisplayMode_FullBodyFit);
+}
+
+void LAppLive2DManager::SetAvatarDisplayMode(int mode)
+{
     std::lock_guard<std::mutex> lock(_managerMutex);
-    _upperBodyMode = enabled;
+    if (mode < AvatarDisplayMode_FullBodyFit || mode > AvatarDisplayMode_FullBodyExpanded)
+    {
+        mode = AvatarDisplayMode_FullBodyFit;
+    }
+    _avatarDisplayMode = mode;
 }
 
 bool LAppLive2DManager::IsMotionFinished() const

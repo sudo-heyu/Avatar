@@ -140,8 +140,24 @@ fun MessageInfo.toChatMessage(baseUrl: String? = null): ChatMessage {
         sources = sources ?: emptyList(),
         images = images.orEmpty().resolveImageUrls(baseUrl),
         avatarAction = avatarAction,
-        routeData = routeData
+        routeData = routeData?.resolveRouteMediaUrls(baseUrl)
     )
+}
+
+private fun com.example.scenic_avatar_guide_app.domain.model.RouteData.resolveRouteMediaUrls(
+    baseUrl: String?
+): com.example.scenic_avatar_guide_app.domain.model.RouteData {
+    if (baseUrl.isNullOrBlank()) return this
+    val coverUrl = coverImage?.url
+    return if (coverUrl.isNullOrBlank() || coverUrl.startsWith("http")) {
+        this
+    } else {
+        copy(
+            coverImage = coverImage.copy(
+                url = "${baseUrl.removeSuffix("/")}/${coverUrl.removePrefix("/")}"
+            )
+        )
+    }
 }
 
 private fun List<ChatImageInfo>.resolveImageUrls(baseUrl: String?): List<ChatImageInfo> {

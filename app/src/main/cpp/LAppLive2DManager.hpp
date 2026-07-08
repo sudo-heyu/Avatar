@@ -156,6 +156,11 @@ public:
     void SetUpperBodyMode(bool enabled);
 
     /**
+     * @brief   数字人表示モードを設定
+     */
+    void SetAvatarDisplayMode(int mode);
+
+    /**
      * @brief   現在のモーション再生が終了しているかを判定
      * @return  終了していれば true、再生中なら false
      */
@@ -182,7 +187,7 @@ private:
 
     Csm::csmVector<Csm::csmString> _modelDir; ///< モデルディレクトリ名のコンテナ
 
-    bool _upperBodyMode; ///< 上半身のみ表示モード
+    int _avatarDisplayMode; ///< 数字人表示モード
 
     mutable std::mutex _managerMutex; ///< 保护模型状态跨线程访问的互斥锁
 };

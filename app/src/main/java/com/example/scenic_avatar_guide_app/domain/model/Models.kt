@@ -390,7 +390,19 @@ data class RouteData(
 
     val spots: List<RouteSpot>,
 
-    val polyline: List<LatLngPoint>? = null
+    val polyline: List<LatLngPoint>? = null,
+
+    @SerialName("cover_image")
+    val coverImage: RouteCoverImage? = null
+)
+
+@Serializable
+data class RouteCoverImage(
+    val url: String? = null,
+    @SerialName("alt_text")
+    val altText: String? = null,
+    val status: String? = null,
+    val source: String? = null
 )
 
 /**
@@ -607,7 +619,11 @@ data class RouteRecommendRequest(
     val interestTags: List<String>? = null,
     @SerialName("current_spot")
     val currentSpot: String? = null,
-    val question: String? = null
+    val question: String? = null,
+    @SerialName("route_id")
+    val routeId: String? = null,
+    @SerialName("route_name")
+    val routeName: String? = null
 )
 
 @Serializable

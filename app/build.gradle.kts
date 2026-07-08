@@ -17,6 +17,7 @@ val localProps = Properties().apply {
     if (f.exists()) FileInputStream(f).use { load(it) }
 }
 val amapWebKey: String = localProps.getProperty("AMAP_WEB_KEY", "")
+val amapSecurityCode: String = localProps.getProperty("AMAP_SECURITY_CODE", "")
 
 android {
     namespace = "com.example.scenic_avatar_guide_app"
@@ -33,6 +34,7 @@ android {
 
         // 高德 Web 服务 Key（静态地图 REST API）。空串表示未配置。
         buildConfigField("String", "AMAP_WEB_KEY", "\"$amapWebKey\"")
+        manifestPlaceholders["AMAP_SECURITY_CODE"] = amapSecurityCode
 
         // NDK 配置
         ndk {

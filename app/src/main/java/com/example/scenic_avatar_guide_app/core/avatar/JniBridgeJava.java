@@ -53,6 +53,8 @@ public class JniBridgeJava {
 
     public static native void nativeSetUpperBodyMode(boolean enabled);
 
+    public static native void nativeSetDisplayMode(int mode);
+
     /**
      * 播放指定动作
      * @param group 动作组名（如 "Idle", "TapBody"）
@@ -87,6 +89,13 @@ public class JniBridgeJava {
      * @return true = 无动作在播放（已结束），false = 动作播放中
      */
     public static native boolean nativeIsMotionFinished();
+
+    /**
+     * 重新加载 Live2D 贴图（换装用）：清空贴图缓存并重建渲染器，使 filesDir 中新写入的贴图生效。
+     * 必须在 GL 线程调用（通过 GLSurfaceView.queueEvent 投递）。
+     * 调用前需已将新贴图 PNG 写入 filesDir 对应路径（LoadFile 自动优先 filesDir）。
+     */
+    public static native void nativeReloadTextures();
 
     // Java -----------------------------------------------------------------
 

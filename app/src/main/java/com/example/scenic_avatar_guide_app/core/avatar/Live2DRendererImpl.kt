@@ -606,6 +606,10 @@ class Live2DRendererImpl(
     }
 
     override fun setUpperBodyMode(enabled: Boolean) {
+        setDisplayMode(if (enabled) AvatarDisplayMode.UpperBody else AvatarDisplayMode.FullBodyFit)
+    }
+
+    override fun setDisplayMode(mode: AvatarDisplayMode) {
         synchronized(this) {
             if (isReleased) return
         }
@@ -614,9 +618,9 @@ class Live2DRendererImpl(
                 if (isReleased) return@runOnRenderThread
             }
             try {
-                JniBridgeJava.nativeSetUpperBodyMode(enabled)
+                JniBridgeJava.nativeSetDisplayMode(mode.nativeValue)
             } catch (e: Exception) {
-                Log.w(TAG, "setUpperBodyMode JNI call failed", e)
+                Log.w(TAG, "setDisplayMode JNI call failed", e)
             }
         }
     }
@@ -728,11 +732,33 @@ class Live2DRendererImpl(
         }
     }
 
+    /**
+     * 在 GL 线程热重载 Live2D 贴图（换装用）：清空贴图缓存并重建渲染器，使 filesDir 中新写入的贴图生效。
+     * 调用前需已将新贴图 PNG 写入 filesDir 对应路径（LoadFile 自动优先 filesDir）。
+     * onDone 在 GL 线程完成后回调；无 surface 时立即回调（文件已写入，下次模型加载时生效）。
+     */
+    fun reloadTexturesOnGlThread(onDone: () -> Unit) {
+        val surfaceView = surfaceViewRef?.get()
+        if (surfaceView == null) {
+            Log.w(TAG, "reloadTextures: surfaceView null, will apply on next model load")
+            onDone()
+            return
+        }
+        surfaceView.runOnRenderThread {
+            try {
+                JniBridgeJava.nativeReloadTextures()
+            } catch (e: Exception) {
+                Log.e(TAG, "nativeReloadTextures failed", e)
+            } finally {
+                onDone()
+            }
+        }
+    }
+
     fun attachSurfaceView(surfaceView: Live2DGLSurfaceView) {
         Log.d(TAG, "=== attachSurfaceView() CALLED ===")
         surfaceViewRef = WeakReference(surfaceView)
         hasSurfaceAttached = true
-
         // 在 SDK 动画渲染完成后强制覆盖嘴部参数，确保口型同步优先于 Idle 动画
         // 注意：此回调在 GL 线程执行，与 nativeOnDrawFrame 串行
         // 使用 synchronized 块确保与 release() 的同步

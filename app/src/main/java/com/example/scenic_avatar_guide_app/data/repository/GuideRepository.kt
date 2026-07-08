@@ -199,9 +199,11 @@ class GuideRepository @Inject constructor(
 
             val response = apiService.chatText(request)
             if (response.code == 0) {
+                val baseUrl = settingsDataStore.baseUrl.first()
                 Result.success(
                     response.data.copy(
-                        images = response.data.images.resolveImageUrls(settingsDataStore.baseUrl.first())
+                        images = response.data.images.resolveImageUrls(baseUrl),
+                        routeData = response.data.routeData?.resolveRouteMediaUrls(baseUrl)
                     )
                 )
             } else {
@@ -330,6 +332,10 @@ class GuideRepository @Inject constructor(
         return "${baseUrl.removeSuffix("/")}/${relativePath.removePrefix("/")}"
     }
 
+    suspend fun resolveRouteMediaUrls(routeData: RouteData): RouteData {
+        return routeData.resolveRouteMediaUrls(settingsDataStore.baseUrl.first())
+    }
+
     /**
      * 清除会话
      */
@@ -370,6 +376,19 @@ class GuideRepository @Inject constructor(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+}
+
+private fun RouteData.resolveRouteMediaUrls(baseUrl: String): RouteData {
+    val coverUrl = coverImage?.url
+    return if (coverUrl.isNullOrBlank() || coverUrl.startsWith("http")) {
+        this
+    } else {
+        copy(
+            coverImage = coverImage.copy(
+                url = "${baseUrl.removeSuffix("/")}/${coverUrl.removePrefix("/")}"
+            )
+        )
     }
 }
 

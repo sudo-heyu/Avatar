@@ -9,6 +9,7 @@
         "lat": 31.421388,
         "lng": 120.102499,
         "description": "景区入口标志性照壁",
+        "intro": "位于灵山胜境南门入口的标志性照壁，气势恢宏，是游客步入景区后见到的第一道景观，也是入园合影留念的经典背景。由此向北即进入胜境中轴线。",
         "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-001_灵山大照壁.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
@@ -19,6 +20,7 @@
         "lat": 31.421749,
         "lng": 120.102248,
         "description": "五座拱桥寓意五明",
+        "intro": "由五座拱桥并列组成，寓意佛教中的五明——声明、工巧明、医方明、因明、内明。桥跨景区水系，是通往中轴线深处的必经之路。",
         "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-002_五明桥.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
@@ -29,6 +31,7 @@
         "lat": 31.422725,
         "lng": 120.101497,
         "description": "佛祖足印圣迹",
+        "intro": "供奉佛祖足印圣迹的坛城，足印为佛教圣迹之一，象征佛陀行化人间的足迹。游客可在此驻足礼敬，感受朝圣之旅的庄严。",
         "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-011_灵山大佛.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
@@ -39,6 +42,7 @@
         "lat": 31.423055,
         "lng": 120.101292,
         "description": "五座门楼象征五智",
+        "intro": "五座门楼并列，象征佛教密宗的五智——大圆镜智、平等性智、妙观察智、成所作智、法界体性智。门楼庄严宏伟，是中轴线上的重要节点。",
         "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-004_五智门.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
@@ -49,6 +53,7 @@
         "lat": 31.423182,
         "lng": 120.101143,
         "description": "通往灵山大佛的主干道",
+        "intro": "景区中轴线上的景观主干道，道旁植有从印度引进的正宗菩提树。沿大道前行可一路通往灵山大佛，是游览的核心动线。",
         "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-005_菩提大道.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
@@ -59,6 +64,7 @@
         "lat": 31.424601,
         "lng": 120.099984,
         "description": "大型音乐动态青铜雕塑",
+        "intro": "大型音乐动态青铜群雕，再现释迦牟尼诞生时九龙沐浴、花开见佛的祥瑞场景。每日定时演出，全程约15分钟，是灵山标志性的动态演艺。",
         "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-006_九龙灌浴.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
@@ -69,6 +75,7 @@
         "lat": 31.425559,
         "lng": 120.099569,
         "description": "记述佛陀悟道历程",
+        "intro": "大型浮雕群，记述释迦牟尼在菩提树下降魔悟道的历程。画面生动传神，是了解佛陀成道故事的代表性石刻景观。",
         "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-007_降魔浮雕.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
@@ -79,6 +86,7 @@
         "lat": 31.426188,
         "lng": 120.099261,
         "description": "国内最高阿育王石柱",
+        "intro": "国内最高的阿育王石柱之一，柱顶雄踞石狮，形制源自古印度阿育王石柱，象征佛法弘传四方，是景区的重要标志。",
         "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-008_阿育王柱.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
@@ -89,6 +97,7 @@
         "lat": 31.42719,
         "lng": 120.098844,
         "description": "百子绕弥勒雕塑",
+        "intro": "以弥勒佛与百名嬉戏孩童为主题的雕塑，弥勒笑容可掬、童子憨态各异，寓意和合欢喜，是深受游客喜爱的趣味景观。",
         "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-009_百子戏弥勒.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
@@ -99,6 +108,7 @@
         "lat": 31.427949,
         "lng": 120.098012,
         "description": "千年古刹",
+        "intro": "有着千年历史的江南古刹，相传玄奘法师见此山梵天巍峨而命名小灵山。寺内古钟号称江南第一钟，是灵山大佛的依托道场。",
         "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-010_祥符禅寺.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
@@ -109,6 +119,7 @@
         "lat": 31.430194,
         "lng": 120.096477,
         "description": "88米青铜立佛",
+        "intro": "高88米的世界最高露天青铜释迦牟尼立像，为五方五佛之东方大佛。游人可登216级台阶抱佛脚祈福，是灵山胜境的核心地标。",
         "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-011_灵山大佛.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
@@ -119,6 +130,7 @@
         "lat": 31.430364,
         "lng": 120.0964,
         "description": "佛教艺术与文化展示",
+        "intro": "位于灵山大佛座基内的三层展馆，系统展示佛教艺术与文化。馆内设万佛殿可供祈福，并提供免费定时讲解服务。",
         "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-012_佛教文化博览馆.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
@@ -129,6 +141,7 @@
         "lat": 31.428218,
         "lng": 120.10242,
         "description": "宏伟的佛教建筑艺术殿堂",
+        "intro": "建筑面积约72000平方米的佛教艺术殿堂，被誉为东方卢浮宫，是世界佛教论坛永久会址。内有《吉祥颂》大型情景演出，华美庄严。",
         "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-013_灵山梵宫.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
@@ -139,6 +152,7 @@
         "lat": 31.424676,
         "lng": 120.103054,
         "description": "藏式佛教文化体验区",
+        "intro": "藏传佛教风格建筑，外观金碧辉煌，内设转经筒可供祈福绕行。集中展示藏传佛教文化，是汉藏文化交融的体验区。",
         "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-014_五印坛城.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
@@ -149,6 +163,7 @@
         "lat": 31.42607,
         "lng": 120.104609,
         "description": "南传佛教风格塔群",
+        "intro": "仿云南傣族南传佛教风格的塔群，白塔尖耸、园林环绕，呈现南传佛教建筑特色，与汉传、藏传建筑共同汇聚一园。",
         "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-015_曼飞龙塔.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
@@ -159,7 +174,107 @@
         "lat": 31.428768,
         "lng": 120.096987,
         "description": "素斋餐饮服务区",
+        "intro": "景区内的素斋餐饮服务区，提供清净素食。名称取自佛教无尽意菩萨，是游览途中休憩用餐的清雅场所。",
         "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-016_无尽意斋.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-GATE",
+        "name": "南门入园",
+        "lat": 31.42072,
+        "lng": 120.10305,
+        "description": "灵山胜境南门入口",
+        "intro": "灵山胜境游览起点，靠近景区南门检票区域，是多条推荐路线的入园节点。",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-001_灵山大照壁.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-SQUARE",
+        "name": "胜境广场",
+        "lat": 31.4219,
+        "lng": 120.10205,
+        "description": "中轴线入口广场",
+        "intro": "进入灵山胜境后的开阔集散空间，承接南门、照壁与景区中轴线，是游览路线展开的前序节点。",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-001_灵山大照壁.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-HAND",
+        "name": "佛手广场",
+        "lat": 31.42695,
+        "lng": 120.09872,
+        "description": "天下第一掌互动打卡点",
+        "intro": "以“天下第一掌”为核心的祈福互动节点，游客常在此触摸佛手、拍照留念。",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-011_灵山大佛.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-XINGTAN",
+        "name": "杏坛广场",
+        "lat": 31.42862,
+        "lng": 120.09754,
+        "description": "大佛前序朝圣节点",
+        "intro": "位于祥符禅寺与佛前广场之间，是前往灵山大佛过程中的中轴线节点。",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-010_祥符禅寺.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-BUDDHA-SQUARE",
+        "name": "佛前广场",
+        "lat": 31.42945,
+        "lng": 120.09686,
+        "description": "灵山大佛前广场",
+        "intro": "位于灵山大佛前方，是瞻礼大佛、集合讲解与拍摄大佛全景的重要位置。",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-011_灵山大佛.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-SANSHENG",
+        "name": "三圣殿",
+        "lat": 31.42535,
+        "lng": 120.10262,
+        "description": "佛教历史文化展示节点",
+        "intro": "历史文化爱好者路线中的佛教文化展示节点，适合作为五印坛城之后的文化补充参观点。",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-014_五印坛城.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-JINGSHE",
+        "name": "灵山精舍",
+        "lat": 31.42715,
+        "lng": 120.10505,
+        "description": "禅意园林休憩区",
+        "intro": "自然风光路线中的禅意园林节点，适合放慢节奏，感受山水与园林氛围。",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-015_曼飞龙塔.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-FANGONG-SQUARE",
+        "name": "梵宫广场",
+        "lat": 31.42776,
+        "lng": 120.10278,
+        "description": "灵山梵宫外部广场",
+        "intro": "位于灵山梵宫外侧的开阔广场，适合观赏梵宫建筑外观并作为路线集散节点。",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-013_灵山梵宫.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "LS-EXIT",
+        "name": "出口",
+        "lat": 31.42108,
+        "lng": 120.10324,
+        "description": "灵山胜境路线终点",
+        "intro": "推荐路线的结束节点，靠近景区南门出入口区域。",
+        "imageUrl": "file:///android_asset/scenic_intro/images/lingshan/LS-001_灵山大照壁.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
       }
@@ -175,6 +290,7 @@
         "lat": 31.417075,
         "lng": 120.073525,
         "description": "小镇核心广场",
+        "intro": "小镇核心入口广场，中央矗立12米高的拈花微笑主题雕塑。这是游客入园后见到的第一景，也是小镇禅意之旅的起点。",
         "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-001_拈花广场.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
@@ -185,6 +301,7 @@
         "lat": 31.415904,
         "lng": 120.075421,
         "description": "季节性花海景观",
+        "intro": "大片季节性生态花田，四季花卉交替绽放、色彩斑斓，是小镇内赏花拍照、感受自然禅意的浪漫景观。",
         "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-002_梵天花海.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
@@ -195,7 +312,30 @@
         "lat": 31.416822,
         "lng": 120.073636,
         "description": "禅意主题商业街",
+        "intro": "长约800米的唐风禅意商业街，白墙黛瓦、飞檐斗拱，两侧禅意商铺与食肆云集，是小镇最核心的街区。",
         "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-003_香月花街.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "NH-007",
+        "name": "拈花塔",
+        "lat": 31.41726,
+        "lng": 120.073735,
+        "description": "亮塔仪式核心地标",
+        "intro": "拈花塔是香月花街的标志性唐风楼阁，也是拈花湾夜游的核心地标。白天可拍摄唐风建筑与街巷景观，夜晚亮塔仪式开启时灯光逐层点亮，是小镇最具辨识度的打卡点之一。",
+        "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-007_拈花塔.jpg",
+        "coordinate_system": "GCJ02",
+        "coordinate_locked": true
+      },
+      {
+        "id": "NH-008",
+        "name": "妙音台",
+        "lat": 31.416975,
+        "lng": 120.074025,
+        "description": "传统戏曲与禅意演艺空间",
+        "intro": "妙音台是拈花湾的传统禅意戏台，建筑飞檐翘角、古朴雅致，常用于昆曲、京剧等传统戏曲与禅意文化表演。游客可在这里感受戏曲艺术与禅宗意境交融的现场氛围。",
+        "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-008_妙音台.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
       },
@@ -205,6 +345,7 @@
         "lat": 31.419622,
         "lng": 120.077128,
         "description": "文化展示与演出场所",
+        "intro": "集禅修与文化体验于一体的场所，可参与禅坐、抄经、禅茶等活动，是静心感受禅意生活的清雅空间。",
         "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-004_拈花堂.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
@@ -215,6 +356,7 @@
         "lat": 31.418665,
         "lng": 120.075312,
         "description": "夜间水幕光影秀",
+        "intro": "夜间水秀表演的核心观赏点，上演花开五叶水幕光影秀，灯光与水舞交融，是拈花湾夜游不可错过的景观。",
         "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-005_五灯湖.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true
@@ -225,6 +367,7 @@
         "lat": 31.424319,
         "lng": 120.079449,
         "description": "禅意山谷自然景观",
+        "intro": "山林幽谷中的自然生态休闲区，林木葱郁、溪谷清幽，是远离喧嚣、漫步休憩、亲近自然的禅意山谷。",
         "imageUrl": "file:///android_asset/scenic_intro/images/nianhua/NH-006_鹿鸣谷.jpg",
         "coordinate_system": "GCJ02",
         "coordinate_locked": true

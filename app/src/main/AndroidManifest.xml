@@ -54,6 +54,9 @@
         <meta-data
             android:name="com.amap.api.v2.apikey"
             android:value="e5d577f184614534b58d4143cd509113" />
+        <meta-data
+            android:name="com.amap.api.v2.securityCode"
+            android:value="${AMAP_SECURITY_CODE}" />
 
         <activity
             android:name=".MainActivity"

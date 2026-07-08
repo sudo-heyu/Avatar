@@ -16,6 +16,8 @@ data class ScenicSpot(
     val id: String,
     val name: String,
     val description: String = "",
+    /** 景点的一段话详细介绍（用于信息卡），与简短的 description 互补 */
+    val intro: String = "",
     val sortOrder: Int = 0,
     val lat: Double? = null,
     val lng: Double? = null,
@@ -24,6 +26,23 @@ data class ScenicSpot(
     val coordinateSystem: String? = null,
     @SerialName("coordinate_locked")
     val coordinateLocked: Boolean = false
+)
+
+@Serializable
+data class ScenicFacility(
+    val id: String,
+    val name: String,
+    val category: String,
+    val address: String = "",
+    val lat: Double,
+    val lng: Double,
+    @SerialName("amap_poi_id")
+    val amapPoiId: String? = null,
+    @SerialName("type_code")
+    val typeCode: String? = null,
+    @SerialName("coordinate_system")
+    val coordinateSystem: String = "GCJ02",
+    val source: String = "amap_web_api"
 )
 
 /**
@@ -64,7 +83,8 @@ data class ScenicRoute(
 data class ScenicMapBundle(
     val area: ScenicArea,
     val spotsWithLocation: List<ScenicSpot>,
-    val mapData: ScenicMapData
+    val mapData: ScenicMapData,
+    val facilities: List<ScenicFacility> = emptyList()
 )
 
 /**
@@ -75,7 +95,9 @@ data class MapPoi(
     val name: String,
     val address: String,
     val lat: Double,
-    val lng: Double
+    val lng: Double,
+    val localSpotId: String? = null,
+    val category: String? = null
 )
 
 @Serializable

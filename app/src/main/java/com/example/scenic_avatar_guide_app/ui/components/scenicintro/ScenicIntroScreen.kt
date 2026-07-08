@@ -41,7 +41,8 @@ import com.example.scenic_avatar_guide_app.ui.theme.ScenicPrimaryDeep
 fun ScenicIntroScreen(
     modifier: Modifier = Modifier,
     viewModel: ScenicIntroViewModel = hiltViewModel(),
-    showScenicSelector: Boolean = true
+    showScenicSelector: Boolean = true,
+    showTopBar: Boolean = true
 ) {
     val introState by viewModel.introState.collectAsState()
     val indexState by viewModel.indexState.collectAsState()
@@ -54,36 +55,42 @@ fun ScenicIntroScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        containerColor = ScenicPrimaryBg,
+        contentWindowInsets = if (showTopBar) ScaffoldDefaults.contentWindowInsets else WindowInsets(0.dp, 0.dp, 0.dp, 0.dp),
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "景区导览",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1C2328)
-                    )
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = ScenicPrimaryBg
-                ),
-                actions = {
-                    if (showScenicSelector && indexItems.isNotEmpty()) {
-                        ScenicSelectorChip(
-                            indexItems = indexItems,
-                            selectedScenicId = selectedScenicId,
-                            onScenicSelected = viewModel::selectScenic,
-                            modifier = Modifier.padding(end = 16.dp, top = 8.dp, bottom = 8.dp)
+            if (showTopBar) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "景区导览",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1C2328)
                         )
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = ScenicPrimaryBg
+                    ),
+                    actions = {
+                        if (showScenicSelector && indexItems.isNotEmpty()) {
+                            ScenicSelectorChip(
+                                indexItems = indexItems,
+                                selectedScenicId = selectedScenicId,
+                                onScenicSelected = viewModel::selectScenic,
+                                modifier = Modifier.padding(end = 16.dp, top = 8.dp, bottom = 8.dp)
+                            )
+                        }
                     }
-                }
-            )
+                )
+            }
         }
     ) { paddingValues ->
         when (val state = introState) {
             is UiState.Loading -> {
                 Box(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues),
                     contentAlignment = Alignment.Center
                 ) {
                     CircularProgressIndicator(color = ScenicPrimary)
@@ -91,7 +98,9 @@ fun ScenicIntroScreen(
             }
             is UiState.Error -> {
                 Box(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -117,7 +126,10 @@ fun ScenicIntroScreen(
 
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 24.dp)
+                    contentPadding = PaddingValues(
+                        top = paddingValues.calculateTopPadding(),
+                        bottom = paddingValues.calculateBottomPadding() + 24.dp
+                    )
                 ) {
                     content.heroImage?.let { hero ->
                         item {
@@ -225,6 +237,17 @@ fun ScenicSelectorChip(
 
 @Composable
 fun SectionRenderer(section: ContentSection) {
+    when (section.id) {
+        "route" -> {
+            RouteRecommendationSection(section = section)
+            return
+        }
+        "tips" -> {
+            TravelTipsSection(section = section)
+            return
+        }
+    }
+
     when (section.layout) {
         SectionLayout.TEXT_ONLY -> TextSection(section = section)
         SectionLayout.IMAGE_FULL -> ImageFullSection(section = section)
@@ -247,12 +270,23 @@ fun HeroImageSection(
     scenicName: String,
     subtitle: String?
 ) {
-    Box(
-        modifier = Modifier
+    val showFullImage = scenicName == "灵山胜境" && heroImage.caption == "灵山大佛"
+    val imageContainerModifier = if (showFullImage) {
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .aspectRatio(800f / 1067f)
+    } else {
+        Modifier
             .fillMaxWidth()
             .height(240.dp)
             .padding(horizontal = 16.dp, vertical = 12.dp)
+    }
+
+    Box(
+        modifier = imageContainerModifier
             .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFFEAF0EC))
     ) {
         AsyncImage(
             model = heroImage.url,
@@ -538,6 +572,404 @@ fun TextImageSection(section: ContentSection, imageOnRight: Boolean) {
                 )
             }
         }
+    }
+}
+
+// ==================== Route Recommendation Section ====================
+
+@Composable
+fun RouteRecommendationSection(section: ContentSection) {
+    val imageItem = section.items.find { it.type == ContentType.IMAGE }
+    val routes = remember(section.items) {
+        section.items
+            .filter { it.type == ContentType.PARAGRAPH }
+            .mapNotNull { it.text?.takeIf(String::isNotBlank)?.let(::parseRouteCardData) }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        SectionHeader(
+            title = section.title,
+            subtitle = section.subtitle,
+            subtitleColor = ScenicPrimaryDark
+        )
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            color = Color.White,
+            tonalElevation = 1.dp,
+            shadowElevation = 2.dp
+        ) {
+            Column {
+                imageItem?.imageUrl?.let { url ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(148.dp)
+                    ) {
+                        AsyncImage(
+                            model = url,
+                            contentDescription = imageItem.imageCaption,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(
+                                            Color.Transparent,
+                                            Color.Black.copy(alpha = 0.42f)
+                                        )
+                                    )
+                                )
+                        )
+                        imageItem.imageCaption?.let { caption ->
+                            Text(
+                                text = caption,
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 14.dp)
+                ) {
+                    routes.forEachIndexed { index, route ->
+                        RoutePlanCard(route = route, index = index)
+                        if (index != routes.lastIndex) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RoutePlanCard(
+    route: RouteCardData,
+    index: Int
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = if (index % 2 == 0) Color(0xFFF6FAF8) else Color(0xFFFFFBF5)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top
+            ) {
+                Surface(
+                    modifier = Modifier.size(30.dp),
+                    shape = CircleShape,
+                    color = ScenicPrimaryDark
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = (index + 1).toString(),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = route.title,
+                        fontSize = 15.sp,
+                        lineHeight = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = ScenicPrimaryDeep
+                    )
+                    if (route.summary.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = route.summary,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                            color = Color(0xFF5A6772)
+                        )
+                    }
+                }
+            }
+
+            if (route.stops.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                RouteStopTimeline(stops = route.stops)
+            } else if (route.rawPath.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = route.rawPath,
+                    fontSize = 14.sp,
+                    lineHeight = 21.sp,
+                    color = Color(0xFF1C2328)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouteStopTimeline(stops: List<String>) {
+    Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+        stops.forEachIndexed { index, stop ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min),
+                verticalAlignment = Alignment.Top
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(28.dp)
+                        .fillMaxHeight()
+                ) {
+                    if (index != stops.lastIndex) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(top = 24.dp)
+                                .width(2.dp)
+                                .fillMaxHeight()
+                                .background(ScenicPrimaryDark.copy(alpha = 0.18f))
+                        )
+                    }
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .size(24.dp),
+                        shape = CircleShape,
+                        color = if (index == 0 || index == stops.lastIndex) {
+                            ScenicPrimaryDark
+                        } else {
+                            ScenicPrimaryDark.copy(alpha = 0.12f)
+                        }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = when {
+                                    index == 0 -> "起"
+                                    index == stops.lastIndex -> "终"
+                                    else -> index.toString()
+                                },
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (index == 0 || index == stops.lastIndex) {
+                                    Color.White
+                                } else {
+                                    ScenicPrimaryDark
+                                },
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = stop,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 8.dp, bottom = if (index == stops.lastIndex) 0.dp else 12.dp),
+                    fontSize = 15.sp,
+                    lineHeight = 21.sp,
+                    fontWeight = if (index == 0 || index == stops.lastIndex) FontWeight.SemiBold else FontWeight.Normal,
+                    color = Color(0xFF1C2328)
+                )
+            }
+        }
+    }
+}
+
+// ==================== Travel Tips Section ====================
+
+@Composable
+fun TravelTipsSection(section: ContentSection) {
+    val tips = section.items
+        .filter { it.type == ContentType.PARAGRAPH }
+        .mapNotNull { it.text?.takeIf(String::isNotBlank) }
+
+    if (tips.isEmpty()) return
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        SectionHeader(
+            title = section.title,
+            subtitle = section.subtitle,
+            subtitleColor = Color(0xFF5A6772)
+        )
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            color = Color.White,
+            tonalElevation = 1.dp,
+            shadowElevation = 2.dp
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                tips.forEachIndexed { index, tip ->
+                    val (title, body) = remember(tip) { splitTipTitleAndBody(tip) }
+                    TravelTipCard(
+                        index = index,
+                        title = title,
+                        body = body
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TravelTipCard(
+    index: Int,
+    title: String,
+    body: String
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                color = if (index % 2 == 0) Color(0xFFF6FAF8) else Color(0xFFFFFBF5),
+                shape = RoundedCornerShape(10.dp)
+            )
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Surface(
+            modifier = Modifier.size(28.dp),
+            shape = CircleShape,
+            color = if (index % 2 == 0) ScenicPrimaryDark.copy(alpha = 0.13f) else Color(0xFFF2A541).copy(alpha = 0.18f)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = (index + 1).toString(),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (index % 2 == 0) ScenicPrimaryDark else Color(0xFF986A1D)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFF1C2328),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(
+                text = body,
+                fontSize = 13.sp,
+                lineHeight = 19.sp,
+                color = Color(0xFF4A5963)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(
+    title: String?,
+    subtitle: String?,
+    subtitleColor: Color
+) {
+    title?.let {
+        Text(
+            text = it,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            color = ScenicPrimaryDeep
+        )
+    }
+    subtitle?.let {
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = it,
+            fontSize = 13.sp,
+            color = subtitleColor
+        )
+    }
+    Spacer(modifier = Modifier.height(10.dp))
+}
+
+private fun splitRouteAndNote(text: String): Pair<String, String> {
+    val trimmed = text.trim()
+    if (trimmed.isBlank()) return "" to ""
+    val sentenceEnd = trimmed.indexOf('。')
+    return if (sentenceEnd >= 0 && sentenceEnd < trimmed.lastIndex) {
+        trimmed.substring(0, sentenceEnd).trim() to trimmed.substring(sentenceEnd + 1).trim()
+    } else {
+        trimmed to ""
+    }
+}
+
+private data class RouteCardData(
+    val title: String,
+    val summary: String,
+    val rawPath: String,
+    val stops: List<String>
+)
+
+private fun parseRouteCardData(text: String): RouteCardData {
+    val trimmed = text.trim()
+    val titleSeparator = trimmed.indexOf('｜')
+    val title = if (titleSeparator > 0) {
+        trimmed.substring(0, titleSeparator).trim()
+    } else {
+        "推荐路线"
+    }
+    val body = if (titleSeparator > 0) trimmed.substring(titleSeparator + 1).trim() else trimmed
+    val (summary, pathText) = splitRouteAndNote(body)
+    return RouteCardData(
+        title = title,
+        summary = summary,
+        rawPath = pathText,
+        stops = parseRouteStops(pathText)
+    )
+}
+
+private fun parseRouteStops(pathText: String): List<String> {
+    return pathText
+        .split("→")
+        .map { it.trim().trim('。') }
+        .filter { it.isNotBlank() }
+}
+
+private fun splitTipTitleAndBody(text: String): Pair<String, String> {
+    val separators = listOf('：', ':')
+    val index = separators
+        .map { text.indexOf(it) }
+        .filter { it > 0 }
+        .minOrNull()
+    return if (index != null) {
+        text.substring(0, index).trim() to text.substring(index + 1).trim()
+    } else {
+        "提示" to text.trim()
     }
 }
 

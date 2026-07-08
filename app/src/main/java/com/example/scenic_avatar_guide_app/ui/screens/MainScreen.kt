@@ -11,7 +11,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -40,11 +39,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -69,9 +70,16 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.content.getSystemService
@@ -102,8 +110,11 @@ import com.example.scenic_avatar_guide_app.domain.model.RouteData
 import com.example.scenic_avatar_guide_app.domain.model.MapCover
 import com.example.scenic_avatar_guide_app.domain.model.AvatarState
 import com.example.scenic_avatar_guide_app.core.speech.SpeechRecognizerHelper
+import com.example.scenic_avatar_guide_app.core.avatar.AvatarDisplayMode
 import com.example.scenic_avatar_guide_app.core.avatar.TestAvatarActions
 import com.example.scenic_avatar_guide_app.core.avatar.AvatarPlayAction
+import com.example.scenic_avatar_guide_app.core.avatar.AvatarCostumeOption
+import com.example.scenic_avatar_guide_app.core.avatar.AvatarCostumeSelectionState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
@@ -112,7 +123,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private val FallbackBottomReserve = 152.dp
+private val FallbackBottomReserve = 100.dp
 private val MessageToFunctionCardGap = 8.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -157,6 +168,7 @@ fun MainScreen(
     val feedbackResult by viewModel.feedbackResult.collectAsStateWithLifecycle()
     val currentAssistantMessageId by viewModel.currentAssistantMessageId.collectAsStateWithLifecycle()
     val typewriterFinishedIds by viewModel.typewriterFinishedIds.collectAsStateWithLifecycle()
+    val avatarCostumeState by viewModel.avatarCostumeState.collectAsStateWithLifecycle()
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -166,7 +178,9 @@ fun MainScreen(
     var showImagePickerDialog by remember { mutableStateOf(false) }
     var cameraImageUri by remember { mutableStateOf<Uri?>(null) }
     var showVoiceDialog by remember { mutableStateOf(false) }
+    var showAvatarDialog by remember { mutableStateOf(false) }
     var showLogoutConfirm by remember { mutableStateOf(false) }
+    var avatarDisplayMode by rememberSaveable { mutableStateOf(AvatarDisplayMode.UpperBody) }
     var bottomControlsContentHeightPx by remember { mutableIntStateOf(0) }
     val navigationBottomPx = WindowInsets.navigationBars.getBottom(density)
     val fixedBottomBarHeight = if (bottomControlsContentHeightPx > 0) {
@@ -174,6 +188,17 @@ fun MainScreen(
     } else {
         FallbackBottomReserve
     }
+    val fullBodyExpanded = avatarDisplayMode == AvatarDisplayMode.FullBodyExpanded
+    val avatarSectionWeight by animateFloatAsState(
+        targetValue = if (fullBodyExpanded) 3.55f else 2f,
+        animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+        label = "avatarSectionWeight"
+    )
+    val messageSectionWeight by animateFloatAsState(
+        targetValue = if (fullBodyExpanded) 1.45f else 3f,
+        animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+        label = "messageSectionWeight"
+    )
 
     // 外部触发显示认证弹窗（例如从设置页点击登录）
     LaunchedEffect(externalAuthTrigger) {
@@ -401,43 +426,55 @@ fun MainScreen(
                 Column(
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    TopBar(
-                        onMenuClick = { coroutineScope.launch { drawerState.open() } },
-                        showTestPanel = showTestPanel,
-                        onToggleTestPanel = { viewModel.toggleTestPanel() },
-                        onVoiceClick = { showVoiceDialog = true },
-                        onScenicClick = { viewModel.showScenicSelectionDialog() },
-                        onLogoutClick = { showLogoutConfirm = true },
-                        isAuthenticated = isAuthenticated,
-                        currentMode = currentMode,
-                        onRouteToggle = {
-                            viewModel.switchMode(
-                                if (currentMode == InteractionMode.Route) InteractionMode.Chat
-                                else InteractionMode.Route
-                            )
-                        }
-                    )
-
                     // 数字人区域：在主内容区域内按比例分配
-                    AvatarSection(
-                        avatarState = avatarState,
-                        fullState = avatarFullState,
-                        mouthState = viewModel.mouthState,
-                        showUpperBodyOnly = true,
-                        onRendererReady = { renderer ->
-                            // 设置渲染器状态重置回调，解决 StateFlow 合并跳过 IDLE 问题
-                            viewModel.setResetSpeakingStateCallback {
-                                renderer.resetSpeakingState()
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth().weight(2f)
-                    )
+                    Box(
+                        modifier = Modifier.fillMaxWidth().weight(avatarSectionWeight)
+                    ) {
+                        AvatarSection(
+                            avatarState = avatarState,
+                            fullState = avatarFullState,
+                            mouthState = viewModel.mouthState,
+                            displayMode = avatarDisplayMode,
+                            onRendererReady = { renderer ->
+                                // 设置渲染器状态重置回调，解决 StateFlow 合并跳过 IDLE 问题
+                                viewModel.setResetSpeakingStateCallback {
+                                    renderer.resetSpeakingState()
+                                }
+                                // 注入渲染器给形象管理器，用于换装时 GL 线程热重载贴图
+                                viewModel.attachAvatarRenderer(renderer)
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        AvatarOverlayControls(
+                            onMenuClick = { coroutineScope.launch { drawerState.open() } },
+                            showTestPanel = showTestPanel,
+                            onToggleTestPanel = { viewModel.toggleTestPanel() },
+                            onVoiceClick = { showVoiceDialog = true },
+                            onAvatarClick = {
+                                viewModel.refreshAvatarCostumes()
+                                showAvatarDialog = true
+                            },
+                            onScenicClick = { viewModel.showScenicSelectionDialog() },
+                            onLogoutClick = { showLogoutConfirm = true },
+                            isAuthenticated = isAuthenticated,
+                            currentMode = currentMode,
+                            avatarDisplayMode = avatarDisplayMode,
+                            onAvatarDisplayModeChange = { avatarDisplayMode = it },
+                            onRouteToggle = {
+                                viewModel.switchMode(
+                                    if (currentMode == InteractionMode.Route) InteractionMode.Chat
+                                    else InteractionMode.Route
+                                )
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
 
                     // 消息列表：只为底栏常态高度留白；输入法弹出不额外压缩消息区域
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(3f)
+                            .weight(messageSectionWeight)
                     ) {
                         MessageList(
                             messages = messages,
@@ -532,13 +569,6 @@ fun MainScreen(
                                 )
                             }
 
-                            // 功能卡片：模式选择器（位于输入框上方，随输入法同步移动）
-                            ModeSelector(
-                                currentMode = currentMode,
-                                onModeChange = { viewModel.switchMode(it) },
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
-                            )
-
                             // 输入框：位于最下方
                             if (voiceInputMode) {
                                 VoiceInputButton(
@@ -558,6 +588,7 @@ fun MainScreen(
                                     onInputChange = { viewModel.updateInputText(it) },
                                     onSend = { viewModel.sendMessage() },
                                     onAbort = { viewModel.abortConversation() },
+                                    onModeChange = { viewModel.switchMode(it) },
                                     onVoiceClick = {
                                         if (hasAudioPermission) viewModel.enterVoiceInputMode()
                                         else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -736,77 +767,69 @@ fun MainScreen(
             viewModel.clearFeedbackResult()
         }
     }
+
+    if (showAvatarDialog) {
+        AvatarCostumeSelectionDialog(
+            state = avatarCostumeState,
+            onDismiss = { showAvatarDialog = false },
+            onRefresh = { viewModel.refreshAvatarCostumes() },
+            onSelect = { optionId -> viewModel.applyAvatarCostume(optionId) }
+        )
+    }
+
+    LaunchedEffect(avatarCostumeState) {
+        when (val s = avatarCostumeState) {
+            is AvatarCostumeSelectionState.Applied -> {
+                Toast.makeText(context, "已切换为${s.option.name}", Toast.LENGTH_SHORT).show()
+                showAvatarDialog = false
+                viewModel.dismissAvatarCostumeState()
+            }
+            is AvatarCostumeSelectionState.Failed -> {
+                Toast.makeText(context, "形象切换失败：${s.message}", Toast.LENGTH_LONG).show()
+                viewModel.dismissAvatarCostumeState()
+            }
+            else -> Unit
+        }
+    }
 }
 
 @Composable
-private fun TopBar(
+private fun AvatarOverlayControls(
     onMenuClick: () -> Unit,
     showTestPanel: Boolean,
     onToggleTestPanel: () -> Unit,
     onVoiceClick: () -> Unit,
+    onAvatarClick: () -> Unit,
     onScenicClick: () -> Unit,
     onLogoutClick: () -> Unit,
     isAuthenticated: Boolean,
     currentMode: InteractionMode = InteractionMode.Chat,
-    onRouteToggle: () -> Unit = {}
+    avatarDisplayMode: AvatarDisplayMode,
+    onAvatarDisplayModeChange: (AvatarDisplayMode) -> Unit,
+    onRouteToggle: () -> Unit = {},
+    modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(48.dp)
-            .background(Color.White)
-            .padding(horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
-        IconButton(
+        AvatarCornerIconButton(
             onClick = onMenuClick,
-            modifier = Modifier.size(40.dp)
+            modifier = Modifier.align(Alignment.TopStart)
         ) {
-            Column(
-                horizontalAlignment = Alignment.Start,
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-                modifier = Modifier.padding(2.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(15.dp)
-                        .height(1.5.dp)
-                        .clip(RoundedCornerShape(0.75.dp))
-                        .background(TextSecondary)
-                )
-                Box(
-                    modifier = Modifier
-                        .width(15.dp)
-                        .height(1.5.dp)
-                        .clip(RoundedCornerShape(0.75.dp))
-                        .background(TextSecondary)
-                )
-                Box(
-                    modifier = Modifier
-                        .width(8.dp)
-                        .height(1.5.dp)
-                        .clip(RoundedCornerShape(0.75.dp))
-                        .background(TextSecondary)
-                )
-            }
+            Icon(
+                imageVector = Icons.Default.Menu,
+                contentDescription = "打开侧边栏",
+                tint = TextSecondary,
+                modifier = Modifier.size(22.dp)
+            )
         }
 
-        Text(
-            text = "景灵智导",
-            fontWeight = FontWeight.Bold,
-            fontSize = 18.sp,
-            color = TextSecondary,
-            modifier = Modifier.weight(1f),
-            textAlign = TextAlign.Center
-        )
-
-        Box {
-            IconButton(
-                onClick = { showMenu = true },
-                modifier = Modifier.size(40.dp)
-            ) {
+        Box(modifier = Modifier.align(Alignment.TopEnd)) {
+            AvatarCornerIconButton(onClick = { showMenu = true }) {
                 Icon(
                     imageVector = Icons.Default.MoreVert,
                     contentDescription = "更多选项",
@@ -836,6 +859,85 @@ private fun TopBar(
                     onClick = {
                         showMenu = false
                         onVoiceClick()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("形象选择", fontSize = 14.sp, color = TextPrimary) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Face,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = Primary
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        onAvatarClick()
+                    }
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            "半身显示",
+                            fontSize = 14.sp,
+                            color = if (avatarDisplayMode == AvatarDisplayMode.UpperBody) Primary else TextPrimary,
+                            fontWeight = if (avatarDisplayMode == AvatarDisplayMode.UpperBody) FontWeight.SemiBold else FontWeight.Normal
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.AccessibilityNew,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = if (avatarDisplayMode == AvatarDisplayMode.UpperBody) Primary else TextSecondary
+                        )
+                    },
+                    trailingIcon = if (avatarDisplayMode == AvatarDisplayMode.UpperBody) {
+                        {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = Primary
+                            )
+                        }
+                    } else null,
+                    onClick = {
+                        showMenu = false
+                        onAvatarDisplayModeChange(AvatarDisplayMode.UpperBody)
+                    }
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            "全身显示",
+                            fontSize = 14.sp,
+                            color = if (avatarDisplayMode == AvatarDisplayMode.FullBodyExpanded) Primary else TextPrimary,
+                            fontWeight = if (avatarDisplayMode == AvatarDisplayMode.FullBodyExpanded) FontWeight.SemiBold else FontWeight.Normal
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.OpenInFull,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = if (avatarDisplayMode == AvatarDisplayMode.FullBodyExpanded) Primary else TextSecondary
+                        )
+                    },
+                    trailingIcon = if (avatarDisplayMode == AvatarDisplayMode.FullBodyExpanded) {
+                        {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = Primary
+                            )
+                        }
+                    } else null,
+                    onClick = {
+                        showMenu = false
+                        onAvatarDisplayModeChange(AvatarDisplayMode.FullBodyExpanded)
                     }
                 )
                 val isRouteMode = currentMode == InteractionMode.Route
@@ -933,6 +1035,177 @@ private fun TopBar(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AvatarCornerIconButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit
+) {
+    Surface(
+        modifier = modifier.size(42.dp),
+        shape = CircleShape,
+        color = Color.White.copy(alpha = 0.88f),
+        shadowElevation = 3.dp,
+        border = BorderStroke(1.dp, SurfaceVariant.copy(alpha = 0.75f))
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
+            content = content
+        )
+    }
+}
+
+@Composable
+private fun AvatarCostumeSelectionDialog(
+    state: AvatarCostumeSelectionState,
+    onDismiss: () -> Unit,
+    onRefresh: () -> Unit,
+    onSelect: (String) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("形象选择", fontWeight = FontWeight.SemiBold) },
+        text = {
+            when (state) {
+                is AvatarCostumeSelectionState.Loading -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Text("加载中", fontSize = 14.sp, color = TextSecondary)
+                    }
+                }
+                is AvatarCostumeSelectionState.Ready -> {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 420.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(state.items, key = { it.id }) { option ->
+                            AvatarCostumeOptionRow(
+                                option = option,
+                                selected = option.id == state.selectedId,
+                                applying = false,
+                                onClick = { onSelect(option.id) }
+                            )
+                        }
+                    }
+                }
+                is AvatarCostumeSelectionState.Applying -> {
+                    AvatarCostumeOptionRow(
+                        option = state.option,
+                        selected = true,
+                        applying = true,
+                        onClick = {}
+                    )
+                }
+                is AvatarCostumeSelectionState.Applied -> {
+                    AvatarCostumeOptionRow(
+                        option = state.option,
+                        selected = true,
+                        applying = false,
+                        onClick = {}
+                    )
+                }
+                is AvatarCostumeSelectionState.Failed -> {
+                    Text(state.message, fontSize = 14.sp, color = Error)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onRefresh) {
+                Text("刷新")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭")
+            }
+        },
+        containerColor = Color.White,
+        shape = RoundedCornerShape(18.dp)
+    )
+}
+
+@Composable
+private fun AvatarCostumeOptionRow(
+    option: AvatarCostumeOption,
+    selected: Boolean,
+    applying: Boolean,
+    onClick: () -> Unit
+) {
+    val borderColor = if (selected) Primary.copy(alpha = 0.65f) else SurfaceVariant
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .border(1.dp, borderColor, RoundedCornerShape(14.dp))
+            .background(if (selected) Primary.copy(alpha = 0.06f) else Color.White)
+            .clickable(enabled = !applying, onClick = onClick)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(58.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(SurfaceVariant.copy(alpha = 0.45f)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (option.previewUrl != null) {
+                AsyncImage(
+                    model = option.previewUrl,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Face,
+                    contentDescription = null,
+                    tint = Primary,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = option.name,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = option.directoryName ?: "local_default",
+                fontSize = 12.sp,
+                color = TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (applying) {
+            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+        } else if (selected) {
+            Icon(
+                imageVector = Icons.Default.CheckCircle,
+                contentDescription = null,
+                tint = Primary,
+                modifier = Modifier.size(22.dp)
+            )
         }
     }
 }
@@ -1310,7 +1583,8 @@ private fun ScenicIntroPortalScreen(
                         ScenicIntroScreen(
                             modifier = Modifier.fillMaxSize(),
                             viewModel = scenicIntroViewModel,
-                            showScenicSelector = false
+                            showScenicSelector = false,
+                            showTopBar = false
                         )
                     }
                     ScenicIntroTab.Reservation -> {
@@ -1896,6 +2170,7 @@ private fun AvatarSection(
     mouthState: kotlinx.coroutines.flow.StateFlow<Pair<Float, Float>>,
     modifier: Modifier = Modifier,
     showUpperBodyOnly: Boolean = false,
+    displayMode: AvatarDisplayMode? = null,
     onRendererReady: ((com.example.scenic_avatar_guide_app.core.avatar.Live2DRendererImpl) -> Unit)? = null
 ) {
     AvatarView(
@@ -1903,6 +2178,7 @@ private fun AvatarSection(
         fullState = fullState,
         mouthState = mouthState,
         showUpperBodyOnly = showUpperBodyOnly,
+        displayMode = displayMode,
         onRendererReady = onRendererReady,
         modifier = modifier
     )
@@ -2330,73 +2606,6 @@ private fun CancelZone(
 }
 
 @Composable
-private fun ModeSelector(currentMode: InteractionMode, onModeChange: (InteractionMode) -> Unit, modifier: Modifier = Modifier) {
-    val modes = listOf(
-        InteractionMode.Chat to "聊天问答" to Icons.Default.Chat,
-        InteractionMode.Route to "路线规划" to Icons.Default.Map
-    )
-
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        modes.forEach { (modeAndLabel, icon) ->
-            val (mode, label) = modeAndLabel
-            val isSelected = currentMode == mode
-
-            val backgroundColor by animateColorAsState(
-                targetValue = if (isSelected) Primary else Color.White,
-                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
-                label = "bgColor"
-            )
-
-            val contentColor by animateColorAsState(
-                targetValue = if (isSelected) Color.White else TextPrimary,
-                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
-                label = "contentColor"
-            )
-
-            val iconTint by animateColorAsState(
-                targetValue = if (isSelected) Color.White else Primary,
-                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
-                label = "iconTint"
-            )
-
-            Card(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(40.dp)
-                    .clickable { onModeChange(mode) },
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = backgroundColor),
-                elevation = CardDefaults.cardElevation(
-                    defaultElevation = if (isSelected) 4.dp else 1.dp
-                )
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 10.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = iconTint
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = label,
-                        fontSize = 13.sp,
-                        color = contentColor,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun MessageList(
     messages: List<ChatMessage>,
     isLoading: Boolean,
@@ -2467,15 +2676,28 @@ private fun MessageBubble(
     val clipboardManager = LocalClipboardManager.current
     val vibrator = context.getSystemService<Vibrator>()
     var previewImage by remember(message.id) { mutableStateOf<ChatImageInfo?>(null) }
-    // 图片是否全部加载渲染成功（供地图卡片弹出门控；无图片时立即就绪）
-    var imagesReady by remember(message.id) { mutableStateOf(message.images.isEmpty()) }
-
+    val responseImages = remember(message.images, message.routeData?.coverImage) {
+        message.routeData?.toCoverChatImage()?.let { coverImage ->
+            if (message.images.any { it.imageModel() == coverImage.imageModel() }) {
+                message.images
+            } else {
+                message.images + coverImage
+            }
+        } ?: message.images
+    }
     val contentToShow by remember(message.content) {
         derivedStateOf { message.content.trimEnd() }
     }
     val shouldShowThinkingAnimation = !isUser && message.isLoading
     val hasContent = contentToShow.isNotBlank()
     val canShowFeedback = isLastAssistant && !isUser && !message.isLoading && !message.isError && hasContent
+    val textFinished = message.id in typewriterFinishedIds
+    val visibleResponseImages = if (textFinished) responseImages else emptyList()
+    // 图片是否全部加载渲染成功（供地图卡片弹出门控；无图片时立即就绪）
+    var imagesReady by remember(message.id) { mutableStateOf(visibleResponseImages.isEmpty()) }
+    LaunchedEffect(visibleResponseImages) {
+        imagesReady = visibleResponseImages.isEmpty()
+    }
 
     if (isUser) {
         Row(
@@ -2596,12 +2818,12 @@ private fun MessageBubble(
                 }
             }
 
-            if (message.images.isNotEmpty()) {
+            if (visibleResponseImages.isNotEmpty()) {
                 if (hasContent) {
                     Spacer(modifier = Modifier.height(10.dp))
                 }
                 AssistantImageGallery(
-                    images = message.images,
+                    images = visibleResponseImages,
                     onImageClick = { previewImage = it },
                     onReadyChange = { imagesReady = it }
                 )
@@ -2615,10 +2837,9 @@ private fun MessageBubble(
             // 地图入口卡片：必须等文本、图片全部加载渲染成功（对话框全部结束）后才在结尾弹出。
             // 用 typewriterFinishedIds（打字机 onFinished / 历史恢复时加入，稳定）作为
             // "文本已输入完"信号——不依赖 currentAssistantMessageId（会被数字人 IDLE 提前置 null，导致提前弹出+抖动）。
-            val textFinished = message.id in typewriterFinishedIds
             val responseSettled = !message.isLoading && !message.isError
             if (message.routeData != null && responseSettled && textFinished && imagesReady) {
-                if (hasContent || message.images.isNotEmpty()) {
+                if (hasContent || visibleResponseImages.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(12.dp))
                 }
                 MapEntryCard(
@@ -3094,6 +3315,18 @@ private fun ChatImageInfo.imageModel(): String {
         ?: ""
 }
 
+private fun RouteData.toCoverChatImage(): ChatImageInfo? {
+    val cover = coverImage ?: return null
+    val url = cover.url?.takeIf { it.isNotBlank() } ?: return null
+    return ChatImageInfo(
+        imageId = "route-cover-${routeId ?: title}",
+        title = title,
+        description = cover.altText,
+        altText = cover.altText ?: "$title 路线封面",
+        url = url
+    )
+}
+
 /**
  * 思考中点阵动画
  */
@@ -3134,11 +3367,13 @@ private fun InputSection(
     isConversationActive: Boolean,
     pendingImageUri: String?,
     onInputChange: (String) -> Unit, onSend: () -> Unit, onAbort: () -> Unit,
+    onModeChange: (InteractionMode) -> Unit,
     onVoiceClick: () -> Unit, onCameraInput: () -> Unit,
     onClearImage: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier) {
+        var modeMenuExpanded by remember { mutableStateOf(false) }
         if (pendingImageUri != null) {
             Box(
                 modifier = Modifier
@@ -3169,68 +3404,229 @@ private fun InputSection(
                 }
             }
         }
-        Box(Modifier.clip(RoundedCornerShape(24.dp)).background(InputBarBg)) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (mode == InteractionMode.Chat) IconButton(onClick = onCameraInput, modifier = Modifier.size(40.dp)) { Icon(Icons.Default.CameraAlt, "拍照识景", Modifier.size(22.dp), Primary) }
-                val canSend = inputText.isNotBlank() || pendingImageUri != null
-                BasicTextField(
-                    value = inputText,
-                    onValueChange = { if (it.length <= 300) onInputChange(it) },
-                    modifier = Modifier.weight(1f),
-                    maxLines = 3,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(
-                        onSend = { if (canSend && !isLoading) onSend() }
-                    ),
-                    decorationBox = { innerTextField ->
-                        OutlinedTextFieldDefaults.DecorationBox(
-                            value = inputText,
-                            innerTextField = innerTextField,
-                            enabled = true,
-                            singleLine = false,
-                            visualTransformation = androidx.compose.ui.text.input.VisualTransformation.None,
-                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                            placeholder = { Text(when (mode) { InteractionMode.Chat -> "输入消息或拍照..."; InteractionMode.Route -> "输入路线偏好..." }, fontSize = 14.sp, color = TextHint) },
-                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
-                            contentPadding = PaddingValues(start = 12.dp, end = 48.dp, top = 8.dp, bottom = 8.dp)
-                        )
-                    }
-                )
-                when {
-                    isConversationActive -> {
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF5A6772))
-                                .clickable(onClick = onAbort),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Filled.Stop,
-                                contentDescription = "停止回复",
-                                modifier = Modifier.size(16.dp),
-                                tint = Color.White
+        Box {
+            Box(Modifier.clip(RoundedCornerShape(24.dp)).background(InputBarBg)) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    InputModeButton(
+                        currentMode = mode,
+                        onClick = { modeMenuExpanded = true }
+                    )
+                    if (mode == InteractionMode.Chat) IconButton(onClick = onCameraInput, modifier = Modifier.size(40.dp)) { Icon(Icons.Default.CameraAlt, "拍照识景", Modifier.size(22.dp), Primary) }
+                    val canSend = inputText.isNotBlank() || pendingImageUri != null
+                    BasicTextField(
+                        value = inputText,
+                        onValueChange = { if (it.length <= 300) onInputChange(it) },
+                        modifier = Modifier.weight(1f),
+                        maxLines = 3,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(
+                            onSend = { if (canSend && !isLoading) onSend() }
+                        ),
+                        decorationBox = { innerTextField ->
+                            OutlinedTextFieldDefaults.DecorationBox(
+                                value = inputText,
+                                innerTextField = innerTextField,
+                                enabled = true,
+                                singleLine = false,
+                                visualTransformation = androidx.compose.ui.text.input.VisualTransformation.None,
+                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                placeholder = { Text(when (mode) { InteractionMode.Chat -> "输入消息或拍照..."; InteractionMode.Route -> "输入路线偏好..." }, fontSize = 14.sp, color = TextHint) },
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
+                                contentPadding = PaddingValues(start = 12.dp, end = 48.dp, top = 8.dp, bottom = 8.dp)
                             )
                         }
-                    }
-                    canSend -> {
-                        FilledIconButton(
-                            onClick = onSend,
-                            enabled = !isLoading,
-                            modifier = Modifier.size(40.dp),
-                            shape = CircleShape
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.Send, "发送", Modifier.size(20.dp), Color.White)
+                    )
+                    when {
+                        isConversationActive -> {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF5A6772))
+                                    .clickable(onClick = onAbort),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Filled.Stop,
+                                    contentDescription = "停止回复",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = Color.White
+                                )
+                            }
                         }
-                    }
-                    else -> {
-                        IconButton(onClick = onVoiceClick, modifier = Modifier.size(40.dp)) {
-                            Icon(Icons.Default.Mic, "语音输入", Modifier.size(22.dp), TextSecondary)
+                        canSend -> {
+                            FilledIconButton(
+                                onClick = onSend,
+                                enabled = !isLoading,
+                                modifier = Modifier.size(40.dp),
+                                shape = CircleShape
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.Send, "发送", Modifier.size(20.dp), Color.White)
+                            }
+                        }
+                        else -> {
+                            IconButton(onClick = onVoiceClick, modifier = Modifier.size(40.dp)) {
+                                Icon(Icons.Default.Mic, "语音输入", Modifier.size(22.dp), TextSecondary)
+                            }
                         }
                     }
                 }
             }
+
+            if (modeMenuExpanded) {
+                InputModePopup(
+                    currentMode = mode,
+                    onDismiss = { modeMenuExpanded = false },
+                    onModeChange = { selectedMode ->
+                        modeMenuExpanded = false
+                        onModeChange(selectedMode)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun InputModeButton(
+    currentMode: InteractionMode,
+    onClick: () -> Unit
+) {
+    val label = when (currentMode) {
+        InteractionMode.Chat -> "聊天"
+        InteractionMode.Route -> "规划"
+    }
+
+    Surface(
+        modifier = Modifier
+            .height(36.dp)
+            .widthIn(min = 56.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, SurfaceVariant)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxHeight()
+                .padding(start = 10.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = label,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primary,
+                maxLines = 1,
+                softWrap = false
+            )
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowUp,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = Primary
+            )
+        }
+    }
+}
+
+@Composable
+private fun InputModePopup(
+    currentMode: InteractionMode,
+    onDismiss: () -> Unit,
+    onModeChange: (InteractionMode) -> Unit
+) {
+    val positionProvider = remember {
+        object : PopupPositionProvider {
+            override fun calculatePosition(
+                anchorBounds: IntRect,
+                windowSize: IntSize,
+                layoutDirection: LayoutDirection,
+                popupContentSize: IntSize
+            ): IntOffset {
+                val popupX = anchorBounds.left.coerceIn(
+                    minimumValue = 0,
+                    maximumValue = (windowSize.width - popupContentSize.width).coerceAtLeast(0)
+                )
+                val popupY = (anchorBounds.top - popupContentSize.height).coerceAtLeast(0)
+                return IntOffset(popupX, popupY)
+            }
+        }
+    }
+
+    Popup(
+        popupPositionProvider = positionProvider,
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true)
+    ) {
+        Surface(
+            modifier = Modifier.width(176.dp),
+            shape = RoundedCornerShape(12.dp),
+            color = Color.White,
+            shadowElevation = 8.dp,
+            border = BorderStroke(1.dp, SurfaceVariant.copy(alpha = 0.7f))
+        ) {
+            Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                InputModeMenuItem(
+                    selected = currentMode == InteractionMode.Chat,
+                    label = "聊天问答",
+                    icon = Icons.AutoMirrored.Filled.Chat,
+                    onClick = { onModeChange(InteractionMode.Chat) }
+                )
+                InputModeMenuItem(
+                    selected = currentMode == InteractionMode.Route,
+                    label = "路线规划",
+                    icon = Icons.Default.Map,
+                    onClick = { onModeChange(InteractionMode.Route) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun InputModeMenuItem(
+    selected: Boolean,
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .clickable(onClick = onClick)
+            .background(if (selected) Primary.copy(alpha = 0.08f) else Color.Transparent)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = if (selected) Primary else TextSecondary
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = label,
+            modifier = Modifier.weight(1f),
+            fontSize = 14.sp,
+            color = if (selected) Primary else TextPrimary,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (selected) {
+            Spacer(Modifier.width(8.dp))
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = Primary
+            )
         }
     }
 }

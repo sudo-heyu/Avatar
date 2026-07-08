@@ -16,4 +16,6 @@
     <string name="map_marker_navigate">导航到这里</string>
     <string name="map_marker_close">关闭</string>
     <string name="map_no_nav_app">未找到可用的导航应用</string>
+    <string name="map_invalid_destination">目的地坐标无效</string>
+    <string name="map_destination">目的地</string>
 </resources>

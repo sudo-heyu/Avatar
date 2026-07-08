@@ -13,12 +13,20 @@
 #include "LAppDelegate.hpp"
 #include "LAppPal.hpp"
 #include "LAppLive2DManager.hpp"
+#include "LAppTextureManager.hpp"
 #include "CubismFramework.hpp"
 
 using namespace Csm;
 
+namespace
+{
+    constexpr int AvatarDisplayMode_FullBodyFit = 0;
+    constexpr int AvatarDisplayMode_UpperBody = 1;
+    constexpr int AvatarDisplayMode_FullBodyExpanded = 2;
+}
+
 static JavaVM* g_JVM; // JavaVM is valid for all threads, so just save it globally
-static bool s_upperBodyModePending = false;
+static int s_avatarDisplayModePending = AvatarDisplayMode_FullBodyFit;
 // Serializes all C++ singleton access across GL threads. Prevents data races when
 // the user rapidly opens/closes the app, causing a new GL thread to start before
 // the old one fully stops (crash site: CubismPhysics::Evaluate()).
@@ -163,6 +171,19 @@ extern "C"
         LAppDelegate::GetInstance()->OnDestroy();
     }
 
+    // 换装：清空贴图缓存并重建所有模型渲染器，使 filesDir 中新写入的贴图生效。
+    // 必须在 GL 线程调用（Kotlin 侧通过 GLSurfaceView.queueEvent 投递）。
+    JNIEXPORT void JNICALL
+    Java_com_example_scenic_1avatar_1guide_1app_core_avatar_JniBridgeJava_nativeReloadTextures(JNIEnv *env, jclass type)
+    {
+        std::lock_guard<std::mutex> lock(s_renderMutex);
+        if (s_isDestroyed.load(std::memory_order_relaxed)) {
+            return;
+        }
+        LAppDelegate::GetInstance()->GetTextureManager()->ReleaseTextures();
+        LAppLive2DManager::GetInstance()->ReloadAllRenderers();
+    }
+
     JNIEXPORT void JNICALL
     Java_com_example_scenic_1avatar_1guide_1app_core_avatar_JniBridgeJava_nativeOnSurfaceCreated(JNIEnv *env, jclass type)
     {
@@ -170,10 +191,7 @@ extern "C"
         // 重新初始化时清除销毁标志
         s_isDestroyed.store(false, std::memory_order_release);
         LAppDelegate::GetInstance()->OnSurfaceCreate();
-        if (s_upperBodyModePending)
-        {
-            LAppLive2DManager::GetInstance()->SetUpperBodyMode(true);
-        }
+        LAppLive2DManager::GetInstance()->SetAvatarDisplayMode(s_avatarDisplayModePending);
     }
 
     JNIEXPORT void JNICALL
@@ -287,13 +305,30 @@ extern "C"
     JNIEXPORT void JNICALL
     Java_com_example_scenic_1avatar_1guide_1app_core_avatar_JniBridgeJava_nativeSetUpperBodyMode(JNIEnv *env, jclass type, jboolean enabled)
     {
-        s_upperBodyModePending = (enabled == JNI_TRUE);
+        s_avatarDisplayModePending = (enabled == JNI_TRUE) ? AvatarDisplayMode_UpperBody : AvatarDisplayMode_FullBodyFit;
         if (s_isDestroyed.load(std::memory_order_acquire)) return;
         if (CubismFramework::IsInitialized())
         {
             std::lock_guard<std::mutex> lock(s_renderMutex);
             if (s_isDestroyed.load(std::memory_order_relaxed)) return;
-            LAppLive2DManager::GetInstance()->SetUpperBodyMode(s_upperBodyModePending);
+            LAppLive2DManager::GetInstance()->SetAvatarDisplayMode(s_avatarDisplayModePending);
+        }
+    }
+
+    JNIEXPORT void JNICALL
+    Java_com_example_scenic_1avatar_1guide_1app_core_avatar_JniBridgeJava_nativeSetDisplayMode(JNIEnv *env, jclass type, jint mode)
+    {
+        if (mode < AvatarDisplayMode_FullBodyFit || mode > AvatarDisplayMode_FullBodyExpanded)
+        {
+            mode = AvatarDisplayMode_FullBodyFit;
+        }
+        s_avatarDisplayModePending = mode;
+        if (s_isDestroyed.load(std::memory_order_acquire)) return;
+        if (CubismFramework::IsInitialized())
+        {
+            std::lock_guard<std::mutex> lock(s_renderMutex);
+            if (s_isDestroyed.load(std::memory_order_relaxed)) return;
+            LAppLive2DManager::GetInstance()->SetAvatarDisplayMode(s_avatarDisplayModePending);
         }
     }
 

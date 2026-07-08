@@ -34,6 +34,9 @@ class SettingsDataStore @Inject constructor(
         private val AUTH_USERNAME_KEY = stringPreferencesKey("auth_username")
         private val IS_AUTHENTICATED_KEY = booleanPreferencesKey("is_authenticated")
         private val AMAP_PRIVACY_AGREED_KEY = booleanPreferencesKey("amap_privacy_agreed")
+        private val SELECTED_AVATAR_ID_KEY = stringPreferencesKey("selected_avatar_id")
+        private val SELECTED_AVATAR_VERSION_KEY = stringPreferencesKey("selected_avatar_version")
+        private val SELECTED_AVATAR_DIRECTORY_KEY = stringPreferencesKey("selected_avatar_directory")
 
         const val DEFAULT_BASE_URL = "http://10.0.2.2:8000/"
         const val DEFAULT_VOICE_ID = "zh-CN-XiaoyiNeural"
@@ -97,6 +100,19 @@ class SettingsDataStore @Inject constructor(
     /** 高德地图隐私协议是否已同意（全局持久化，同意后不再弹窗） */
     val amapPrivacyAgreed: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[AMAP_PRIVACY_AGREED_KEY] ?: false
+    }
+
+    /** 当前选中的数字人形象；default 表示使用安卓端内置贴图。 */
+    val selectedAvatarId: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[SELECTED_AVATAR_ID_KEY] ?: "default"
+    }
+
+    val selectedAvatarVersion: Flow<String?> = context.dataStore.data.map { preferences ->
+        preferences[SELECTED_AVATAR_VERSION_KEY]
+    }
+
+    val selectedAvatarDirectory: Flow<String?> = context.dataStore.data.map { preferences ->
+        preferences[SELECTED_AVATAR_DIRECTORY_KEY]
     }
 
     suspend fun setBaseUrl(url: String) {
@@ -205,6 +221,30 @@ class SettingsDataStore @Inject constructor(
     suspend fun setAmapPrivacyAgreed(value: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[AMAP_PRIVACY_AGREED_KEY] = value
+        }
+    }
+
+    suspend fun setSelectedAvatar(id: String, version: String?, directoryName: String?) {
+        context.dataStore.edit { preferences ->
+            preferences[SELECTED_AVATAR_ID_KEY] = id
+            if (version.isNullOrBlank()) {
+                preferences.remove(SELECTED_AVATAR_VERSION_KEY)
+            } else {
+                preferences[SELECTED_AVATAR_VERSION_KEY] = version
+            }
+            if (directoryName.isNullOrBlank()) {
+                preferences.remove(SELECTED_AVATAR_DIRECTORY_KEY)
+            } else {
+                preferences[SELECTED_AVATAR_DIRECTORY_KEY] = directoryName
+            }
+        }
+    }
+
+    suspend fun clearSelectedAvatar() {
+        context.dataStore.edit { preferences ->
+            preferences[SELECTED_AVATAR_ID_KEY] = "default"
+            preferences.remove(SELECTED_AVATAR_VERSION_KEY)
+            preferences.remove(SELECTED_AVATAR_DIRECTORY_KEY)
         }
     }
 

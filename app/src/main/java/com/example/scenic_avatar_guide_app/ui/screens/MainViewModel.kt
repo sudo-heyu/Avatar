@@ -88,25 +88,25 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
 
     // 打字速度：每次从缓冲区取出的字符数。提高取出数量、降低 UI 提交频率，
     // 避免长回复期间频繁触发 Compose 文本重绘。
-    private val normalCharsPerTick = 8
-    private val completeCharsPerTick = 40
-    private val longTextCharsPerTick = 64
+    private val normalCharsPerTick = 4
+    private val completeCharsPerTick = 6
+    private val longTextCharsPerTick = 6
 
     // 打字间隔（毫秒）- 根据接收速度动态调整
-    private var currentIntervalMs = 80L
+    private var currentIntervalMs = 120L
 
     // 最小间隔（快速模式）
-    private val minIntervalMs = 50L
+    private val minIntervalMs = 95L
 
     // 最大间隔（慢速模式）
-    private val maxIntervalMs = 110L
+    private val maxIntervalMs = 150L
 
     // 批量更新阈值
     private var batchChars = 0
 
     // 最小 UI 更新间隔（毫秒）- 控制 Compose Text 重绘频率，同时避免回复显得断续。
     private val minUpdateIntervalMs = 180L
-    private val longTextUpdateIntervalMs = 320L
+    private val longTextUpdateIntervalMs = 300L
 
     // 上次更新时间
     private var lastUpdateTime = 0L
@@ -141,7 +141,7 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
             isComplete = false
             canStartDisplay = !waitForSync
             receivedTtsReady = false
-            currentIntervalMs = 80L
+            currentIntervalMs = 120L
             lastUpdateTime = System.currentTimeMillis()
             lastAppendTime = System.currentTimeMillis()
         }
@@ -178,7 +178,7 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
                             totalBufferedLength > 1600 -> minIntervalMs
                             isComplete -> minIntervalMs
                             timeSinceAppend < 120 -> maxIntervalMs
-                            timeSinceAppend < 400 -> 80L
+                            timeSinceAppend < 400 -> 115L
                             else -> minIntervalMs
                         }
 
@@ -197,9 +197,9 @@ class TypewriterController(private val scope: kotlinx.coroutines.CoroutineScope)
 
                         val timeSinceLastUpdate = now - lastUpdateTime
                         val minBatchChars = when {
-                            displayedText.length > 1600 -> 120
-                            displayedText.length > 900 -> 64
-                            else -> 24
+                            displayedText.length > 1600 -> 24
+                            displayedText.length > 900 -> 18
+                            else -> 12
                         }
                         val minInterval = when {
                             displayedText.length > 900 -> longTextUpdateIntervalMs
@@ -307,8 +307,33 @@ class MainViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val settingsDataStore: SettingsDataStore,
     private val scenicDataSource: ScenicDataSource,
-    private val mapDataRepository: MapDataRepository
+    private val mapDataRepository: MapDataRepository,
+    private val avatarCostumeManager: com.example.scenic_avatar_guide_app.core.avatar.AvatarCostumeManager
 ) : ViewModel() {
+
+    val avatarCostumeState: kotlinx.coroutines.flow.StateFlow<com.example.scenic_avatar_guide_app.core.avatar.AvatarCostumeSelectionState> =
+        avatarCostumeManager.state
+
+    fun attachAvatarRenderer(renderer: com.example.scenic_avatar_guide_app.core.avatar.Live2DRendererImpl) {
+        avatarCostumeManager.attachRenderer(renderer)
+    }
+
+    fun detachAvatarRenderer(renderer: com.example.scenic_avatar_guide_app.core.avatar.Live2DRendererImpl) {
+        avatarCostumeManager.detachRenderer(renderer)
+    }
+
+    fun refreshAvatarCostumes() {
+        viewModelScope.launch { avatarCostumeManager.refresh() }
+    }
+
+    fun applyAvatarCostume(optionId: String) {
+        viewModelScope.launch { avatarCostumeManager.applyCostume(optionId) }
+    }
+
+    fun dismissAvatarCostumeState() {
+        viewModelScope.launch { avatarCostumeManager.dismissTransientState() }
+    }
+
 
     private val _scenicAreas = MutableStateFlow(scenicDataSource.loadScenicAreas())
     val scenicAreas: StateFlow<List<ScenicArea>> = _scenicAreas.asStateFlow()
@@ -472,6 +497,8 @@ class MainViewModel @Inject constructor(
 
     private var currentStreamJob: Job? = null
 
+    private val pendingAssistantImagesByMessageId = mutableMapOf<String, List<ChatImageInfo>>()
+
     // 打字机效果控制器
     private val typewriterController = TypewriterController(viewModelScope).apply {
         onTextUpdate = { messageId, text ->
@@ -479,6 +506,7 @@ class MainViewModel @Inject constructor(
         }
         onFinished = { messageId ->
             _typewriterFinishedIds.value = _typewriterFinishedIds.value + messageId
+            publishPendingAssistantImages(messageId)
             if (_currentAssistantMessageId.value == messageId) {
                 _currentAssistantMessageId.value = null
             }
@@ -504,6 +532,7 @@ class MainViewModel @Inject constructor(
             } else {
                 initSession()
             }
+            avatarCostumeManager.refresh()
 
             // 未认证用户延迟弹出登录提示，已认证用户不弹
             val authenticated = settingsDataStore.isAuthenticated.first()
@@ -805,6 +834,7 @@ class MainViewModel @Inject constructor(
             val assistantMessageId = addMessage(content = "", isUser = false, isLoading = true)
             _currentAssistantMessageId.value = assistantMessageId
             _typewriterFinishedIds.value = _typewriterFinishedIds.value - assistantMessageId
+            pendingAssistantImagesByMessageId.remove(assistantMessageId)
             currentBackendMessageId = null
 
             // 启动打字机效果，等待第一个音频片段开始播放后再同步显示
@@ -919,16 +949,16 @@ class MainViewModel @Inject constructor(
                                     pendingAssistantImages,
                                     event.images.resolveImageUrls()
                                 )
-                                // 图片直接在助手消息中展示，不另开消息
-                                updateAssistantMessage(
-                                    assistantMessageId,
-                                    images = pendingAssistantImages
-                                )
+                                // 图片先缓存，等打字机完整显示文本后再发布，避免图片在底部提前闪动。
+                                pendingAssistantImagesByMessageId[assistantMessageId] = pendingAssistantImages
                             }
                         }
                         is ChatStreamEvent.RouteDataDelta -> {
                             Log.d(TAG, "RouteDataDelta: ${event.routeData.title}")
-                            updateAssistantMessage(assistantMessageId, routeData = event.routeData)
+                            updateAssistantMessage(
+                                assistantMessageId,
+                                routeData = repository.resolveRouteMediaUrls(event.routeData)
+                            )
                         }
                         is ChatStreamEvent.MetadataDelta -> {
                             Log.d(TAG, "MetadataDelta: intent=${event.metadata.intent}, combo=${event.metadata.combo}")
@@ -972,14 +1002,16 @@ class MainViewModel @Inject constructor(
                             streamResponseComplete = true  // 标记流式响应已完成
                             // 保底：如果没有收到 TTS 片段，也让打字机开始
                             typewriterController.notifyTtsReady()
-                            // 标记消息完成，以最大速度显示剩余文本
+                            // 标记消息完成，继续按受控速度显示剩余文本
                             typewriterController.finish()
                             updateAssistantMessage(
                                 id = assistantMessageId,
                                 isLoading = false,
-                                backendMessageId = currentBackendMessageId,
-                                images = pendingAssistantImages.takeIf { it.isNotEmpty() }
+                                backendMessageId = currentBackendMessageId
                             )
+                            if (assistantMessageId in _typewriterFinishedIds.value) {
+                                publishPendingAssistantImages(assistantMessageId)
+                            }
                             playbackManager.finishStreamingInput()
                             // 对话完成后通知侧边栏刷新，使 firstUserMessage 及时更新
                             _sessionListNeedsRefresh.value++
@@ -1093,6 +1125,7 @@ class MainViewModel @Inject constructor(
     }
 
     private fun cancelCurrentStream() {
+        _currentAssistantMessageId.value?.let { pendingAssistantImagesByMessageId.remove(it) }
         currentStreamJob?.cancel()
         currentStreamJob = null
         currentBackendMessageId = null
@@ -1208,6 +1241,15 @@ class MainViewModel @Inject constructor(
 
     private fun currentMessageContent(id: String): String {
         return _messages.value.firstOrNull { it.id == id }?.content.orEmpty()
+    }
+
+    private fun publishPendingAssistantImages(id: String) {
+        val images = pendingAssistantImagesByMessageId[id]?.takeIf { it.isNotEmpty() } ?: return
+        val message = _messages.value.firstOrNull { it.id == id } ?: return
+        if (message.isLoading || message.isError) return
+
+        updateAssistantMessage(id, images = images)
+        pendingAssistantImagesByMessageId.remove(id)
     }
 
     private fun mergeChatImages(

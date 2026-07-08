@@ -57,6 +57,7 @@ import com.airbnb.lottie.compose.LottieAnimation
 import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.animateLottieCompositionAsState
 import com.airbnb.lottie.compose.rememberLottieComposition
+import com.example.scenic_avatar_guide_app.core.avatar.AvatarDisplayMode
 import com.example.scenic_avatar_guide_app.core.avatar.Live2DGLSurfaceView
 import com.example.scenic_avatar_guide_app.core.avatar.Live2DRendererImpl
 import com.example.scenic_avatar_guide_app.domain.model.AvatarExpression
@@ -90,10 +91,16 @@ fun AvatarView(
     mouthState: StateFlow<Pair<Float, Float>>? = null,
     enableLive2D: Boolean = true,
     showUpperBodyOnly: Boolean = false,
+    displayMode: AvatarDisplayMode? = null,
     onRendererReady: ((Live2DRendererImpl) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val effectiveDisplayMode = displayMode ?: if (showUpperBodyOnly) {
+        AvatarDisplayMode.UpperBody
+    } else {
+        AvatarDisplayMode.FullBodyFit
+    }
 
     // Live2D 渲染器状态
     var renderer by remember { mutableStateOf<Live2DRendererImpl?>(null) }
@@ -204,9 +211,9 @@ fun AvatarView(
         }
     }
 
-    // 同步上半身模式到 Live2D 渲染器
-    LaunchedEffect(showUpperBodyOnly) {
-        renderer?.setUpperBodyMode(showUpperBodyOnly)
+    // 同步显示模式到 Live2D 渲染器
+    LaunchedEffect(effectiveDisplayMode) {
+        renderer?.setDisplayMode(effectiveDisplayMode)
     }
 
     val showLive2D = enableLive2D && isLive2DReady && live2dError == null && lottieFinished
@@ -221,13 +228,13 @@ fun AvatarView(
             AndroidView(
                 factory = {
                     renderer?.attachSurfaceView(live2DView)
-                    renderer?.setUpperBodyMode(showUpperBodyOnly)
+                    renderer?.setDisplayMode(effectiveDisplayMode)
                     fullState?.let { state -> renderer?.updateState(state) }
                     live2DView
                 },
                 modifier = Modifier.fillMaxSize(),
                 update = {
-                    renderer?.setUpperBodyMode(showUpperBodyOnly)
+                    renderer?.setDisplayMode(effectiveDisplayMode)
                     fullState?.let { state -> renderer?.updateState(state) }
                 }
             )

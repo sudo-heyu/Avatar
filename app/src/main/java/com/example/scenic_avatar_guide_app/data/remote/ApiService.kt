@@ -35,6 +35,12 @@ interface ApiService {
     ): PublicScenicSpotListResponse
 
     /**
+     * 获取后端新增的数字人形象列表。安卓端默认形象内置在 assets 中，不由后端返回。
+     */
+    @GET("api/v1/avatar/costumes")
+    suspend fun listAvatarCostumes(): AvatarCostumeListResponse
+
+    /**
      * 创建会话
      */
     @POST("api/v1/session/create")
@@ -139,7 +145,9 @@ interface ApiService {
         @Query("scenic_id") scenicId: String,
         @Query("duration_min") durationMin: Int? = null,
         @Query("current_spot") currentSpot: String? = null,
-        @Query("interest_tags") interestTags: String? = null
+        @Query("interest_tags") interestTags: String? = null,
+        @Query("route_id") routeId: String? = null,
+        @Query("route_name") routeName: String? = null
     ): RouteRecommendResponse
 
     /**

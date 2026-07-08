@@ -1,0 +1,336 @@
+{
+  "lingshan": [
+    {
+      "id": "LS-F-TOILET-001",
+      "name": "灵山胜境-公共厕所",
+      "category": "restroom",
+      "address": "马山镇灵山路1号灵山景区",
+      "lat": 31.426186,
+      "lng": 120.101459,
+      "amap_poi_id": "B0FFF050GZ",
+      "type_code": "200300"
+    },
+    {
+      "id": "LS-F-TOILET-002",
+      "name": "灵山胜境-公共厕所",
+      "category": "restroom",
+      "address": "马山镇灵山路1号灵山景区",
+      "lat": 31.424187,
+      "lng": 120.098571,
+      "amap_poi_id": "B01FE1B362",
+      "type_code": "200300"
+    },
+    {
+      "id": "LS-F-TOILET-003",
+      "name": "灵山胜境-公共厕所",
+      "category": "restroom",
+      "address": "马山镇古竹路灵山胜境景区",
+      "lat": 31.426746,
+      "lng": 120.097627,
+      "amap_poi_id": "B0FFF093UI",
+      "type_code": "200300"
+    },
+    {
+      "id": "LS-F-TOILET-004",
+      "name": "灵山胜境-公共厕所",
+      "category": "restroom",
+      "address": "马山镇古竹路灵山胜境内(东侧)",
+      "lat": 31.426589,
+      "lng": 120.104362,
+      "amap_poi_id": "B0FFG18P09",
+      "type_code": "200300"
+    },
+    {
+      "id": "LS-F-TOILET-005",
+      "name": "灵山胜境-公共厕所",
+      "category": "restroom",
+      "address": "马山镇古竹路灵山胜境景区",
+      "lat": 31.422126,
+      "lng": 120.101136,
+      "amap_poi_id": "B0FFG18P08",
+      "type_code": "200300"
+    },
+    {
+      "id": "LS-F-TOILET-006",
+      "name": "灵山胜境-公共厕所",
+      "category": "restroom",
+      "address": "马山镇灵山路1号灵山景区",
+      "lat": 31.428287,
+      "lng": 120.096562,
+      "amap_poi_id": "B0FFF0EX8V",
+      "type_code": "200300"
+    },
+    {
+      "id": "LS-F-TOILET-007",
+      "name": "公共厕所",
+      "category": "restroom",
+      "address": "灵湖路灵山胜境(东南角)",
+      "lat": 31.421872,
+      "lng": 120.103365,
+      "amap_poi_id": "B0G0FC9EVK",
+      "type_code": "200300"
+    },
+    {
+      "id": "LS-F-TOILET-008",
+      "name": "灵山胜境-公共厕所",
+      "category": "restroom",
+      "address": "群灵路与灵湖路交叉口北100米",
+      "lat": 31.420598,
+      "lng": 120.103610,
+      "amap_poi_id": "B0FFF2OK4Q",
+      "type_code": "200300"
+    },
+    {
+      "id": "LS-F-VISITOR-001",
+      "name": "灵山胜境游客中心",
+      "category": "visitor_center",
+      "address": "马山古竹路1号(停车场内)",
+      "lat": 31.420196,
+      "lng": 120.103651,
+      "amap_poi_id": "B0FFFA50PY",
+      "type_code": "070201"
+    },
+    {
+      "id": "LS-F-PARKING-001",
+      "name": "灵山胜境地面停车场",
+      "category": "parking",
+      "address": "",
+      "lat": 31.423651,
+      "lng": 120.096533,
+      "amap_poi_id": "B0MBHCICBY",
+      "type_code": "150904"
+    },
+    {
+      "id": "LS-F-PARKING-002",
+      "name": "灵山胜境停车场",
+      "category": "parking",
+      "address": "群灵路与古竹路交叉口西120米",
+      "lat": 31.423112,
+      "lng": 120.104213,
+      "amap_poi_id": "B0H1BB4XN7",
+      "type_code": "150900"
+    },
+    {
+      "id": "LS-F-PARKING-003",
+      "name": "灵山胜境停车场",
+      "category": "parking",
+      "address": "马山镇古竹路灵山胜境景区",
+      "lat": 31.421813,
+      "lng": 120.104563,
+      "amap_poi_id": "B0FFLBF51F",
+      "type_code": "150904"
+    },
+    {
+      "id": "LS-F-PARKING-004",
+      "name": "灵山胜境东侧停车场",
+      "category": "parking",
+      "address": "古竹路与环山东路交叉口北220米",
+      "lat": 31.425484,
+      "lng": 120.105736,
+      "amap_poi_id": "B0MBKUQL4W",
+      "type_code": "150906"
+    },
+    {
+      "id": "LS-F-FOOD-001",
+      "name": "灵山蔬食馆",
+      "category": "dining",
+      "address": "灵山景区内",
+      "lat": 31.426825,
+      "lng": 120.100061,
+      "amap_poi_id": "B01FE1DU22",
+      "type_code": "050100"
+    },
+    {
+      "id": "LS-F-FOOD-002",
+      "name": "灵山大佛梵宫餐饮",
+      "category": "dining",
+      "address": "古竹路8号",
+      "lat": 31.428263,
+      "lng": 120.102413,
+      "amap_poi_id": "B0FFF5L43P",
+      "type_code": "050100"
+    },
+    {
+      "id": "LS-F-FOOD-003",
+      "name": "如愿食令",
+      "category": "dining",
+      "address": "马山镇古竹路18号灵山胜境(西北角)",
+      "lat": 31.429075,
+      "lng": 120.097675,
+      "amap_poi_id": "B0IUH6J22W",
+      "type_code": "050100"
+    }
+  ],
+  "nianhuawan": [
+    {
+      "id": "NH-F-TOILET-001",
+      "name": "公共厕所",
+      "category": "restroom",
+      "address": "迦叶路灵山小镇拈花湾",
+      "lat": 31.417990,
+      "lng": 120.076205,
+      "amap_poi_id": "B0HUKA6EKB",
+      "type_code": "200300"
+    },
+    {
+      "id": "NH-F-TOILET-002",
+      "name": "拈花湾景区-公共厕所",
+      "category": "restroom",
+      "address": "香月花街灵山小镇拈花湾",
+      "lat": 31.420939,
+      "lng": 120.076121,
+      "amap_poi_id": "B0FFHWREOG",
+      "type_code": "200300"
+    },
+    {
+      "id": "NH-F-TOILET-003",
+      "name": "公共厕所",
+      "category": "restroom",
+      "address": "菩提巷灵山小镇拈花湾",
+      "lat": 31.417495,
+      "lng": 120.073456,
+      "amap_poi_id": "B0HBRN4KTL",
+      "type_code": "200300"
+    },
+    {
+      "id": "NH-F-TOILET-004",
+      "name": "公共厕所",
+      "category": "restroom",
+      "address": "又见山·书社东侧",
+      "lat": 31.421476,
+      "lng": 120.077020,
+      "amap_poi_id": "B0JR6MHQDY",
+      "type_code": "200300"
+    },
+    {
+      "id": "NH-F-TOILET-005",
+      "name": "拈花湾景区-公共厕所",
+      "category": "restroom",
+      "address": "环山西路68号灵山小镇拈花湾内",
+      "lat": 31.421882,
+      "lng": 120.075978,
+      "amap_poi_id": "B0FFHZAOYT",
+      "type_code": "200300"
+    },
+    {
+      "id": "NH-F-TOILET-006",
+      "name": "公共厕所",
+      "category": "restroom",
+      "address": "环山西路灵山小镇拈花湾",
+      "lat": 31.414457,
+      "lng": 120.076026,
+      "amap_poi_id": "B0FFHXN2JO",
+      "type_code": "200300"
+    },
+    {
+      "id": "NH-F-VISITOR-001",
+      "name": "拈花湾·禅意小镇五灯湖游客中心",
+      "category": "visitor_center",
+      "address": "香月花街灵山小镇拈花湾",
+      "lat": 31.418121,
+      "lng": 120.074950,
+      "amap_poi_id": "B0GU2ZF7WA",
+      "type_code": "070201"
+    },
+    {
+      "id": "NH-F-VISITOR-002",
+      "name": "拈花湾·禅意小镇游客中心",
+      "category": "visitor_center",
+      "address": "环山西路68号灵山小镇拈花湾内",
+      "lat": 31.413607,
+      "lng": 120.072843,
+      "amap_poi_id": "B0FFHVPX65",
+      "type_code": "070201"
+    },
+    {
+      "id": "NH-F-PARKING-001",
+      "name": "拈花湾·禅意小镇五灯湖地下停车场",
+      "category": "parking",
+      "address": "",
+      "lat": 31.418153,
+      "lng": 120.076036,
+      "amap_poi_id": "B0HB7511JA",
+      "type_code": "150904"
+    },
+    {
+      "id": "NH-F-PARKING-002",
+      "name": "禅意小镇·拈花湾西侧停车场",
+      "category": "parking",
+      "address": "云树帆影(湿地)西侧240米",
+      "lat": 31.420596,
+      "lng": 120.072663,
+      "amap_poi_id": "B0L3H7A05U",
+      "type_code": "150904"
+    },
+    {
+      "id": "NH-F-PARKING-003",
+      "name": "微笑广场东侧地上停车场",
+      "category": "parking",
+      "address": "禅意村舍指月E区东北侧180米",
+      "lat": 31.421975,
+      "lng": 120.078875,
+      "amap_poi_id": "B0MG4OYUHC",
+      "type_code": "150904"
+    },
+    {
+      "id": "NH-F-PARKING-004",
+      "name": "拈花湾·禅意小镇1号停车场",
+      "category": "parking",
+      "address": "环山西路马山68号",
+      "lat": 31.424944,
+      "lng": 120.078291,
+      "amap_poi_id": "B0FFKIVOPT",
+      "type_code": "150904"
+    },
+    {
+      "id": "NH-F-FOOD-001",
+      "name": "拈花禅食馆",
+      "category": "dining",
+      "address": "环山西路68号拈花湾景区内五灯湖广场一笑堂",
+      "lat": 31.418199,
+      "lng": 120.075610,
+      "amap_poi_id": "B0FFIR81U6",
+      "type_code": "050100"
+    },
+    {
+      "id": "NH-F-FOOD-002",
+      "name": "粤阿东·深井烧鹅",
+      "category": "dining",
+      "address": "幽山居西南侧",
+      "lat": 31.418510,
+      "lng": 120.074930,
+      "amap_poi_id": "B0JRJ9H8X4",
+      "type_code": "050100"
+    },
+    {
+      "id": "NH-F-FOOD-003",
+      "name": "CoCo都可",
+      "category": "dining",
+      "address": "环山西路68号拈花湾·禅意小镇",
+      "lat": 31.419862,
+      "lng": 120.075697,
+      "amap_poi_id": "B0HDJGTOHH",
+      "type_code": "050000"
+    },
+    {
+      "id": "NH-F-FOOD-004",
+      "name": "星巴克",
+      "category": "dining",
+      "address": "拈花湾度假村1-1号",
+      "lat": 31.417623,
+      "lng": 120.074212,
+      "amap_poi_id": "B0HUKG4WD0",
+      "type_code": "050501"
+    },
+    {
+      "id": "NH-F-FOOD-005",
+      "name": "肯德基",
+      "category": "dining",
+      "address": "马山街道灵山拈花湾度假村2-176号铺位",
+      "lat": 31.418198,
+      "lng": 120.073804,
+      "amap_poi_id": "B0HR3XJE65",
+      "type_code": "050301"
+    }
+  ]
+}
