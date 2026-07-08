@@ -195,7 +195,12 @@ class KotlinCubismMotionPlayer {
         val startTimeMs: Long
     )
 
-    private var activeMotion: ActiveMotion? = null
+    private data class MotionSample(
+        val values: KotlinCubismMotionValues,
+        val weight: Float
+    )
+
+    private val activeMotions = mutableListOf<ActiveMotion>()
 
     fun play(
         motion: KotlinCubismMotion,
@@ -204,7 +209,8 @@ class KotlinCubismMotionPlayer {
         fadeOutMs: Long = motion.defaultFadeOutMs,
         nowMs: Long = System.currentTimeMillis()
     ) {
-        activeMotion = ActiveMotion(
+        activeMotions.clear()
+        activeMotions += ActiveMotion(
             motion = motion,
             loop = loop,
             fadeInMs = fadeInMs.coerceAtLeast(0L),
@@ -213,51 +219,114 @@ class KotlinCubismMotionPlayer {
         )
     }
 
-    fun stop() {
-        activeMotion = null
+    fun crossfadeTo(
+        motion: KotlinCubismMotion,
+        loop: Boolean = motion.loop,
+        fadeInMs: Long = motion.defaultFadeInMs,
+        fadeOutMs: Long = motion.defaultFadeOutMs,
+        nowMs: Long = System.currentTimeMillis()
+    ) {
+        activeMotions += ActiveMotion(
+            motion = motion,
+            loop = loop,
+            fadeInMs = fadeInMs.coerceAtLeast(0L),
+            fadeOutMs = fadeOutMs.coerceAtLeast(0L),
+            startTimeMs = nowMs
+        )
+        if (activeMotions.size > 3) {
+            activeMotions.removeAt(0)
+        }
     }
 
-    fun isPlaying(): Boolean = activeMotion != null
+    fun stop() {
+        activeMotions.clear()
+    }
 
-    fun currentAssetPath(): String? = activeMotion?.motion?.assetPath
+    fun isPlaying(): Boolean = activeMotions.isNotEmpty()
+
+    fun currentAssetPath(): String? = activeMotions.lastOrNull()?.motion?.assetPath
+
+    fun activeMotionCount(): Int = activeMotions.size
+
+    fun remainingMs(nowMs: Long = System.currentTimeMillis()): Long? {
+        val active = activeMotions.lastOrNull() ?: return null
+        if (active.loop) return null
+        val elapsedMs = (nowMs - active.startTimeMs).coerceAtLeast(0L)
+        return (active.motion.durationMs - elapsedMs).coerceAtLeast(0L)
+    }
 
     fun sample(nowMs: Long = System.currentTimeMillis()): KotlinCubismMotionFrame? {
-        val active = activeMotion ?: return null
-        val elapsedMs = (nowMs - active.startTimeMs).coerceAtLeast(0L)
-        val motion = active.motion
-
-        if (!active.loop && elapsedMs >= motion.durationMs) {
-            val values = motion.sample(
-                timeSeconds = motion.durationSeconds,
-                isLoopCorrection = false,
-                correctedEndTimeSeconds = motion.durationSeconds
-            )
+        if (activeMotions.isEmpty()) return null
+        activeMotions.removeAll { active ->
+            !active.loop && (nowMs - active.startTimeMs).coerceAtLeast(0L) >= active.motion.durationMs
+        }
+        if (activeMotions.isEmpty()) {
             return KotlinCubismMotionFrame(
-                parameters = values.parameters,
-                partOpacities = values.partOpacities,
+                parameters = emptyMap(),
+                partOpacities = emptyMap(),
                 weight = 0f,
                 finished = true
             )
         }
 
-        val correctedDuration = correctedDurationSeconds(motion, active.loop)
-        val elapsedSeconds = elapsedMs / 1000f
-        val timeSeconds = if (active.loop && correctedDuration > 0f) {
-            elapsedSeconds % correctedDuration
-        } else {
-            elapsedSeconds.coerceAtMost(motion.durationSeconds)
+        val samples = activeMotions.map { active ->
+            val elapsedMs = (nowMs - active.startTimeMs).coerceAtLeast(0L)
+            val motion = active.motion
+            val correctedDuration = correctedDurationSeconds(motion, active.loop)
+            val elapsedSeconds = elapsedMs / 1000f
+            val timeSeconds = if (active.loop && correctedDuration > 0f) {
+                elapsedSeconds % correctedDuration
+            } else {
+                elapsedSeconds.coerceAtMost(motion.durationSeconds)
+            }
+
+            MotionSample(
+                values = motion.sample(
+                    timeSeconds = timeSeconds,
+                    isLoopCorrection = active.loop,
+                    correctedEndTimeSeconds = correctedDuration
+                ),
+                weight = calculateWeight(active, elapsedMs)
+            )
+        }.filter { it.weight > 0.001f }
+
+        if (samples.isEmpty()) {
+            return KotlinCubismMotionFrame(
+                parameters = emptyMap(),
+                partOpacities = emptyMap(),
+                weight = 0f,
+                finished = activeMotions.isEmpty()
+            )
         }
 
-        val values = motion.sample(
-            timeSeconds = timeSeconds,
-            isLoopCorrection = active.loop,
-            correctedEndTimeSeconds = correctedDuration
-        )
+        val totalWeight = samples.sumOf { it.weight.toDouble() }.toFloat().coerceAtLeast(0.001f)
+        val parameterIds = LinkedHashSet<String>()
+        val partIds = LinkedHashSet<String>()
+        samples.forEach { sample ->
+            parameterIds += sample.values.parameters.keys
+            partIds += sample.values.partOpacities.keys
+        }
+
+        val parameters = parameterIds.associateWith { id ->
+            samples.sumOf { sample ->
+                ((sample.values.parameters[id] ?: 0f) * sample.weight).toDouble()
+            }.toFloat() / totalWeight
+        }
+
+        val partOpacities = if (samples.size == 1) {
+            samples.first().values.partOpacities
+        } else {
+            partIds.associateWith { id ->
+                samples.sumOf { sample ->
+                    ((sample.values.partOpacities[id] ?: 0f) * sample.weight).toDouble()
+                }.toFloat() / totalWeight
+            }
+        }
 
         return KotlinCubismMotionFrame(
-            parameters = values.parameters,
-            partOpacities = values.partOpacities,
-            weight = calculateWeight(active, elapsedMs),
+            parameters = parameters,
+            partOpacities = partOpacities,
+            weight = totalWeight.coerceIn(0f, 1f),
             finished = false
         )
     }

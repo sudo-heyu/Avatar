@@ -44,6 +44,7 @@ class Live2DRendererImpl(
         private const val DEFAULT_TRANSITION_MS = 300L
         private const val ANIMATION_TICK_MS = 16L // ~60fps
         private const val HIYORI_MOTION_DIR = "live2d/hiyori/motions"
+        private const val IDLE_MOTION_CROSSFADE_MS = 500L
 
         private val OFFICIAL_IDLE_MOTIONS = listOf(
             "$HIYORI_MOTION_DIR/Hiyori_m01.motion3.json",
@@ -58,7 +59,25 @@ class Live2DRendererImpl(
         )
 
         private val OFFICIAL_FULL_BODY_IDLE_MOTIONS = listOf(
-            "$HIYORI_MOTION_DIR/Hiyori_m06.motion3.json"
+            "$HIYORI_MOTION_DIR/Hiyori_m01.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m02.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m03.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m05.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m06.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m07.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m08.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m09.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m10.motion3.json"
+        )
+
+        private val OFFICIAL_SPEAKING_IDLE_MOTIONS = listOf(
+            "$HIYORI_MOTION_DIR/Hiyori_m01.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m02.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m03.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m05.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m07.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m09.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m10.motion3.json"
         )
 
         private val OFFICIAL_GESTURE_MOTIONS = mapOf(
@@ -105,6 +124,16 @@ class Live2DRendererImpl(
             Live2DParams.HAND_LB,
             Live2DParams.HAND_RB
         )
+
+        private val OFFICIAL_MOTION_ARM_B_PARAMS = setOf(
+            Live2DParams.ARM_LB,
+            Live2DParams.ARM_RB,
+            Live2DParams.HAND_LB,
+            Live2DParams.HAND_RB
+        )
+
+        private const val PART_ARM_A = "PartArmA"
+        private const val PART_ARM_B = "PartArmB"
     }
 
     // 主线程 Handler（用于后备动画更新）
@@ -434,7 +463,7 @@ class Live2DRendererImpl(
         kotlinMotionPlayer.stop()
         gestureAnimationPlayer.stop()
 
-        if (playOfficialKotlinMotion(AvatarGesture.IDLE, loop = true)) {
+        if (playOfficialKotlinMotion(AvatarGesture.IDLE, loop = false)) {
             return
         }
 
@@ -448,7 +477,12 @@ class Live2DRendererImpl(
 
     private fun preloadOfficialKotlinMotions() {
         try {
-            kotlinMotionRepository.preload(OFFICIAL_IDLE_MOTIONS + OFFICIAL_FULL_BODY_IDLE_MOTIONS + OFFICIAL_GESTURE_MOTIONS.values)
+            kotlinMotionRepository.preload(
+                OFFICIAL_IDLE_MOTIONS +
+                    OFFICIAL_FULL_BODY_IDLE_MOTIONS +
+                    OFFICIAL_SPEAKING_IDLE_MOTIONS +
+                    OFFICIAL_GESTURE_MOTIONS.values
+            )
         } catch (e: Exception) {
             Log.w(TAG, "preloadOfficialKotlinMotions failed", e)
         }
@@ -456,7 +490,7 @@ class Live2DRendererImpl(
 
     private fun playOfficialKotlinMotion(gesture: AvatarGesture, loop: Boolean): Boolean {
         val motionPath = when (gesture) {
-            AvatarGesture.IDLE -> officialIdleMotionPool().random()
+            AvatarGesture.IDLE -> pickNextOfficialIdleMotionPath()
             else -> OFFICIAL_GESTURE_MOTIONS[gesture]
         } ?: return false
 
@@ -484,11 +518,41 @@ class Live2DRendererImpl(
     }
 
     private fun officialIdleMotionPool(): List<String> {
-        return if (currentDisplayMode == AvatarDisplayMode.UpperBody) {
+        return if (isSpeaking) {
+            OFFICIAL_SPEAKING_IDLE_MOTIONS
+        } else if (currentDisplayMode == AvatarDisplayMode.UpperBody) {
             OFFICIAL_IDLE_MOTIONS
         } else {
             OFFICIAL_FULL_BODY_IDLE_MOTIONS
         }
+    }
+
+    private fun pickNextOfficialIdleMotionPath(): String {
+        val pool = officialIdleMotionPool()
+        val currentPath = kotlinMotionPlayer.currentAssetPath()
+        return pool.filter { it != currentPath }.ifEmpty { pool }.random()
+    }
+
+    private fun queueNextOfficialIdleMotionIfNeeded(nowMs: Long): Boolean {
+        if (currentGesture != AvatarGesture.IDLE || !kotlinMotionPlayer.isPlaying()) return false
+        if (kotlinMotionPlayer.activeMotionCount() > 1) return false
+        val remainingMs = kotlinMotionPlayer.remainingMs(nowMs) ?: return false
+        if (remainingMs > IDLE_MOTION_CROSSFADE_MS) return false
+
+        val motionPath = pickNextOfficialIdleMotionPath()
+        val motion = kotlinMotionRepository.load(motionPath).getOrElse { error ->
+            Log.w(TAG, "Failed to queue official idle motion: $motionPath", error)
+            return false
+        }
+        Log.d(TAG, "Queueing next official idle motion: path=$motionPath, remainingMs=$remainingMs")
+        kotlinMotionPlayer.crossfadeTo(
+            motion = motion,
+            loop = false,
+            fadeInMs = IDLE_MOTION_CROSSFADE_MS,
+            fadeOutMs = motion.defaultFadeOutMs,
+            nowMs = nowMs
+        )
+        return true
     }
 
     fun setSmoothTransitionEnabled(enabled: Boolean) {
@@ -549,6 +613,7 @@ class Live2DRendererImpl(
 
         // 2. 更新 Kotlin 版官方 motion3 曲线
         if (!nativeMotionPlaying && kotlinMotionPlayer.isPlaying()) {
+            queueNextOfficialIdleMotionIfNeeded(currentTime)
             val frame = kotlinMotionPlayer.sample(currentTime)
             if (frame != null) {
                 applyOnRenderThread(onRenderThread) {
@@ -558,9 +623,7 @@ class Live2DRendererImpl(
                 if (frame.finished) {
                     Log.d(TAG, "Official Kotlin motion finished: ${kotlinMotionPlayer.currentAssetPath()}")
                     kotlinMotionPlayer.stop()
-                    if (currentGesture != AvatarGesture.IDLE) {
-                        playIdleMotion()
-                    }
+                    playIdleMotion()
                 } else {
                     needsContinue = true
                 }
@@ -664,7 +727,9 @@ class Live2DRendererImpl(
         }
 
         frame.parameters.forEach { (paramId, value) ->
-            if (paramId in OFFICIAL_MOTION_PARAMETER_ALLOWLIST) {
+            if (paramId in OFFICIAL_MOTION_PARAMETER_ALLOWLIST &&
+                !(isSpeaking && paramId in OFFICIAL_MOTION_ARM_B_PARAMS)
+            ) {
                 JniBridgeJava.nativeSetParameter(paramId, safeParam(value, paramId), weight)
             }
         }
@@ -673,8 +738,13 @@ class Live2DRendererImpl(
             applyFullBodyIdleNaturalOverlay(weight)
         }
 
-        frame.partOpacities.forEach { (partId, opacity) ->
-            JniBridgeJava.nativeSetPartOpacity(partId, safeOpacity(opacity, partId))
+        if (isSpeaking) {
+            JniBridgeJava.nativeSetPartOpacity(PART_ARM_A, 1f)
+            JniBridgeJava.nativeSetPartOpacity(PART_ARM_B, 0f)
+        } else {
+            frame.partOpacities.forEach { (partId, opacity) ->
+                JniBridgeJava.nativeSetPartOpacity(partId, safeOpacity(opacity, partId))
+            }
         }
     }
 
@@ -778,6 +848,7 @@ class Live2DRendererImpl(
             if (isReleased) return
             isSpeaking = (state.state == AvatarState.SPEAKING)
         }
+        val speakingChanged = wasSpeaking != isSpeaking
 
         // 当从非 SPEAKING 变为 SPEAKING 时，提前激活覆盖标志
         // 避免 Idle 动画的嘴型在 setMouth() 首次调用前泄漏
@@ -790,6 +861,11 @@ class Live2DRendererImpl(
         if (wasSpeaking && !isSpeaking) {
             speakingMouthOverride = false
             setMouth(0f, 0f)
+        }
+        if (speakingChanged && currentGesture == AvatarGesture.IDLE) {
+            kotlinMotionPlayer.stop()
+            gestureAnimationPlayer.stop()
+            playIdleMotion()
         }
 
         val expressionId = expressionFromEnum(state.expression)
