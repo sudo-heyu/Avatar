@@ -58,12 +58,7 @@ class Live2DRendererImpl(
         )
 
         private val OFFICIAL_FULL_BODY_IDLE_MOTIONS = listOf(
-            "$HIYORI_MOTION_DIR/Hiyori_m02.motion3.json",
-            "$HIYORI_MOTION_DIR/Hiyori_m03.motion3.json",
-            "$HIYORI_MOTION_DIR/Hiyori_m06.motion3.json",
-            "$HIYORI_MOTION_DIR/Hiyori_m08.motion3.json",
-            "$HIYORI_MOTION_DIR/Hiyori_m09.motion3.json",
-            "$HIYORI_MOTION_DIR/Hiyori_m10.motion3.json"
+            "$HIYORI_MOTION_DIR/Hiyori_m06.motion3.json"
         )
 
         private val OFFICIAL_GESTURE_MOTIONS = mapOf(
@@ -150,6 +145,7 @@ class Live2DRendererImpl(
     private var enableSmoothTransition = true
 
     // 动画更新是否激活
+    @Volatile
     private var animationUpdateActive = false
 
     // 上次动画循环执行时间（用于检测卡住）
@@ -177,6 +173,8 @@ class Live2DRendererImpl(
     // 说话初期和词间停顿 mouthOpen=0 时也必须覆盖，防止 Idle 动画 O 型嘴固着。
     @Volatile
     private var speakingMouthOverride = false
+    @Volatile
+    private var mouthOverrideDirty = false
     @Volatile
     private var isSpeaking = false
     @Volatile private var overrideMouthOpenY = 0f
@@ -274,23 +272,11 @@ class Live2DRendererImpl(
             // 缓存嘴部覆盖值，用于每帧强制覆盖 SDK Idle 动画
             overrideMouthOpenY = amplifiedMouthOpen
             overrideMouthForm = scaledMouthForm
+            mouthOverrideDirty = true
             // 覆盖开关：只允许在此处启用，禁用由 updateState() 在 SPEAKING 结束时负责。
             // 避免 Compose 重组延迟导致 isSpeaking 尚为 false 时误关闭每帧覆盖。
             if (isSpeaking || mouthOpen > 0.01f) {
                 speakingMouthOverride = true
-            }
-        }
-
-        runOnRenderThread {
-            // 再次检查释放状态（runOnRenderThread 可能延迟执行）
-            synchronized(this@Live2DRendererImpl) {
-                if (isReleased || !_isModelLoaded) return@runOnRenderThread
-            }
-            try {
-                JniBridgeJava.nativeSetParameter(Live2DParams.MOUTH_OPEN_Y, overrideMouthOpenY, 1.0f)
-                JniBridgeJava.nativeSetParameter(Live2DParams.MOUTH_FORM, overrideMouthForm, 1.0f)
-            } catch (e: Exception) {
-                Log.w(TAG, "setMouth JNI call failed", e)
             }
         }
     }
@@ -519,18 +505,23 @@ class Live2DRendererImpl(
         lastFrameTime = System.currentTimeMillis()
         lastLoopTime = System.currentTimeMillis()
 
-        // 使用主线程 Handler 定期更新
-        scheduleAnimationTick()
+        // Surface 已附着时由 GL 线程 onAfterDrawFrame 连续驱动；未附着时才使用主线程兜底。
+        if (surfaceViewRef?.get() == null || !hasSurfaceAttached) {
+            scheduleAnimationTick()
+        }
     }
 
     private fun scheduleAnimationTick() {
         if (!animationUpdateActive) return
-        mainHandler.postDelayed({ animationTick() }, ANIMATION_TICK_MS)
+        mainHandler.postDelayed({ animationTick(onRenderThread = false) }, ANIMATION_TICK_MS)
     }
 
-    private fun animationTick() {
+    private fun animationTick(onRenderThread: Boolean) {
         if (!animationUpdateActive || !_isModelLoaded) {
             animationUpdateActive = false
+            return
+        }
+        if (!onRenderThread && surfaceViewRef?.get() != null && hasSurfaceAttached) {
             return
         }
 
@@ -560,7 +551,7 @@ class Live2DRendererImpl(
         if (!nativeMotionPlaying && kotlinMotionPlayer.isPlaying()) {
             val frame = kotlinMotionPlayer.sample(currentTime)
             if (frame != null) {
-                runOnRenderThread {
+                applyOnRenderThread(onRenderThread) {
                     applyOfficialKotlinMotionFrame(frame)
                 }
 
@@ -583,7 +574,7 @@ class Live2DRendererImpl(
             motionTransitionManager.updateCurrentLayerParams(animParams)
 
             // 在渲染线程应用参数
-            runOnRenderThread {
+            applyOnRenderThread(onRenderThread) {
                 applyGestureParamsDirect(animParams)
             }
 
@@ -602,7 +593,7 @@ class Live2DRendererImpl(
             motionTransitionManager.update(deltaTime)
             val params = motionTransitionManager.getCurrentParams()
 
-            runOnRenderThread {
+            applyOnRenderThread(onRenderThread) {
                 applyGestureParamsDirect(params)
             }
             needsContinue = true
@@ -623,10 +614,22 @@ class Live2DRendererImpl(
 
         // 继续调度
         if (needsContinue || nativeMotionPlaying || kotlinMotionPlayer.isPlaying() || gestureAnimationPlayer.isPlaying() || motionTransitionManager.isInTransition()) {
-            scheduleAnimationTick()
+            if (!onRenderThread) {
+                scheduleAnimationTick()
+            }
         } else {
             Log.d(TAG, "Animation loop completed, no more updates needed")
             animationUpdateActive = false
+        }
+    }
+
+    private inline fun applyOnRenderThread(onRenderThread: Boolean, crossinline action: () -> Unit) {
+        if (onRenderThread) {
+            action()
+        } else {
+            runOnRenderThread {
+                action()
+            }
         }
     }
 
@@ -680,26 +683,14 @@ class Live2DRendererImpl(
         val cycle = elapsedSeconds * (2f * PI.toFloat() / 5.6f)
         val sway = sin(cycle)
         val delayedSway = sin(cycle + 1.35f)
-        val handPhase = sin(cycle * 0.72f + 0.8f)
 
-        val lowerBodyWeight = (0.26f * weight).coerceIn(0f, 0.32f)
-        val armWeight = (0.16f * weight).coerceIn(0f, 0.22f)
-        val handWeight = (0.12f * weight).coerceIn(0f, 0.16f)
+        val lowerBodyWeight = (0.18f * weight).coerceIn(0f, 0.22f)
 
-        val leg = (0.5f + 0.34f * sway).coerceIn(0.12f, 0.88f)
+        val leg = (0.5f + 0.24f * sway).coerceIn(0.18f, 0.82f)
         JniBridgeJava.nativeSetParameter(Live2DParams.LEG, leg, lowerBodyWeight)
-        JniBridgeJava.nativeSetParameter(Live2DParams.BODY_ANGLE_X, 2.4f * sway, lowerBodyWeight * 0.7f)
-        JniBridgeJava.nativeSetParameter(Live2DParams.BODY_ANGLE_Z, -2.0f * delayedSway, lowerBodyWeight * 0.55f)
-        JniBridgeJava.nativeSetParameter(Live2DParams.SHOULDER, 0.22f * sin(cycle + PI.toFloat()), lowerBodyWeight * 0.6f)
-
-        JniBridgeJava.nativeSetParameter(Live2DParams.ARM_LA, -2.0f + 1.2f * handPhase, armWeight)
-        JniBridgeJava.nativeSetParameter(Live2DParams.ARM_RA, -2.0f - 1.2f * handPhase, armWeight)
-        JniBridgeJava.nativeSetParameter(Live2DParams.ARM_LB, 1.8f * sin(cycle * 0.86f + 0.4f), armWeight)
-        JniBridgeJava.nativeSetParameter(Live2DParams.ARM_RB, -1.8f * sin(cycle * 0.86f + 0.4f), armWeight)
-        JniBridgeJava.nativeSetParameter(Live2DParams.HAND_L, 0.45f * sin(cycle * 0.58f + 0.6f), handWeight)
-        JniBridgeJava.nativeSetParameter(Live2DParams.HAND_R, -0.45f * sin(cycle * 0.58f + 0.6f), handWeight)
-        JniBridgeJava.nativeSetParameter(Live2DParams.HAND_LB, 2.0f * sin(cycle * 0.62f + 1.1f), handWeight)
-        JniBridgeJava.nativeSetParameter(Live2DParams.HAND_RB, -2.0f * sin(cycle * 0.62f + 1.1f), handWeight)
+        JniBridgeJava.nativeSetParameter(Live2DParams.BODY_ANGLE_X, 1.4f * sway, lowerBodyWeight * 0.65f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.BODY_ANGLE_Z, -1.1f * delayedSway, lowerBodyWeight * 0.5f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.SHOULDER, 0.12f * sin(cycle + PI.toFloat()), lowerBodyWeight * 0.5f)
     }
 
     private fun applyGestureParamsDirect(params: GestureParams) {
@@ -866,6 +857,7 @@ class Live2DRendererImpl(
             // 解决 StateFlow 合并跳过 IDLE 状态导致的状态泄漏问题
             isSpeaking = false
             speakingMouthOverride = false
+            mouthOverrideDirty = true
             overrideMouthOpenY = 0f
             overrideMouthForm = 0f
             Log.d(TAG, "resetSpeakingState: 说话状态已重置")
@@ -933,6 +925,7 @@ class Live2DRendererImpl(
 
             isSpeaking = false
             speakingMouthOverride = false
+            mouthOverrideDirty = false
 
             // 清除回调和引用
             surfaceViewRef?.get()?.onAfterDrawFrame = null
@@ -998,14 +991,19 @@ class Live2DRendererImpl(
         // 注意：此回调在 GL 线程执行，与 nativeOnDrawFrame 串行
         // 使用 synchronized 块确保与 release() 的同步
         surfaceView.onAfterDrawFrame = {
+            if (animationUpdateActive) {
+                animationTick(onRenderThread = true)
+            }
+
             // 使用 synchronized 确保与 release() 同步，避免竞态条件
             synchronized(this@Live2DRendererImpl) {
-                if (isReleased || !_isModelLoaded || !speakingMouthOverride) {
+                if (isReleased || !_isModelLoaded || (!speakingMouthOverride && !mouthOverrideDirty)) {
                     return@synchronized
                 }
                 // 在 synchronized 块内捕获变量值，避免后续变化
                 val openY = overrideMouthOpenY
                 val form = overrideMouthForm
+                mouthOverrideDirty = false
 
                 // 修复 Live2D 物理引擎崩溃：
                 // 确保参数有效，防止 NaN/Infinity 传入 SDK

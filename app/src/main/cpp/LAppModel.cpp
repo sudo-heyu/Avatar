@@ -407,19 +407,6 @@ void LAppModel::Update()
     //-----------------------------------------------------------------
     _model->LoadParameters(); // 前回セーブされた状態をロード
 
-    // Debug: Log motion state
-    static int frameCount = 0;
-    if (frameCount % 60 == 0) { // Log every 60 frames
-        csmUint32 pendingCount = 0;
-        {
-            std::lock_guard<std::mutex> lock(_pendingParametersMutex);
-            pendingCount = _pendingParameters.GetSize();
-        }
-        LAppPal::PrintLogLn("[APP]Update: IsFinished=%d, PendingParams=%d",
-            _motionManager->IsFinished(), pendingCount);
-    }
-    frameCount++;
-
     // Native Cubism motions are disabled. The crash reports point to
     // CubismMotion::DoUpdateParameters from this manager on GLThread, so never
     // let queued motions update even if an old JNI/native path enqueued one.
@@ -434,14 +421,6 @@ void LAppModel::Update()
         _motionUpdated = false;
         // 保留：不自动播放 Idle motion，由上层显式控制
         // StartRandomMotion(MotionGroupIdle, PriorityIdle);
-    }
-
-    // Debug: Log pending parameters count
-    {
-        std::lock_guard<std::mutex> lock(_pendingParametersMutex);
-        if (_pendingParameters.GetSize() > 0) {
-            LAppPal::PrintLogLn("[APP]FlushPendingParameters: count=%d", _pendingParameters.GetSize());
-        }
     }
 
     // 执行 Java 层待设置的参数（在 SaveParameters 之前）
