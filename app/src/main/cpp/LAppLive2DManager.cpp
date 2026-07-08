@@ -330,6 +330,18 @@ void LAppLive2DManager::SetParameter(const csmChar* parameterId, csmFloat32 valu
     }
 }
 
+void LAppLive2DManager::SetPartOpacity(const csmChar* partId, csmFloat32 opacity)
+{
+    std::lock_guard<std::mutex> lock(_managerMutex);
+    for (csmUint32 i = 0; i < _models.GetSize(); ++i)
+    {
+        if (_models[i] != NULL)
+        {
+            _models[i]->SetPartOpacity(partId, opacity);
+        }
+    }
+}
+
 void LAppLive2DManager::SetExpression(const csmChar* expressionId)
 {
     std::lock_guard<std::mutex> lock(_managerMutex);

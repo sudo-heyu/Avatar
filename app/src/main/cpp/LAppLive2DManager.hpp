@@ -94,6 +94,11 @@ public:
     void SetParameter(const Csm::csmChar* parameterId, Csm::csmFloat32 value, Csm::csmFloat32 weight);
 
     /**
+     * @brief   向当前模型下发部件透明度
+     */
+    void SetPartOpacity(const Csm::csmChar* partId, Csm::csmFloat32 opacity);
+
+    /**
      * @brief   播放指定表情
      */
     void SetExpression(const Csm::csmChar* expressionId);

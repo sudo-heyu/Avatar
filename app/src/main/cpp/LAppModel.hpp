@@ -114,6 +114,11 @@ public:
     void SetParameterValue(const Csm::csmChar* parameterId, Csm::csmFloat32 value, Csm::csmFloat32 weight = 1.0f);
 
     /**
+     * @brief   指定した部件透明度を直接更新する
+     */
+    void SetPartOpacity(const Csm::csmChar* partId, Csm::csmFloat32 opacity);
+
+    /**
      * @brief   ランダムに選ばれた表情モーションをセットする
      *
      */

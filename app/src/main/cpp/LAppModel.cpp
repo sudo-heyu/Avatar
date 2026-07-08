@@ -613,6 +613,22 @@ void LAppModel::SetParameterValue(const csmChar* parameterId, csmFloat32 value, 
     _pendingParameters.PushBack(data);
 }
 
+void LAppModel::SetPartOpacity(const csmChar* partId, csmFloat32 opacity)
+{
+    if (_model == NULL || partId == NULL)
+    {
+        return;
+    }
+
+    if (opacity != opacity || opacity < -0.1f || opacity > 1.1f)
+    {
+        return;
+    }
+
+    const CubismIdHandle id = CubismFramework::GetIdManager()->GetId(partId);
+    _model->SetPartOpacity(id, opacity);
+}
+
 void LAppModel::FlushPendingParameters()
 {
     std::lock_guard<std::mutex> lock(_pendingParametersMutex);

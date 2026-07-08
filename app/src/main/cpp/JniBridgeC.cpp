@@ -282,6 +282,34 @@ extern "C"
     }
 
     JNIEXPORT void JNICALL
+    Java_com_example_scenic_1avatar_1guide_1app_core_avatar_JniBridgeJava_nativeSetPartOpacity(JNIEnv *env, jclass type, jstring partId, jfloat opacity)
+    {
+        if (s_isDestroyed.load(std::memory_order_acquire)) {
+            return;
+        }
+        if (partId == NULL)
+        {
+            return;
+        }
+        if (!CubismFramework::IsInitialized())
+        {
+            return;
+        }
+        if (opacity != opacity || opacity < -0.1f || opacity > 1.1f)
+        {
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(s_renderMutex);
+        if (s_isDestroyed.load(std::memory_order_relaxed)) {
+            return;
+        }
+        const char* rawPartId = env->GetStringUTFChars(partId, nullptr);
+        LAppLive2DManager::GetInstance()->SetPartOpacity(rawPartId, opacity);
+        env->ReleaseStringUTFChars(partId, rawPartId);
+    }
+
+    JNIEXPORT void JNICALL
     Java_com_example_scenic_1avatar_1guide_1app_core_avatar_JniBridgeJava_nativeSetExpression(JNIEnv *env, jclass type, jstring expressionId)
     {
         // 快速路径：销毁后直接返回

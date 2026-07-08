@@ -10,6 +10,9 @@ import com.example.scenic_avatar_guide_app.core.avatar.animation.ExpressionTrans
 import com.example.scenic_avatar_guide_app.core.avatar.animation.GestureParams
 import com.example.scenic_avatar_guide_app.core.avatar.animation.GestureAnimation
 import com.example.scenic_avatar_guide_app.core.avatar.animation.GestureAnimationPlayer
+import com.example.scenic_avatar_guide_app.core.avatar.animation.KotlinCubismMotionFrame
+import com.example.scenic_avatar_guide_app.core.avatar.animation.KotlinCubismMotionPlayer
+import com.example.scenic_avatar_guide_app.core.avatar.animation.KotlinCubismMotionRepository
 import com.example.scenic_avatar_guide_app.core.avatar.animation.MotionTransitionManager
 import com.example.scenic_avatar_guide_app.domain.model.AvatarExpression
 import com.example.scenic_avatar_guide_app.domain.model.AvatarFullState
@@ -38,6 +41,64 @@ class Live2DRendererImpl(
         private const val MODEL_LOAD_TIMEOUT = 10000L
         private const val DEFAULT_TRANSITION_MS = 300L
         private const val ANIMATION_TICK_MS = 16L // ~60fps
+        private const val HIYORI_MOTION_DIR = "live2d/hiyori/motions"
+
+        private val OFFICIAL_IDLE_MOTIONS = listOf(
+            "$HIYORI_MOTION_DIR/Hiyori_m01.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m02.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m03.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m05.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m06.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m07.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m08.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m09.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m10.motion3.json"
+        )
+
+        private val OFFICIAL_GESTURE_MOTIONS = mapOf(
+            AvatarGesture.NOD to "$HIYORI_MOTION_DIR/Hiyori_nod.motion3.json",
+            AvatarGesture.SHAKE to "$HIYORI_MOTION_DIR/Hiyori_shake.motion3.json",
+            AvatarGesture.WAVE to "$HIYORI_MOTION_DIR/Hiyori_wave.motion3.json",
+            AvatarGesture.POINT_LEFT to "$HIYORI_MOTION_DIR/Hiyori_look_left.motion3.json",
+            AvatarGesture.POINT_RIGHT to "$HIYORI_MOTION_DIR/Hiyori_look_right.motion3.json",
+            AvatarGesture.POINT_FORWARD to "$HIYORI_MOTION_DIR/Hiyori_point_forward.motion3.json",
+            AvatarGesture.BOW to "$HIYORI_MOTION_DIR/Hiyori_bow.motion3.json",
+            AvatarGesture.THINKING_POSE to "$HIYORI_MOTION_DIR/Hiyori_thinking.motion3.json",
+            AvatarGesture.GUIDE to "$HIYORI_MOTION_DIR/Hiyori_guide.motion3.json",
+            AvatarGesture.LOOK_UP to "$HIYORI_MOTION_DIR/Hiyori_look_up.motion3.json",
+            AvatarGesture.LISTEN to "$HIYORI_MOTION_DIR/Hiyori_listen.motion3.json",
+            AvatarGesture.WELCOME_GESTURE to "$HIYORI_MOTION_DIR/Hiyori_welcome.motion3.json"
+        )
+
+        private val OFFICIAL_MOTION_PARAMETER_ALLOWLIST = setOf(
+            Live2DParams.ANGLE_X,
+            Live2DParams.ANGLE_Y,
+            Live2DParams.ANGLE_Z,
+            Live2DParams.BODY_ANGLE_X,
+            Live2DParams.BODY_ANGLE_Y,
+            Live2DParams.BODY_ANGLE_Z,
+            Live2DParams.SHOULDER,
+            Live2DParams.LEG,
+            Live2DParams.ARM_LA,
+            Live2DParams.ARM_RA,
+            Live2DParams.ARM_LB,
+            Live2DParams.ARM_RB,
+            Live2DParams.HAND_L,
+            Live2DParams.HAND_R,
+            Live2DParams.HAND_LB,
+            Live2DParams.HAND_RB
+        )
+
+        private val OFFICIAL_MOTION_ARM_HAND_PARAMS = setOf(
+            Live2DParams.ARM_LA,
+            Live2DParams.ARM_RA,
+            Live2DParams.ARM_LB,
+            Live2DParams.ARM_RB,
+            Live2DParams.HAND_L,
+            Live2DParams.HAND_R,
+            Live2DParams.HAND_LB,
+            Live2DParams.HAND_RB
+        )
     }
 
     // 主线程 Handler（用于后备动画更新）
@@ -67,6 +128,10 @@ class Live2DRendererImpl(
 
     // 动作动画播放器（用于点头、摇头等关键帧动画）
     private val gestureAnimationPlayer = GestureAnimationPlayer()
+
+    // Kotlin 版 Cubism motion3 播放器：复刻官方曲线，但不走 native CubismMotionManager
+    private val kotlinMotionRepository = KotlinCubismMotionRepository(context.assets)
+    private val kotlinMotionPlayer = KotlinCubismMotionPlayer()
 
     // 是否启用平滑过渡
     private var enableSmoothTransition = true
@@ -161,6 +226,7 @@ class Live2DRendererImpl(
 
                 currentModelPath = modelPath
                 _isModelLoaded = true
+                preloadOfficialKotlinMotions()
                 Log.i(TAG, "=== loadModel() SUCCESS: $modelPath ===")
             }
             Result.success(Unit)
@@ -256,6 +322,7 @@ class Live2DRendererImpl(
         Log.d(TAG, "stopMotion")
         nativeMotionPlaying = false
         pendingGestureAfterNative = null
+        kotlinMotionPlayer.stop()
         gestureAnimationPlayer.stop()
 
         if (enableSmoothTransition) {
@@ -323,10 +390,15 @@ class Live2DRendererImpl(
 
         // 停止关键帧动画
         gestureAnimationPlayer.stop()
+        kotlinMotionPlayer.stop()
 
         // IDLE 特殊处理：播放官方 Idle 动作组（动态待机动画）
         if (gesture == AvatarGesture.IDLE) {
             playIdleMotion()
+            return
+        }
+
+        if (playOfficialKotlinMotion(gesture, loop = false)) {
             return
         }
 
@@ -360,7 +432,12 @@ class Live2DRendererImpl(
         Log.d(TAG, "playIdleMotion: starting random idle animation")
         currentGesture = AvatarGesture.IDLE
         nativeMotionPlaying = false
+        kotlinMotionPlayer.stop()
         gestureAnimationPlayer.stop()
+
+        if (playOfficialKotlinMotion(AvatarGesture.IDLE, loop = true)) {
+            return
+        }
 
         // 随机选择一个待机动画
         val idleAnimation = GestureAnimation.randomIdle()
@@ -368,6 +445,42 @@ class Live2DRendererImpl(
         gestureAnimationPlayer.play(idleAnimation, fromParams)
 
         startAnimationUpdate()
+    }
+
+    private fun preloadOfficialKotlinMotions() {
+        try {
+            kotlinMotionRepository.preload(OFFICIAL_IDLE_MOTIONS + OFFICIAL_GESTURE_MOTIONS.values)
+        } catch (e: Exception) {
+            Log.w(TAG, "preloadOfficialKotlinMotions failed", e)
+        }
+    }
+
+    private fun playOfficialKotlinMotion(gesture: AvatarGesture, loop: Boolean): Boolean {
+        val motionPath = when (gesture) {
+            AvatarGesture.IDLE -> OFFICIAL_IDLE_MOTIONS.random()
+            else -> OFFICIAL_GESTURE_MOTIONS[gesture]
+        } ?: return false
+
+        val motion = kotlinMotionRepository.load(motionPath).getOrElse { error ->
+            Log.w(TAG, "Failed to load official Kotlin motion: $motionPath", error)
+            return false
+        }
+
+        Log.d(TAG, "Using official Kotlin motion: gesture=$gesture, path=$motionPath, loop=$loop")
+        currentGesture = gesture
+        nativeMotionPlaying = false
+        pendingGestureAfterNative = null
+        sdkMotionFinished = false
+        gestureAnimationPlayer.stop()
+        motionTransitionManager.reset()
+        kotlinMotionPlayer.play(
+            motion = motion,
+            loop = loop && motion.loop,
+            fadeInMs = motion.defaultFadeInMs,
+            fadeOutMs = motion.defaultFadeOutMs
+        )
+        startAnimationUpdate()
+        return true
     }
 
     fun setSmoothTransitionEnabled(enabled: Boolean) {
@@ -421,8 +534,28 @@ class Live2DRendererImpl(
             sdkMotionFinished = false
         }
 
-        // 2. 更新关键帧动画
-        if (!nativeMotionPlaying && gestureAnimationPlayer.isPlaying()) {
+        // 2. 更新 Kotlin 版官方 motion3 曲线
+        if (!nativeMotionPlaying && kotlinMotionPlayer.isPlaying()) {
+            val frame = kotlinMotionPlayer.sample(currentTime)
+            if (frame != null) {
+                runOnRenderThread {
+                    applyOfficialKotlinMotionFrame(frame)
+                }
+
+                if (frame.finished) {
+                    Log.d(TAG, "Official Kotlin motion finished: ${kotlinMotionPlayer.currentAssetPath()}")
+                    kotlinMotionPlayer.stop()
+                    if (currentGesture != AvatarGesture.IDLE) {
+                        playIdleMotion()
+                    }
+                } else {
+                    needsContinue = true
+                }
+            }
+        }
+
+        // 3. 更新关键帧动画
+        if (!nativeMotionPlaying && !kotlinMotionPlayer.isPlaying() && gestureAnimationPlayer.isPlaying()) {
             gestureAnimationPlayer.update()
             val animParams = gestureAnimationPlayer.getCurrentParams()
             motionTransitionManager.updateCurrentLayerParams(animParams)
@@ -442,8 +575,8 @@ class Live2DRendererImpl(
             needsContinue = true
         }
 
-        // 3. 更新动作过渡
-        if (!nativeMotionPlaying && !gestureAnimationPlayer.isPlaying() && motionTransitionManager.isInTransition()) {
+        // 4. 更新动作过渡
+        if (!nativeMotionPlaying && !kotlinMotionPlayer.isPlaying() && !gestureAnimationPlayer.isPlaying() && motionTransitionManager.isInTransition()) {
             motionTransitionManager.update(deltaTime)
             val params = motionTransitionManager.getCurrentParams()
 
@@ -453,7 +586,7 @@ class Live2DRendererImpl(
             needsContinue = true
         }
 
-        // 4. 更新表情过渡
+        // 5. 更新表情过渡
         if (expressionTransitionController.isTransitioning()) {
             expressionTransitionController.update()
             val (expressionId, _) = expressionTransitionController.getCurrentExpression()
@@ -467,7 +600,7 @@ class Live2DRendererImpl(
         }
 
         // 继续调度
-        if (needsContinue || nativeMotionPlaying || gestureAnimationPlayer.isPlaying() || motionTransitionManager.isInTransition()) {
+        if (needsContinue || nativeMotionPlaying || kotlinMotionPlayer.isPlaying() || gestureAnimationPlayer.isPlaying() || motionTransitionManager.isInTransition()) {
             scheduleAnimationTick()
         } else {
             Log.d(TAG, "Animation loop completed, no more updates needed")
@@ -479,6 +612,43 @@ class Live2DRendererImpl(
      * 直接应用动作参数（必须在渲染线程调用）
      * 修复 Live2D 物理引擎崩溃：添加参数有效性检查
      */
+    private fun applyOfficialKotlinMotionFrame(frame: KotlinCubismMotionFrame) {
+        val weight = frame.weight.coerceIn(0f, 1f)
+        if (weight <= 0.001f) return
+
+        fun safeParam(value: Float, name: String): Float {
+            if (value.isNaN() || value.isInfinite()) {
+                Log.w(TAG, "Invalid official motion parameter $name: $value, using 0")
+                return 0f
+            }
+            return value.coerceIn(-100f, 100f)
+        }
+
+        fun safeOpacity(value: Float, name: String): Float {
+            if (value.isNaN() || value.isInfinite()) {
+                Log.w(TAG, "Invalid official motion opacity $name: $value, using 1")
+                return 1f
+            }
+            return value.coerceIn(0f, 1f)
+        }
+
+        OFFICIAL_MOTION_ARM_HAND_PARAMS.forEach { paramId ->
+            if (!frame.parameters.containsKey(paramId)) {
+                JniBridgeJava.nativeSetParameter(paramId, 0f, weight)
+            }
+        }
+
+        frame.parameters.forEach { (paramId, value) ->
+            if (paramId in OFFICIAL_MOTION_PARAMETER_ALLOWLIST) {
+                JniBridgeJava.nativeSetParameter(paramId, safeParam(value, paramId), weight)
+            }
+        }
+
+        frame.partOpacities.forEach { (partId, opacity) ->
+            JniBridgeJava.nativeSetPartOpacity(partId, safeOpacity(opacity, partId))
+        }
+    }
+
     private fun applyGestureParamsDirect(params: GestureParams) {
         // 检查参数有效性
         fun safeParam(value: Float, name: String): Float {
@@ -653,6 +823,7 @@ class Live2DRendererImpl(
             animationUpdateActive = false
             mainHandler.removeCallbacksAndMessages(null)
             motionTransitionManager.reset()
+            kotlinMotionPlayer.stop()
             gestureAnimationPlayer.stop()
 
             // 先停止 GL 持续渲染，消除 onDrawFrame 与 JNI 清理的竞态

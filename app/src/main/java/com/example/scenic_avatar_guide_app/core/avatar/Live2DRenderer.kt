@@ -40,6 +40,9 @@ object Live2DParams {
     // 肩膀
     const val SHOULDER = "ParamShoulder"
 
+    // 下半身/腿部
+    const val LEG = "ParamLeg"
+
     // 眼球方向
     const val EYE_BALL_X = "ParamEyeBallX"
     const val EYE_BALL_Y = "ParamEyeBallY"
