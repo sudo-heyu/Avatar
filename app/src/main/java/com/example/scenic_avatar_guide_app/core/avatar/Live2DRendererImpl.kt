@@ -22,6 +22,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.lang.ref.WeakReference
+import kotlin.math.PI
+import kotlin.math.sin
 
 /**
  * Live2D 渲染器实现
@@ -50,6 +52,15 @@ class Live2DRendererImpl(
             "$HIYORI_MOTION_DIR/Hiyori_m05.motion3.json",
             "$HIYORI_MOTION_DIR/Hiyori_m06.motion3.json",
             "$HIYORI_MOTION_DIR/Hiyori_m07.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m08.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m09.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m10.motion3.json"
+        )
+
+        private val OFFICIAL_FULL_BODY_IDLE_MOTIONS = listOf(
+            "$HIYORI_MOTION_DIR/Hiyori_m02.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m03.motion3.json",
+            "$HIYORI_MOTION_DIR/Hiyori_m06.motion3.json",
             "$HIYORI_MOTION_DIR/Hiyori_m08.motion3.json",
             "$HIYORI_MOTION_DIR/Hiyori_m09.motion3.json",
             "$HIYORI_MOTION_DIR/Hiyori_m10.motion3.json"
@@ -117,6 +128,7 @@ class Live2DRendererImpl(
     private var currentExpression: String? = null
     private var currentExpressionIntensity = 0.7f
     private var currentGesture: AvatarGesture = AvatarGesture.IDLE
+    private var currentDisplayMode: AvatarDisplayMode = AvatarDisplayMode.UpperBody
     private var surfaceViewRef: WeakReference<Live2DGLSurfaceView>? = null
     private var hasSurfaceAttached = false
 
@@ -132,6 +144,7 @@ class Live2DRendererImpl(
     // Kotlin 版 Cubism motion3 播放器：复刻官方曲线，但不走 native CubismMotionManager
     private val kotlinMotionRepository = KotlinCubismMotionRepository(context.assets)
     private val kotlinMotionPlayer = KotlinCubismMotionPlayer()
+    private var officialMotionStartTimeMs: Long = 0L
 
     // 是否启用平滑过渡
     private var enableSmoothTransition = true
@@ -449,7 +462,7 @@ class Live2DRendererImpl(
 
     private fun preloadOfficialKotlinMotions() {
         try {
-            kotlinMotionRepository.preload(OFFICIAL_IDLE_MOTIONS + OFFICIAL_GESTURE_MOTIONS.values)
+            kotlinMotionRepository.preload(OFFICIAL_IDLE_MOTIONS + OFFICIAL_FULL_BODY_IDLE_MOTIONS + OFFICIAL_GESTURE_MOTIONS.values)
         } catch (e: Exception) {
             Log.w(TAG, "preloadOfficialKotlinMotions failed", e)
         }
@@ -457,7 +470,7 @@ class Live2DRendererImpl(
 
     private fun playOfficialKotlinMotion(gesture: AvatarGesture, loop: Boolean): Boolean {
         val motionPath = when (gesture) {
-            AvatarGesture.IDLE -> OFFICIAL_IDLE_MOTIONS.random()
+            AvatarGesture.IDLE -> officialIdleMotionPool().random()
             else -> OFFICIAL_GESTURE_MOTIONS[gesture]
         } ?: return false
 
@@ -473,6 +486,7 @@ class Live2DRendererImpl(
         sdkMotionFinished = false
         gestureAnimationPlayer.stop()
         motionTransitionManager.reset()
+        officialMotionStartTimeMs = System.currentTimeMillis()
         kotlinMotionPlayer.play(
             motion = motion,
             loop = loop && motion.loop,
@@ -481,6 +495,14 @@ class Live2DRendererImpl(
         )
         startAnimationUpdate()
         return true
+    }
+
+    private fun officialIdleMotionPool(): List<String> {
+        return if (currentDisplayMode == AvatarDisplayMode.UpperBody) {
+            OFFICIAL_IDLE_MOTIONS
+        } else {
+            OFFICIAL_FULL_BODY_IDLE_MOTIONS
+        }
     }
 
     fun setSmoothTransitionEnabled(enabled: Boolean) {
@@ -644,9 +666,40 @@ class Live2DRendererImpl(
             }
         }
 
+        if (currentGesture == AvatarGesture.IDLE && currentDisplayMode != AvatarDisplayMode.UpperBody) {
+            applyFullBodyIdleNaturalOverlay(weight)
+        }
+
         frame.partOpacities.forEach { (partId, opacity) ->
             JniBridgeJava.nativeSetPartOpacity(partId, safeOpacity(opacity, partId))
         }
+    }
+
+    private fun applyFullBodyIdleNaturalOverlay(weight: Float) {
+        val elapsedSeconds = ((System.currentTimeMillis() - officialMotionStartTimeMs).coerceAtLeast(0L)) / 1000f
+        val cycle = elapsedSeconds * (2f * PI.toFloat() / 5.6f)
+        val sway = sin(cycle)
+        val delayedSway = sin(cycle + 1.35f)
+        val handPhase = sin(cycle * 0.72f + 0.8f)
+
+        val lowerBodyWeight = (0.26f * weight).coerceIn(0f, 0.32f)
+        val armWeight = (0.16f * weight).coerceIn(0f, 0.22f)
+        val handWeight = (0.12f * weight).coerceIn(0f, 0.16f)
+
+        val leg = (0.5f + 0.34f * sway).coerceIn(0.12f, 0.88f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.LEG, leg, lowerBodyWeight)
+        JniBridgeJava.nativeSetParameter(Live2DParams.BODY_ANGLE_X, 2.4f * sway, lowerBodyWeight * 0.7f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.BODY_ANGLE_Z, -2.0f * delayedSway, lowerBodyWeight * 0.55f)
+        JniBridgeJava.nativeSetParameter(Live2DParams.SHOULDER, 0.22f * sin(cycle + PI.toFloat()), lowerBodyWeight * 0.6f)
+
+        JniBridgeJava.nativeSetParameter(Live2DParams.ARM_LA, -2.0f + 1.2f * handPhase, armWeight)
+        JniBridgeJava.nativeSetParameter(Live2DParams.ARM_RA, -2.0f - 1.2f * handPhase, armWeight)
+        JniBridgeJava.nativeSetParameter(Live2DParams.ARM_LB, 1.8f * sin(cycle * 0.86f + 0.4f), armWeight)
+        JniBridgeJava.nativeSetParameter(Live2DParams.ARM_RB, -1.8f * sin(cycle * 0.86f + 0.4f), armWeight)
+        JniBridgeJava.nativeSetParameter(Live2DParams.HAND_L, 0.45f * sin(cycle * 0.58f + 0.6f), handWeight)
+        JniBridgeJava.nativeSetParameter(Live2DParams.HAND_R, -0.45f * sin(cycle * 0.58f + 0.6f), handWeight)
+        JniBridgeJava.nativeSetParameter(Live2DParams.HAND_LB, 2.0f * sin(cycle * 0.62f + 1.1f), handWeight)
+        JniBridgeJava.nativeSetParameter(Live2DParams.HAND_RB, -2.0f * sin(cycle * 0.62f + 1.1f), handWeight)
     }
 
     private fun applyGestureParamsDirect(params: GestureParams) {
@@ -780,6 +833,12 @@ class Live2DRendererImpl(
     }
 
     override fun setDisplayMode(mode: AvatarDisplayMode) {
+        val shouldRestartIdle = synchronized(this) {
+            if (isReleased) return
+            val changed = currentDisplayMode != mode
+            currentDisplayMode = mode
+            changed && _isModelLoaded && currentGesture == AvatarGesture.IDLE
+        }
         synchronized(this) {
             if (isReleased) return
         }
@@ -792,6 +851,11 @@ class Live2DRendererImpl(
             } catch (e: Exception) {
                 Log.w(TAG, "setDisplayMode JNI call failed", e)
             }
+        }
+        if (shouldRestartIdle) {
+            kotlinMotionPlayer.stop()
+            gestureAnimationPlayer.stop()
+            playIdleMotion()
         }
     }
 
